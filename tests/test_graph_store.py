@@ -23,3 +23,25 @@ def test_all_nodes_all_edges(fixtures: Path):
     g = store_from_gold(fixtures)
     assert len(g.all_nodes()) == 4
     assert len(g.all_edges()) == 2
+
+
+def test_out_and_in_edges(fixtures: Path):
+    g = store_from_gold(fixtures)
+    out = g.out_edges("svc:payments-api")
+    assert len(out) == 1 and out[0].type == "depends_on"
+    assert g.out_edges("svc:payments-api", edge_type="decided_by") == []
+    inn = g.in_edges("svc:auth")
+    assert len(inn) == 1 and inn[0].from_ == "svc:payments-api"
+
+
+def test_neighbors_depth_one(fixtures: Path):
+    g = store_from_gold(fixtures)
+    nb = g.neighbors("svc:payments-api", depth=1)
+    ids = {n.id for n in nb["nodes"]}
+    assert ids == {"svc:payments-api", "svc:auth"}
+    assert len(nb["edges"]) == 1
+
+
+def test_neighbors_unknown_node(fixtures: Path):
+    g = store_from_gold(fixtures)
+    assert g.neighbors("nope") == {"nodes": [], "edges": []}

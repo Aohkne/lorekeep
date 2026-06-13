@@ -47,3 +47,44 @@ class GraphStore:
 
     def all_edges(self) -> list[Edge]:
         return [d["edge"] for _, _, d in self._G.edges(data=True, keys=False)]
+
+    def out_edges(self, id: str, edge_type: str | None = None) -> list[Edge]:
+        result = []
+        for _, _, d in self._G.out_edges(id, data=True, keys=False):
+            e = d["edge"]
+            if edge_type is None or e.type == edge_type:
+                result.append(e)
+        return result
+
+    def in_edges(self, id: str, edge_type: str | None = None) -> list[Edge]:
+        result = []
+        for _, _, d in self._G.in_edges(id, data=True, keys=False):
+            e = d["edge"]
+            if edge_type is None or e.type == edge_type:
+                result.append(e)
+        return result
+
+    def neighbors(self, id: str, edge_type: str | None = None, depth: int = 1) -> dict:
+        """BFS over both directions up to `depth`. Returns {nodes:[Node], edges:[Edge]}."""
+        if id not in self._G:
+            return {"nodes": [], "edges": []}
+        seen_nodes = {id}
+        seen_edges: set[str] = set()
+        out_nodes: list[Node] = []
+        out_edges: list[Edge] = []
+        frontier = [id]
+        for _ in range(max(depth, 0)):
+            nxt: list[str] = []
+            for u in frontier:
+                for e in self.out_edges(u, edge_type) + self.in_edges(u, edge_type):
+                    if e.id in seen_edges:
+                        continue
+                    seen_edges.add(e.id)
+                    out_edges.append(e)
+                    other = e.to if e.from_ == u else e.from_
+                    if other not in seen_nodes and other in self._G:
+                        seen_nodes.add(other)
+                        nxt.append(other)
+                        out_nodes.append(self._G.nodes[other]["node"])
+            frontier = nxt
+        return {"nodes": [self.get_node(id)] + out_nodes, "edges": out_edges}
