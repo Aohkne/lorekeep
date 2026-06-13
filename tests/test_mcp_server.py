@@ -38,3 +38,30 @@ def test_schema_tool(fixtures: Path):
 def test_list_namespaces_tool(fixtures: Path):
     setup_server(fixtures, ["teams/backend"])
     assert ms.list_namespaces() == ["public", "teams/backend"]
+
+
+def test_at_time_tool(fixtures: Path):
+    setup_server(fixtures, ["teams/backend"])
+    r = ms.at_time("2025-02-28")
+    types = {e["type"] for e in r["edges"]}
+    assert "depends_on" in types
+    r2 = ms.at_time("2025-03-01")
+    assert "depends_on" not in {e["type"] for e in r2["edges"]}
+
+
+def test_history_tool(fixtures: Path):
+    setup_server(fixtures, ["teams/backend"])
+    h = ms.history("svc:payments-api")
+    assert h[0]["kind"] == "node"
+
+
+def test_changes_tool(fixtures: Path):
+    setup_server(fixtures, ["teams/backend"])
+    r = ms.changes("2024-01-01", "2025-04-01")
+    assert "depends_on" in {e["type"] for e in r["began"]}
+
+
+def test_search_tool(fixtures: Path):
+    setup_server(fixtures, ["teams/backend"])
+    r = ms.search("payments")
+    assert "svc:payments-api" in r

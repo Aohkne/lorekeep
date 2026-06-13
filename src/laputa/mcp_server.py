@@ -69,5 +69,34 @@ def list_namespaces() -> list:
     return _require().list_namespaces()
 
 
+@mcp.tool()
+def at_time(time: str) -> dict:
+    """Snapshot of facts valid at an ISO date (half-open [valid_from, valid_to))."""
+    scoped = _require()
+    nodes, edges = scoped.snapshot(parse_date(time))
+    return {
+        "nodes": [n.model_dump(mode="json", by_alias=True) for n in nodes],
+        "edges": [e.model_dump(mode="json", by_alias=True) for e in edges],
+    }
+
+
+@mcp.tool()
+def history(id: str) -> list:
+    """All versions of an entity + edges touching it, ordered by valid_from."""
+    return _require().history(id)
+
+
+@mcp.tool()
+def changes(from_t: str, to_t: str) -> dict:
+    """Edges whose validity began or ended within [from_t, to_t)."""
+    return _require().changes(parse_date(from_t), parse_date(to_t))
+
+
+@mcp.tool()
+def search(query: str, limit: int = 10) -> list:
+    """Text search over node ids/props, scoped to the caller."""
+    return _require().search(query, limit)
+
+
 if __name__ == "__main__":
     mcp.run()
