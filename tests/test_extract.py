@@ -58,3 +58,43 @@ def test_parse_response_skips_invalid_node_type():
     raw = json.dumps({"nodes": [{"id": "x", "type": "bogus", "name": "x"}], "edges": []})
     nodes, edges, aliases = parse_response(raw, c, schema=SCHEMA)
     assert nodes == []
+
+
+from pathlib import Path
+from laputa.compile.extract import ExtractionCache, extract_chunk
+from laputa.compile.providers import FakeProvider
+
+
+def test_cache_key_depends_on_chunk_and_schema(tmp_path: Path):
+    cache = ExtractionCache(tmp_path / "cache.json")
+    c = make_chunk("hello")
+    k1 = cache.key(c, SCHEMA.version)
+    c2 = make_chunk("hello")
+    assert cache.key(c2, SCHEMA.version) == k1
+    c3 = make_chunk("different")
+    assert cache.key(c3, SCHEMA.version) != k1
+
+
+def test_extract_chunk_caches_and_reuses(tmp_path: Path):
+    cache = ExtractionCache(tmp_path / "cache.json")
+    c = make_chunk("The payments-api is a Go service.")
+    raw = json.dumps({"nodes": [{"id": "svc:payments-api", "type": "service",
+                                  "name": "payments-api", "props": {"lang": "go"}}],
+                      "edges": [], "aliases": {}})
+    provider = FakeProvider(responses=[raw])          # only ONE response available
+    n1, e1, a1 = extract_chunk(c, SCHEMA, provider, cache)
+    assert len(n1) == 1
+    # second call must hit cache, not the provider (would raise if it called)
+    n2, e2, a2 = extract_chunk(c, SCHEMA, provider, cache)
+    assert len(n2) == 1
+    assert len(provider.calls) == 1                    # provider called once
+
+
+def test_cache_persists_to_disk(tmp_path: Path):
+    p = tmp_path / "cache.json"
+    cache = ExtractionCache(p)
+    c = make_chunk("x")
+    raw = json.dumps({"nodes": [], "edges": [], "aliases": {}})
+    extract_chunk(c, SCHEMA, FakeProvider([raw]), cache)
+    cache.save()
+    assert p.exists()

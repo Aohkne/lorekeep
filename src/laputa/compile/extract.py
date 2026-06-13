@@ -76,3 +76,49 @@ def parse_response(
         ))
     aliases = {k: list(v) for k, v in data.get("aliases", {}).items()}
     return nodes, edges, aliases
+
+
+import hashlib
+from pathlib import Path
+
+from laputa.compile.providers import LLMProvider
+
+
+class ExtractionCache:
+    """Maps (chunk_hash, schema_version) -> raw LLM response. Local only."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self._data: dict[str, str] = {}
+        if self.path.exists():
+            self._data = json.loads(self.path.read_text(encoding="utf-8"))
+
+    def key(self, chunk: DocChunk, schema_version: int) -> str:
+        h = hashlib.sha256()
+        h.update(str(schema_version).encode("utf-8"))
+        h.update(b"\n")
+        h.update(chunk.hash.encode("utf-8"))
+        return h.hexdigest()
+
+    def get(self, key: str) -> str | None:
+        return self._data.get(key)
+
+    def set(self, key: str, raw: str) -> None:
+        self._data[key] = raw
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            json.dumps(self._data, sort_keys=True, indent=2), encoding="utf-8"
+        )
+
+
+def extract_chunk(
+    chunk: DocChunk, schema: Schema, provider: LLMProvider, cache: ExtractionCache,
+) -> tuple[list[Node], list[Edge], dict[str, list[str]]]:
+    key = cache.key(chunk, schema.version)
+    raw = cache.get(key)
+    if raw is None:
+        raw = provider.extract_json(SYSTEM_PROMPT, build_prompt(chunk, schema))
+        cache.set(key, raw)
+    return parse_response(raw, chunk, schema)
