@@ -1,0 +1,47 @@
+"""LLM provider abstraction. litellm is the only hard dependency on a vendor."""
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class LLMProvider(Protocol):
+    def extract_json(self, system: str, user: str) -> str: ...
+
+
+class FakeProvider:
+    """Returns canned responses in order. Used by tests; never hits a network."""
+
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = list(responses)
+        self.calls: list[tuple[str, str]] = []
+
+    def extract_json(self, system: str, user: str) -> str:
+        self.calls.append((system, user))
+        if not self._responses:
+            raise RuntimeError("FakeProvider: no canned response left")
+        return self._responses.pop(0)
+
+
+class LiteLLMProvider:
+    """Real provider backed by litellm. Supports openai/anthropic/ollama."""
+
+    def __init__(self, model: str, api_base: str | None = None,
+                 temperature: float = 0.0) -> None:
+        self.model = model
+        self.api_base = api_base
+        self.temperature = temperature
+
+    def extract_json(self, system: str, user: str) -> str:
+        import litellm  # imported lazily so tests need not install it
+        resp = litellm.completion(
+            model=self.model,
+            api_base=self.api_base,
+            temperature=self.temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format={"type": "json_object"},
+        )
+        return resp.choices[0].message.content
