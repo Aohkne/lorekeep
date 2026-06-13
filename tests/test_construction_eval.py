@@ -55,7 +55,7 @@ def test_extraction_report_against_gold(tmp_path: Path, fixtures: Path):
              "props": {"lang": "go"}, "valid_from": "2024-01-15"},
             {"id": "svc:auth", "type": "service", "name": "auth"},
             {"id": "team:backend", "type": "team", "name": "team-backend"},
-            {"id": "dec:adr-007", "type": "decision", "name": "adr-007",
+            {"id": "dec:adr-007", "type": "decision",
              "props": {"title": "payments-api adopts internal signing"}},
         ],
         "edges": [
