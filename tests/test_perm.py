@@ -77,3 +77,36 @@ def test_scoped_public_caller_sees_public_only(tmp_path):
     from laputa.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, [])                       # only public
     assert scoped.get_node("a") is None
+
+
+def test_scoped_snapshot_filters_hidden(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from laputa.perm.ns import ScopedGraph
+    from laputa.store.graph import parse_date
+    scoped = ScopedGraph(g, ["teams/frontend"])
+    nodes, edges = scoped.snapshot(parse_date("2024-01-15"))
+    assert {n.id for n in nodes} == {"c"}            # backend hidden
+
+
+def test_scoped_history_empty_for_hidden(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from laputa.perm.ns import ScopedGraph
+    scoped = ScopedGraph(g, ["teams/frontend"])
+    assert scoped.history("a") == []                 # a hidden
+
+
+def test_scoped_changes_filters_edges_to_hidden(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from laputa.perm.ns import ScopedGraph
+    from laputa.store.graph import parse_date
+    scoped = ScopedGraph(g, ["teams/backend"])
+    rep = scoped.changes(parse_date("2000-01-01"), parse_date("2100-01-01"))
+    # edge a->c: a visible, c hidden -> edge dropped
+    assert rep["began"] == [] and rep["ended"] == []
+
+
+def test_list_namespaces(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from laputa.perm.ns import ScopedGraph
+    scoped = ScopedGraph(g, ["teams/backend"])
+    assert scoped.list_namespaces() == ["public", "teams/backend"]

@@ -63,3 +63,47 @@ class ScopedGraph:
             if e.from_ in visible_ids and e.to in visible_ids and bool(set(e.ns) & self._eff)
         ]
         return {"nodes": nodes, "edges": edges}
+
+    def snapshot(self, time) -> tuple[list[Node], list[Edge]]:
+        nodes, edges = self._g.snapshot(time)
+        vis_nodes = [n for n in nodes if self._node_visible(n)]
+        vis_ids = {n.id for n in vis_nodes}
+        vis_edges = [
+            e for e in edges
+            if e.from_ in vis_ids and e.to in vis_ids
+            and bool(set(e.ns) & self._eff)
+        ]
+        return vis_nodes, vis_edges
+
+    def history(self, id: str) -> list[dict]:
+        if not self._node_visible(self._g.get_node(id)):
+            return []
+        items = self._g.history(id)
+        out: list[dict] = []
+        for it in items:
+            if it["kind"] == "node":
+                out.append(it)
+            else:
+                f = self._g.get_node(it["from"])
+                t = self._g.get_node(it["to"])
+                if is_edge_visible(_edge_from_dict(it), f, t, self._eff):
+                    out.append(it)
+        return out
+
+    def changes(self, from_t, to_t) -> dict:
+        rep = self._g.changes(from_t, to_t)
+        result = {"began": [], "ended": []}
+        for key in ("began", "ended"):
+            for ed in rep[key]:
+                f = self._g.get_node(ed["from"])
+                t = self._g.get_node(ed["to"])
+                if is_edge_visible(_edge_from_dict(ed), f, t, self._eff):
+                    result[key].append(ed)
+        return result
+
+    def list_namespaces(self) -> list[str]:
+        return sorted(self._eff)
+
+
+def _edge_from_dict(d: dict) -> Edge:
+    return Edge.model_validate(d)
