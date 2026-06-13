@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "node_types": {
+    "service": {"props": {"name": "string", "lang": "string"}},
+    "team": {"props": {"name": "string"}},
+    "decision": {"props": {"title": "string"}}
+  },
+  "edge_types": {
+    "depends_on": {"from": "service", "to": "service"},
+    "decided_by": {"from": "decision", "to": "team"},
+    "owns": {"from": "team", "to": "service"}
+  }
+}
