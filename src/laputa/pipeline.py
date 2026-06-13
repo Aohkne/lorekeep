@@ -31,7 +31,8 @@ def compile_graph(
             nodes, edges, aliases = extract_chunk(chunk, schema, provider, cache)
             all_nodes.extend(nodes)
             all_edges.extend(edges)
-            all_aliases.update(aliases)
+            for ak, av in aliases.items():       # union variants, last-writer-wins drops aliases
+                all_aliases[ak] = list(dict.fromkeys(all_aliases.get(ak, []) + av))
         except Exception as exc:               # skip-and-log; partial compile is valid
             errors.append({"path": chunk.path, "line": chunk.start_line,
                            "message": str(exc)})
