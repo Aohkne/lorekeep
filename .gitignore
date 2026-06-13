@@ -1,0 +1,21 @@
+# Laputa local-only artifacts (never committed)
+.laputa/
+*.sqlite
+*.sqlite-*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
