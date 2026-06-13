@@ -104,3 +104,27 @@ class GraphStore:
         edges = [e for e in self.all_edges()
                  if self._active(e.valid_from, e.valid_to, time)]
         return nodes, edges
+
+    def history(self, id: str) -> list[dict]:
+        """Node + all edges touching it, ordered by valid_from (None first)."""
+        node = self.get_node(id)
+        if node is None:
+            return []
+        touching = self.out_edges(id) + self.in_edges(id)
+        touching.sort(key=lambda e: e.valid_from or date.min)
+        items: list[dict] = [{"kind": "node", **node.model_dump(mode="json", by_alias=True)}]
+        for e in touching:
+            items.append({"kind": "edge", **e.model_dump(mode="json", by_alias=True)})
+        return items
+
+    def changes(self, from_t: date, to_t: date) -> dict:
+        """Edges whose validity began or ended within [from_t, to_t)."""
+        began: list[dict] = []
+        ended: list[dict] = []
+        for e in self.all_edges():
+            ed = e.model_dump(mode="json", by_alias=True)
+            if e.valid_from is not None and from_t <= e.valid_from < to_t:
+                began.append(ed)
+            if e.valid_to is not None and from_t <= e.valid_to < to_t:
+                ended.append(ed)
+        return {"began": began, "ended": ended}
