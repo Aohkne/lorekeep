@@ -1,6 +1,7 @@
 """Tier-1 construction-quality evaluation vs a gold corpus."""
 from __future__ import annotations
 
+from itertools import combinations
 from pathlib import Path
 
 from laputa.eval.gold import edge_key, load_compiled, load_gold, node_key
@@ -40,3 +41,33 @@ def extraction_report(graph_dir: Path, gold_dir: Path) -> dict:
         "nodes": {"precision": np, "recall": nr, "f1": nf},
         "edges": {"precision": ep, "recall": er, "f1": ef},
     }
+
+
+def _clusters_from_aliases(alias_groups: list[dict]) -> list[set[str]]:
+    """Each gold group -> set of surface names that should be one entity."""
+    return [set(g["aliases"]) for g in alias_groups]
+
+
+def _compiled_clusters(compiled_nodes: list) -> list[set[str]]:
+    """Group compiled node names by their id (canonical entity)."""
+    by_id: dict[str, set[str]] = {}
+    for n in compiled_nodes:
+        nm = n.props.get("name", n.id)
+        by_id.setdefault(n.id, set()).add(nm)
+    return list(by_id.values())
+
+
+def entity_resolution_f1(compiled_nodes: list, gold_alias_groups: list[dict]) -> dict:
+    """Pairwise coreference F1: for every pair of mentions, did compiled agree with gold?"""
+    gold_pairs: set[frozenset] = set()
+    for cluster in _clusters_from_aliases(gold_alias_groups):
+        for a, b in combinations(sorted(cluster), 2):
+            gold_pairs.add(frozenset((a, b)))
+
+    got_pairs: set[frozenset] = set()
+    for cluster in _compiled_clusters(compiled_nodes):
+        for a, b in combinations(sorted(cluster), 2):
+            got_pairs.add(frozenset((a, b)))
+
+    p, r, f1 = precision_recall_f1(gold_pairs, got_pairs)
+    return {"precision": p, "recall": r, "f1": f1}

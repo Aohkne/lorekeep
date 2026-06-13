@@ -69,3 +69,26 @@ def test_extraction_report_against_gold(tmp_path: Path, fixtures: Path):
     report = extraction_report(tmp_path / "g", fixtures / "gold")
     assert report["nodes"]["f1"] == 1.0
     assert report["edges"]["f1"] == 1.0
+
+
+from laputa.eval.construction import entity_resolution_f1
+
+
+def test_er_f1_perfect_merge():
+    # two distinct mentions correctly merged under one canonical id
+    from laputa.models import Node
+    compiled = [Node(id="svc:a", type="service", ns=("t/b",), props={"name": "a"}),
+                Node(id="svc:a", type="service", ns=("t/b",), props={"name": "a2"})]
+    gold = [{"id": "svc:a", "aliases": ["a", "a2"]}]
+    r = entity_resolution_f1(compiled, gold)
+    assert r["f1"] == 1.0
+
+
+def test_er_f1_false_split():
+    # gold says one entity, compiled split into two -> recall drops
+    from laputa.models import Node
+    compiled = [Node(id="svc:a", type="service", ns=("t/b",), props={"name": "a"}),
+                Node(id="svc:b", type="service", ns=("t/b",), props={"name": "b"})]
+    gold = [{"id": "svc:x", "aliases": ["a", "b"]}]
+    r = entity_resolution_f1(compiled, gold)
+    assert r["recall"] < 1.0
