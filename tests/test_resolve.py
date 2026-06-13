@@ -27,3 +27,16 @@ def test_dedup_rewrites_edge_endpoints():
     # Provide an explicit id-alias map by using name keys
     r = resolve(nodes, edges, aliases_map={"svc:a2": "svc:a"})
     assert all(x.from_ == "svc:a" and x.to == "svc:a" for x in r.edges)
+
+
+def test_ghost_canonical_does_not_falsely_quarantine():
+    # explicit_map targets a canonical id that is NOT a node id; the merged node
+    # must be normalized to that canonical id and referenced edges must survive.
+    nodes = [n("svc:a"), n("svc:b")]
+    edges = [e(frm="svc:a", to="svc:b")]
+    r = resolve(nodes, edges, aliases_map={"svc:a": "svc:ghost", "svc:b": "svc:ghost"})
+    # both collapse to one canonical node "svc:ghost"; the single edge a->b becomes
+    # a self-loop on ghost and is quarantined (NOT falsely dangled).
+    assert [x.id for x in r.nodes] == ["svc:ghost"]
+    assert r.edges == []
+    assert r.quarantined and r.quarantined[0][1] == "self-loop"

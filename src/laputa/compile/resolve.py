@@ -29,12 +29,6 @@ def _build_alias_map(
     # 1) by name: group nodes whose props.name matches an alias group's canonical
     if name_aliases:
         name_to_canonical: dict[str, str] = {}
-        # NOTE: the loop below is intentionally a no-op pass; the real resolution
-        # is the second loop over `nodes`. Kept verbatim per task spec (T10
-        # depends on the working second loop; this block is harmless dead code).
-        for canonical_name, variants in name_aliases.items():
-            # find a node whose name is the canonical_name -> use its id
-            pass  # resolved below via nodes
         for nd in nodes:
             nm = nd.props.get("name")
             if not nm:
@@ -80,10 +74,12 @@ def resolve(
                 update={"props": merged_props, "src": merged_src, "ns": merged_ns}
             )
         else:
-            canon_nodes[nd.id if nd.id == cid else cid] = nd
+            # normalize stored node id to the canonical key so node identity and
+            # dict key can never diverge (covers explicit_map to a non-node id)
+            canon_nodes[cid] = nd if nd.id == cid else nd.model_copy(update={"id": cid})
 
     out_nodes = list(canon_nodes.values())
-    node_ids = {nd.id for nd in out_nodes}
+    node_ids = set(canon_nodes.keys())
 
     # rewrite + validate edges
     out_edges: list[Edge] = []
