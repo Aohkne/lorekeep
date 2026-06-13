@@ -78,5 +78,34 @@ def compile() -> None:
                f"run_id={manifest.run_id}, facts_hash={manifest.facts_hash}")
 
 
+@app.command(name="eval")
+def eval_cmd() -> None:
+    """Run Tier-1 construction-quality evaluation vs the gold corpus."""
+    p = _paths()
+    gold_dir = Path(os.environ.get("LAPUTA_GOLD", "tests/fixtures/gold"))
+    from laputa.eval.construction import extraction_report, structure_report
+    report = {
+        "extraction": extraction_report(p["out"], gold_dir),
+        "structure": structure_report(p["out"]),
+    }
+    results_path = Path(os.environ.get("LAPUTA_EVAL_RESULTS",
+                                       ".laputa/eval/results.json"))
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    results_path.write_text(json.dumps(report, indent=2, sort_keys=True))
+    typer.echo(json.dumps(report, indent=2, sort_keys=True))
+
+
+@app.command()
+def check() -> None:
+    """Validate the compiled graph: loads, no dangling edges."""
+    p = _paths()
+    from laputa.eval.construction import structure_report
+    struct = structure_report(p["out"])
+    if struct["dangling_edge_rate"] > 0:
+        typer.echo(f"check: FAIL — {struct['dangling_edge_rate']} dangling edges")
+        raise typer.Exit(code=1)
+    typer.echo(f"check: ok — {struct['node_count']} nodes, {struct['edge_count']} edges, 0 dangling")
+
+
 if __name__ == "__main__":
     app()
