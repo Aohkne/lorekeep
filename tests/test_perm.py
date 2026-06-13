@@ -36,3 +36,44 @@ def test_deny_default_when_endpoint_none():
     eff = effective_ns(["teams/backend"])
     a = n("a", ["teams/backend"])
     assert not is_edge_visible(e("a", "ghost", ["teams/backend"]), a, None, eff)
+
+
+from laputa.store.graph import GraphStore
+
+
+def store_with_cross_ns(tmp_path):
+    # backend node a, frontend node c, edge a->c tagged backend (cross-ns)
+    import json
+    facts = [
+        {"kind": "node", "id": "a", "type": "service", "ns": ["teams/backend"], "props": {"name": "a"}},
+        {"kind": "node", "id": "c", "type": "service", "ns": ["teams/frontend"], "props": {"name": "c"}},
+        {"kind": "edge", "id": "e1", "type": "depends_on", "from": "a", "to": "c", "ns": ["teams/backend"]},
+    ]
+    p = tmp_path / "facts.jsonl"
+    p.write_text("\n".join(json.dumps(f) for f in facts))
+    return GraphStore.from_jsonl(p)
+
+
+def test_scoped_get_node_hides_other_ns(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from laputa.perm.ns import ScopedGraph
+    scoped = ScopedGraph(g, ["teams/backend"])
+    assert scoped.get_node("a") is not None
+    assert scoped.get_node("c") is None              # frontend hidden
+
+
+def test_scoped_neighbors_hides_cross_ns_edge(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from laputa.perm.ns import ScopedGraph
+    scoped = ScopedGraph(g, ["teams/backend"])
+    nb = scoped.neighbors("a", depth=1)
+    ids = {n.id for n in nb["nodes"]}
+    assert ids == {"a"}                              # c hidden, edge a->c dropped
+    assert nb["edges"] == []
+
+
+def test_scoped_public_caller_sees_public_only(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from laputa.perm.ns import ScopedGraph
+    scoped = ScopedGraph(g, [])                       # only public
+    assert scoped.get_node("a") is None
