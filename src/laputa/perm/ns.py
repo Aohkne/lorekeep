@@ -104,6 +104,10 @@ class ScopedGraph:
     def list_namespaces(self) -> list[str]:
         return sorted(self._eff)
 
+    def search(self, query: str, limit: int = 10, fts=None) -> list[str]:
+        ids = self._g.search(query, limit * 3, fts)   # over-fetch then filter
+        return [nid for nid in ids if self._node_visible(self._g.get_node(nid))][:limit]
+
 
 def _edge_from_dict(d: dict) -> Edge:
     return Edge.model_validate(d)

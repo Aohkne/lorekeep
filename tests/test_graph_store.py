@@ -95,3 +95,9 @@ def test_changes_outside_window_empty(fixtures: Path):
     g = store_from_gold(fixtures)
     rep = g.changes(parse_date("2099-01-01"), parse_date("2099-02-01"))
     assert rep == {"began": [], "ended": []}
+
+
+def test_store_search_scan(fixtures: Path):
+    g = store_from_gold(fixtures)
+    ids = g.search("payments")
+    assert "svc:payments-api" in ids

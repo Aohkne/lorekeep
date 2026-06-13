@@ -128,3 +128,10 @@ class GraphStore:
             if e.valid_to is not None and from_t <= e.valid_to < to_t:
                 ended.append(ed)
         return {"began": began, "ended": ended}
+
+    def search(self, query: str, limit: int = 10, fts=None) -> list[str]:
+        """Return node ids matching query. Uses an FTSIndex if given, else scan."""
+        if fts is not None:
+            return fts.search(query, limit)
+        from laputa.store.fts import scan_search
+        return scan_search(self.all_nodes(), query, limit)

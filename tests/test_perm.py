@@ -110,3 +110,13 @@ def test_list_namespaces(tmp_path):
     from laputa.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, ["teams/backend"])
     assert scoped.list_namespaces() == ["public", "teams/backend"]
+
+
+def test_scoped_search_filters_hidden(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from laputa.perm.ns import ScopedGraph
+    scoped = ScopedGraph(g, ["teams/frontend"])
+    # search 'a' would match node a (backend) and c (frontend name 'c' has no 'a'? c text has 'c')
+    # node a is backend -> hidden; only visible results returned
+    res = scoped.search("a")
+    assert "a" not in res
