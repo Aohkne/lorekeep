@@ -1,0 +1,8 @@
+# Copy to .laputa/config.yaml (gitignored). Provider used at compile time only.
+provider:
+  backend: openai            # openai | anthropic | ollama
+  model: gpt-4o-mini
+  api_base: null             # set http://localhost:11434 for ollama
+  temperature: 0.0
+compile:
+  chunk_lines: 60
