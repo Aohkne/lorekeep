@@ -107,5 +107,21 @@ def check() -> None:
     typer.echo(f"check: ok — {struct['node_count']} nodes, {struct['edge_count']} edges, 0 dangling")
 
 
+@app.command()
+def serve(
+    transport: str = typer.Option("stdio", "--transport", help="stdio (default) | http"),
+) -> None:
+    """Serve the scoped graph over MCP."""
+    p = _paths()
+    raw_ns = os.environ.get("LAPUTA_NS")
+    if raw_ns:
+        allowed = [x.strip() for x in raw_ns.split(",") if x.strip()]
+    else:
+        allowed = load_config(p["config"]).ns.default
+    from laputa.mcp_server import configure, mcp
+    configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"])
+    mcp.run(transport=transport)
+
+
 if __name__ == "__main__":
     app()

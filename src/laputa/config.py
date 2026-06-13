@@ -18,9 +18,15 @@ class CompileConfig(BaseModel):
     chunk_lines: int = 60
 
 
+class NsConfig(BaseModel):
+    default: list[str] = Field(default_factory=lambda: ["public"])
+    token_map: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class Config(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
+    ns: NsConfig = Field(default_factory=NsConfig)
 
 
 def load_config(path: Path) -> Config:
