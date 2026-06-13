@@ -92,3 +92,14 @@ def test_er_f1_false_split():
     gold = [{"id": "svc:x", "aliases": ["a", "b"]}]
     r = entity_resolution_f1(compiled, gold)
     assert r["recall"] < 1.0
+
+
+from laputa.eval.construction import structure_report
+
+
+def test_structure_metrics(tmp_path: Path, fixtures: Path):
+    report = structure_report(fixtures / "gold")
+    assert report["node_count"] == 4
+    assert report["edge_count"] == 2
+    assert report["dangling_edge_rate"] == 0.0
+    assert report["avg_degree"] == 0.5            # 2 edges / 4 nodes

@@ -71,3 +71,27 @@ def entity_resolution_f1(compiled_nodes: list, gold_alias_groups: list[dict]) ->
 
     p, r, f1 = precision_recall_f1(gold_pairs, got_pairs)
     return {"precision": p, "recall": r, "f1": f1}
+
+
+def structure_report(facts_dir: Path) -> dict:
+    """Graph-shape metrics: counts, avg degree, density, dangling-edge rate."""
+    # accept either a gold dir or a compiled graph dir
+    if (facts_dir / "facts.jsonl").exists():
+        facts = load_compiled(facts_dir)
+    else:
+        facts = load_gold(facts_dir)
+    nodes = [f for f in facts if isinstance(f, Node)]
+    edges = [f for f in facts if isinstance(f, Edge)]
+    node_ids = {n.id for n in nodes}
+    dangling = sum(1 for e in edges if e.from_ not in node_ids or e.to not in node_ids)
+    n = len(nodes)
+    e = len(edges)
+    avg_degree = (e / n) if n else 0.0
+    density = (e / (n * (n - 1))) if n > 1 else 0.0
+    return {
+        "node_count": n,
+        "edge_count": e,
+        "avg_degree": round(avg_degree, 4),
+        "density": round(density, 4),
+        "dangling_edge_rate": round(dangling / e, 4) if e else 0.0,
+    }
