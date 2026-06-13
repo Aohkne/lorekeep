@@ -88,3 +88,19 @@ class GraphStore:
                         out_nodes.append(self._G.nodes[other]["node"])
             frontier = nxt
         return {"nodes": [self.get_node(id)] + out_nodes, "edges": out_edges}
+
+    @staticmethod
+    def _active(valid_from: date | None, valid_to: date | None, t: date) -> bool:
+        """Half-open [valid_from, valid_to): None means unbounded on that side."""
+        if valid_from is not None and t < valid_from:
+            return False
+        if valid_to is not None and not (t < valid_to):
+            return False
+        return True
+
+    def snapshot(self, time: date) -> tuple[list[Node], list[Edge]]:
+        nodes = [n for n in self.all_nodes()
+                 if self._active(n.valid_from, n.valid_to, time)]
+        edges = [e for e in self.all_edges()
+                 if self._active(e.valid_from, e.valid_to, time)]
+        return nodes, edges
