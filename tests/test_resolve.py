@@ -40,3 +40,27 @@ def test_ghost_canonical_does_not_falsely_quarantine():
     assert [x.id for x in r.nodes] == ["svc:ghost"]
     assert r.edges == []
     assert r.quarantined and r.quarantined[0][1] == "self-loop"
+
+
+def test_dangling_edge_is_quarantined():
+    nodes = [n("svc:a")]
+    edges = [e(frm="svc:a", to="svc:ghost")]
+    r = resolve(nodes, edges)
+    assert r.edges == []
+    assert len(r.quarantined) == 1
+    assert "dangling" in r.quarantined[0][1]
+
+
+def test_self_loop_is_quarantined():
+    nodes = [n("svc:a")]
+    edges = [e(frm="svc:a", to="svc:a")]
+    r = resolve(nodes, edges)
+    assert r.edges == []
+    assert r.quarantined[0][1] == "self-loop"
+
+
+def test_edge_ids_are_deterministic():
+    nodes = [n("svc:a"), n("svc:b"), n("svc:c")]
+    edges = [e(frm="svc:a", to="svc:b"), e(frm="svc:b", to="svc:c")]
+    r = resolve(nodes, edges)
+    assert [x.id for x in r.edges] == ["e_depends_on_0001", "e_depends_on_0002"]
