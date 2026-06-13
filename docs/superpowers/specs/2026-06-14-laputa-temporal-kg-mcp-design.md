@@ -16,6 +16,8 @@ The system is **compile-only**: a curator (human + LLM) compiles raw docs into t
 
 ### Goals
 
+**North star:** Laputa exists to let an agent reason about a domain **systematically and with complete information** — not to maximize memory-recall benchmark scores. Memory benchmarks (LoCoMo, LongMemEval) are parity checks, not the objective. The real measures are completeness, coherence, temporal correctness, and reasoning support (see §16).
+
 - Compile raw team docs (markdown first) into a temporal knowledge graph stored as portable `facts.jsonl`.
 - Serve the graph read-only to coding agents (Claude Code, Cursor, Codex) over MCP, stdio-first.
 - Enforce coarse per-namespace permission at the query layer; derive namespace from directory structure.
@@ -137,11 +139,12 @@ Each component has one responsibility, a clear input/output interface, and is te
 | `store/fts` (optional) | `facts.jsonl` | `cache.sqlite` | FTS5 over node text/props for text search. Local, `.gitignored`, rebuilt from `facts.jsonl`. Falls back to in-memory scan if absent. |
 | `integrations/*` | agent type, scope, ns | config file + memory snippet | Write Claude Code / Cursor / Codex MCP config; emit agent-memory text. |
 | `mcp_server` | store + perm | MCP tool calls | FastMCP server, stdio (default) / streamable HTTP (opt-in). Loads store once; enforces permission per request. |
-| `cli` | — | — | `compile`, `serve`, `query`, `check`, `mcp add`, `doctor`. |
+| `cli` | — | — | `compile`, `serve`, `query`, `check`, `mcp add`, `doctor`, `eval`. |
+| `eval/{construction,retrieval,reasoning}` | corpus / graph / agent tasks | scores + snapshots | Three-tier evaluation (§16). `laputa eval {construction\|retrieval\|reasoning}`; results snapshot to `eval/results/`. |
 
 ### Dependency order
 
-`ingest → extract → resolve → writer` (compile chain); `store → perm → mcp_server` (serve chain). Compile and serve share only `facts.jsonl` + `schema.json`. The two chains can be developed and tested independently — this is the seam for the two-plan split (§16).
+`ingest → extract → resolve → writer` (compile chain); `store → perm → mcp_server` (serve chain). Compile and serve share only `facts.jsonl` + `schema.json`. The two chains can be developed and tested independently — this is the seam for the two-plan split (§17).
 
 ## 8. Permission model
 
@@ -303,35 +306,93 @@ Verifies: install, config file present/valid, `facts.jsonl` loads, ns mapping re
 - **Golden tests:** snapshot `facts.jsonl` for a fixture corpus; diff catches regressions.
 - Compile-only ⇒ no concurrency to test.
 
-## 16. Scope and decomposition
+## 16. Evaluation
+
+**North star = systematic thinking with complete information.** Memory-recall benchmarks are parity checks, not the objective. Evaluation measures five properties, with *reasoning support* as the headline metric:
+
+| Metric family | What it measures | Tier |
+|---|---|---|
+| **Completeness** | Salient facts captured from raw (coverage); nothing missing in scope | 1 |
+| **Coherence** | No contradictions, no duplicate-entity leaks, consistent graph | 1 |
+| **Temporal correctness** | `at_time` / `history` / `changes` return correct facts | 1+2 |
+| **Retrievability** | Agent finds the facts a question needs (multi-hop, temporal QA) | 2 |
+| **Reasoning support** ⭐ | Systematic-reasoning answer quality vs baseline RAG / no-KB | 3 |
+
+### Tier 1 — Construction quality (CI, every commit)
+
+Evaluates the **compiler**, not the agent.
+
+- Extraction P/R/F1 vs a **gold-annotated corpus** (human-authored `facts.jsonl` reference), per node/edge type.
+- Entity-resolution F1 + false-merge rate.
+- Graph structure: coverage of salient facts, average degree, dangling-edge rate, contradiction rate.
+- Determinism: byte-identical re-compile of unchanged input (property test, §15).
+- Datasets: a small in-repo **gold corpus** of team-doc-style fixtures (primary); optionally validate extractor generalization on document-level relation-extraction benchmarks (DocRED-family) — not required for v1.
+- Owner: **Plan A**.
+
+### Tier 2 — Retrieval + temporal QA (CI / per release)
+
+Evaluates whether the **query path** returns correct facts.
+
+- Multi-hop QA: HotpotQA / 2WikiMultihopQA / MuSiQue — agent answers using Laputa tools; EM/F1.
+- Temporal QA: CronQuestions / TimeQuestions + the temporal subset of Atlas — measures `at_time` / `history` / `changes`. This is the industry weak spot (specialized memory systems drop to ~20% on temporal reasoning per Atlas) and Laputa's core bet.
+- Memory parity: LongMemEval / LoCoMo — sanity that graph retrieval is no worse than vector memory on long-horizon recall. **Not optimized as a target.**
+- Owner: **Plan B**.
+
+### Tier 3 — Systematic-thinking reasoning eval (north star, per release / manual)
+
+The actual goal. No off-the-shelf benchmark fits team-doc systematic reasoning, so we build a small bespoke one.
+
+- **Laputa-Reason**: curated team-doc corpora + multi-step reasoning tasks (e.g. "trace the blast radius of deprecating service X across teams and time", "reconstruct the decision history and current state of ADR-Y") + reference answers + rubric.
+- Method: a coding agent (Claude Code / Cursor / Codex) solves each task under three conditions — (a) with Laputa, (b) with raw-doc RAG baseline, (c) with no knowledge base.
+- Metrics: **LLM-judge rubric** (completeness, correctness, temporal accuracy, provenance use, reasoning coherence) + objective sub-questions; multiple judges to control variance.
+- v1 ships a minimal harness + 5–10 seed tasks; the full dataset grows incrementally.
+
+### Component & CLI
+
+`eval/{construction,retrieval,reasoning}.py`; `laputa eval {construction|retrieval|reasoning}`. Results snapshot to `eval/results/<date>-<commit>.json` (committed, like golden tests) so regressions surface in diffs.
+
+### Notes
+
+- Memory benchmarks are recall-oriented; chasing their scores mis-optimizes away from the north star. They stay parity checks.
+- Bespoke gold corpus + Laputa-Reason cost real annotation effort — start small, grow incrementally.
+- LLM-judge variance → rubric + multi-judge + calibration against human labels on a subset.
+- Temporal QA being hard (Atlas ~20%) is exactly why a structured temporal graph is the bet; Tier-2 temporal eval must stress this heavily.
+
+## 17. Scope and decomposition
 
 ### v1 IN
 
-ingest (markdown) + extract + resolve + writer + `facts.jsonl`/manifest/schema + store (networkx, temporal) + permission + optional FTS cache + MCP (read + temporal, stdio) + `mcp add` for Claude Code/Cursor/Codex + `doctor` + docs + tests.
+ingest (markdown) + extract + resolve + writer + `facts.jsonl`/manifest/schema + store (networkx, temporal) + permission + optional FTS cache + MCP (read + temporal, stdio) + `mcp add` for Claude Code/Cursor/Codex + `doctor` + docs + tests + **Tier-1 construction eval (CI)** + **Tier-2 retrieval/temporal-QA smoke**.
 
 ### v1 OUT (phase 2+)
 
-`wiki.md` views, Parquet/DuckDB at scale, streamable-HTTP team server, OIDC/SSO, ingest connectors (Confluence/PDF/URL), embeddings/hybrid search, agent write tools.
+`wiki.md` views, Parquet/DuckDB at scale, streamable-HTTP team server, OIDC/SSO, ingest connectors (Confluence/PDF/URL), embeddings/hybrid search, agent write tools, **full Laputa-Reason dataset (Tier-3 scaling)**.
 
 ### Two-plan split
 
-- **Plan A — Compile pipeline:** `ingest → extract → resolve → writer`, schema, determinism, incremental cache, error handling, tests. Deliverable: `facts.jsonl` produced deterministically from `raw/`.
-- **Plan B — Store + permission + MCP + integrations:** `store` (load + temporal queries), `perm`, optional FTS cache, `mcp_server` (stdio tools), `mcp add` for the three agents, `doctor`, docs, tests. Deliverable: a coding agent reads the scoped temporal graph.
+- **Plan A — Compile pipeline + construction eval:** `ingest → extract → resolve → writer`, schema, determinism, incremental cache, error handling, tests, **Tier-1 construction eval (extraction P/R/F1 vs gold)**. Deliverable: `facts.jsonl` produced deterministically from `raw/`, with measured extraction quality.
+- **Plan B — Store + permission + MCP + integrations + retrieval eval:** `store` (load + temporal queries), `perm`, optional FTS cache, `mcp_server` (stdio tools), `mcp add` for the three agents, `doctor`, docs, tests, **Tier-2 retrieval/temporal-QA eval**. Deliverable: a coding agent reads the scoped temporal graph, with measured retrieval/temporal accuracy.
 
 Plan A and Plan B share only `facts.jsonl` + `schema.json`; they can be developed in parallel against that contract, but Plan B is easiest to validate once Plan A produces a real `facts.jsonl`.
 
-## 17. Tech stack
+## 18. Tech stack
 
 Python 3.11+ · FastMCP · networkx · pydantic (fact/schema models) · pyyaml (config) · mistune or markdown-it-py (markdown) · sqlite3 FTS5 (stdlib) · litellm (provider abstraction: OpenAI/Anthropic/ollama) · uv for packaging/publish (`uvx laputa`).
 
-## 18. Open questions / risks
+## 19. Open questions / risks
 
 - **Extraction quality vs privacy tension (D10):** default API sends raw docs to a provider at compile time. Acceptable because compile is curator-run and the stored artifact is pure-file, but strict-privacy deployments must switch to ollama (lower quality, GPU cost). Documented; not a blocker.
 - **Entity resolution correctness:** alias → canonical id merging is the riskiest compile logic; needs strong fixtures and a quarantine/review path. Flagged for Plan A.
 - **Cross-namespace edge UX:** the strict endpoint rule hides cross-team edges unless both sides are allowed. A `public` projection mechanism mitigates; verify it covers real team workflows during Plan B.
 - **Determinism vs LLM non-determinism:** LLM extraction is inherently variable; determinism is achieved via per-chunk hash caching of extraction output, not by re-running the LLM. Unchanged input ⇒ cached ⇒ identical. Documented in Plan A.
+- **Benchmark fit (eval, §16):** no off-the-shelf benchmark matches team-doc systematic reasoning. Memory benchmarks (LoCoMo, LongMemEval) are recall-oriented and will be treated as parity checks only; optimizing them would pull the design away from the north star. Tier-3 (Laputa-Reason) must be built bespoke — real annotation cost, mitigated by starting with a small seed set. Temporal-QA benchmarks are the best external fit and the hardest (Atlas ~20%); they validate Laputa's core temporal bet.
 
-## 19. References
+## 20. References
+
+- Karpathy "LLM Knowledge Bases" — compiler analogy (source code vs executable).
+- `mcp-mind-palace`, `mcp-knowledge-graph` (Anthropic reference), `mem0`, `cognee`, **Zep (temporal KG)** — landscape comparison (§2).
+- MCP specification — tool/resource model, stdio and streamable-HTTP transports.
+- **Evaluation benchmarks:** LoCoMo, LongMemEval, BEAM, Atlas (memory / beyond-retrieval); HotpotQA, 2WikiMultihopQA, MuSiQue (multi-hop QA); CronQuestions, TimeQuestions (temporal KG QA); DocRED-family (document-level relation extraction).
 
 - Karpathy "LLM Knowledge Bases" — compiler analogy (source code vs executable).
 - `mcp-mind-palace`, `mcp-knowledge-graph` (Anthropic reference), `mem0`, `cognee` — landscape comparison (§2).
