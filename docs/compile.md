@@ -55,3 +55,7 @@ uv run laputa check
 ```
 
 Exits non-zero if the graph has dangling edges.
+
+## Next: serve to agents
+
+See [serve.md](serve.md) to expose the graph to Claude Code / Cursor / Codex over MCP.

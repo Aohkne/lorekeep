@@ -25,7 +25,7 @@ def configure(graph_dir, allowed_ns, schema_path=None, fts_path=None) -> None:
     """Load the graph + schema and build the scoped view. Called once at startup."""
     global _scope, _schema
     store = GraphStore.from_jsonl(Path(graph_dir) / "facts.jsonl")
-    _schema = load_schema(schema_path) if schema_path else None
+    _schema = load_schema(Path(schema_path)) if schema_path else None
     _scope = ScopedGraph(store, allowed_ns)
 
 
