@@ -1,0 +1,24 @@
+[
+  {
+    "id": "q1",
+    "kind": "multihop",
+    "query": "neighbors of payments-api depth 1",
+    "start": "svc:payments-api",
+    "depth": 1,
+    "expect_node_ids": ["svc:auth"]
+  },
+  {
+    "id": "q2",
+    "kind": "temporal",
+    "query": "depends_on active at 2025-02-28",
+    "time": "2025-02-28",
+    "expect_edge_types_present": ["depends_on"]
+  },
+  {
+    "id": "q3",
+    "kind": "temporal",
+    "query": "depends_on active at 2025-03-01",
+    "time": "2025-03-01",
+    "expect_edge_types_absent": ["depends_on"]
+  }
+]
