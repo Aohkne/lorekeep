@@ -151,5 +151,52 @@ def mcp_add(
     typer.echo("\n" + agent_memory_snippet())
 
 
+@app.command()
+def doctor() -> None:
+    """Verify install: graph loads, schema valid, ns resolves, a tool responds."""
+    p = _paths()
+    problems = []
+
+    facts_path = p["out"] / "facts.jsonl"
+    if not facts_path.exists():
+        typer.echo(f"FAIL: facts.jsonl not found at {facts_path}")
+        raise typer.Exit(code=1)
+
+    try:
+        from laputa.store.graph import GraphStore
+        store = GraphStore.from_jsonl(facts_path)
+    except Exception as exc:
+        typer.echo(f"FAIL: cannot load graph: {exc}")
+        raise typer.Exit(code=1)
+
+    if not p["schema"].exists():
+        problems.append("schema.json missing")
+    else:
+        try:
+            load_schema(p["schema"])
+        except Exception as exc:
+            problems.append(f"schema invalid: {exc}")
+
+    raw_ns = os.environ.get("LAPUTA_NS")
+    allowed = [x.strip() for x in raw_ns.split(",")] if raw_ns else load_config(p["config"]).ns.default
+
+    try:
+        from laputa.mcp_server import configure, list_namespaces
+        configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"])
+        ns = list_namespaces()
+    except Exception as exc:
+        problems.append(f"mcp configure/tool failed: {exc}")
+        ns = []
+
+    if problems:
+        typer.echo("FAIL: " + "; ".join(problems))
+        raise typer.Exit(code=1)
+
+    typer.echo(
+        f"all checks passed: {len(store.node_ids())} nodes, "
+        f"{len(store.all_edges())} edges, namespaces={ns}"
+    )
+
+
 if __name__ == "__main__":
     app()
