@@ -123,5 +123,33 @@ def serve(
     mcp.run(transport=transport)
 
 
+mcp_app = typer.Typer(help="Coding-agent integration.")
+app.add_typer(mcp_app, name="mcp")
+
+
+@mcp_app.command("add")
+def mcp_add(
+    agent: str = typer.Option(..., "--agent", help="claude | cursor | codex"),
+    scope: str = typer.Option("project", "--scope", help="project | user"),
+    ns: str = typer.Option(None, "--ns", help="namespace to scope the agent to"),
+) -> None:
+    """Write the agent's MCP config + print an agent-memory snippet."""
+    from laputa.integrations import claude_code, codex, cursor
+    from laputa.integrations.common import agent_memory_snippet, resolve_command
+
+    p = _paths()
+    config = load_config(p["config"])
+    command, args = resolve_command(config.install_source)
+
+    target = Path.cwd() if scope == "project" else Path.home()
+    writers = {"claude": claude_code, "cursor": cursor, "codex": codex}
+    if agent not in writers:
+        typer.echo(f"unknown agent: {agent} (choose claude|cursor|codex)")
+        raise typer.Exit(code=1)
+    written = writers[agent].write_config(target, command, args, ns)
+    typer.echo(f"wrote {agent} config -> {written}")
+    typer.echo("\n" + agent_memory_snippet())
+
+
 if __name__ == "__main__":
     app()

@@ -27,6 +27,7 @@ class Config(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
     ns: NsConfig = Field(default_factory=NsConfig)
+    install_source: str | None = None      # pypi | local | git+URL | path
 
 
 def load_config(path: Path) -> Config:
