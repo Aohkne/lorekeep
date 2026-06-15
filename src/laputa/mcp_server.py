@@ -17,21 +17,38 @@ from laputa.store.graph import GraphStore, parse_date
 
 mcp = FastMCP("laputa")
 
+_state: dict = {}          # graph_dir, allowed_ns, schema_path, facts_mtime
 _scope: ScopedGraph | None = None
 _schema: Schema | None = None
 
 
 def configure(graph_dir, allowed_ns, schema_path=None, fts_path=None) -> None:
-    """Load the graph + schema and build the scoped view. Called once at startup."""
+    """Set the graph location + scope, then build. Safe to call again to refresh."""
+    _state["graph_dir"] = Path(graph_dir)
+    _state["allowed_ns"] = list(allowed_ns)
+    _state["schema_path"] = Path(schema_path) if schema_path else None
+    _rebuild()
+
+
+def _rebuild() -> None:
+    """(Re)load the graph + schema from disk into a fresh ScopedGraph."""
     global _scope, _schema
-    store = GraphStore.from_jsonl(Path(graph_dir) / "facts.jsonl")
-    _schema = load_schema(Path(schema_path)) if schema_path else None
-    _scope = ScopedGraph(store, allowed_ns)
+    facts = _state["graph_dir"] / "facts.jsonl"
+    store = GraphStore.from_jsonl(facts)
+    sp = _state.get("schema_path")
+    _schema = load_schema(sp) if sp else None
+    _scope = ScopedGraph(store, _state["allowed_ns"])
+    _state["facts_mtime"] = facts.stat().st_mtime if facts.exists() else 0
 
 
-def _require():
-    if _scope is None:
+def _require() -> ScopedGraph:
+    """Return the scoped graph, lazy-reloading if facts.jsonl changed on disk."""
+    if not _state:
         raise RuntimeError("mcp_server not configured; call configure() first")
+    facts = _state["graph_dir"] / "facts.jsonl"
+    mtime = facts.stat().st_mtime if facts.exists() else 0
+    if _scope is None or mtime != _state.get("facts_mtime"):
+        _rebuild()
     return _scope
 
 
