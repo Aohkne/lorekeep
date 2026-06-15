@@ -1,4 +1,4 @@
-"""Load local Laputa config. Lives in .laputa/config.yaml (gitignored)."""
+"""Load Laputa config. Path resolved by paths.resolve_paths() (dev .laputa/, LAPUTA_HOME, or XDG)."""
 from __future__ import annotations
 
 from pathlib import Path
