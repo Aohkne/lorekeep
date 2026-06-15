@@ -47,7 +47,7 @@ def test_extraction_report_against_gold(tmp_path: Path, fixtures: Path):
     raw = tmp_path / "raw"
     (raw / "teams/backend").mkdir(parents=True)
     (raw / "teams/backend/payments.md").write_text(
-        (fixtures / "raw/teams/backend/payments.md").read_text())
+        (fixtures / "raw/backend/payments.md").read_text())
     schema = Schema.load(_json.loads((fixtures / "schema.json").read_text()))
     canned = _json.dumps({
         "nodes": [

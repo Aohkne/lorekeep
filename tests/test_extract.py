@@ -15,7 +15,7 @@ SCHEMA = Schema.load({
 
 
 def make_chunk(text="x"):
-    return DocChunk(path="raw/teams/backend/a.md", start_line=3, end_line=3,
+    return DocChunk(path="raw/backend/a.md", start_line=3, end_line=3,
                     text=text, namespace="teams/backend")
 
 
@@ -24,7 +24,7 @@ def test_prompt_contains_schema_and_chunk():
     p = build_prompt(c, SCHEMA)
     assert "service" in p and "depends_on" in p
     assert "payments-api" in p
-    assert "raw/teams/backend/a.md:3" in p
+    assert "raw/backend/a.md:3" in p
 
 
 def test_parse_response_maps_nodes_and_edges():
@@ -45,7 +45,7 @@ def test_parse_response_maps_nodes_and_edges():
     assert len(nodes) == 2
     assert nodes[0].id == "svc:payments-api"
     assert nodes[0].ns == ("teams/backend",)
-    assert nodes[0].src == ("raw/teams/backend/a.md:3",)
+    assert nodes[0].src == ("raw/backend/a.md:3",)
     assert nodes[0].valid_from == date(2024, 1, 15)
     assert len(edges) == 1
     assert edges[0].from_ == "svc:payments-api"

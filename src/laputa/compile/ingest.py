@@ -9,8 +9,8 @@ from laputa.models import DocChunk
 def namespace_for(raw_root: Path, path: Path) -> str:
     rel = path.relative_to(raw_root)
     parts = rel.parts
-    if len(parts) >= 2:
-        return f"{parts[0]}/{parts[1]}"
+    if len(parts) >= 2:          # <dir>/<file> -> ns is the first directory
+        return parts[0]
     return "public"
 
 

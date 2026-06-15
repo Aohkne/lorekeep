@@ -11,7 +11,7 @@ def setup_server(fixtures: Path, allowed):
 
 
 def test_get_node_tool(fixtures: Path):
-    setup_server(fixtures, ["teams/backend"])
+    setup_server(fixtures, ["backend"])
     r = ms.get_node("svc:payments-api")
     assert r["id"] == "svc:payments-api"
     assert r["type"] == "service"
@@ -24,24 +24,24 @@ def test_get_node_hidden_returns_error(fixtures: Path):
 
 
 def test_neighbors_tool(fixtures: Path):
-    setup_server(fixtures, ["teams/backend"])
+    setup_server(fixtures, ["backend"])
     r = ms.neighbors("svc:payments-api", depth=1)
     assert {n["id"] for n in r["nodes"]} == {"svc:payments-api", "svc:auth"}
 
 
 def test_schema_tool(fixtures: Path):
-    setup_server(fixtures, ["teams/backend"])
+    setup_server(fixtures, ["backend"])
     r = ms.schema()
     assert "node_types" in r and "service" in r["node_types"]
 
 
 def test_list_namespaces_tool(fixtures: Path):
-    setup_server(fixtures, ["teams/backend"])
-    assert ms.list_namespaces() == ["public", "teams/backend"]
+    setup_server(fixtures, ["backend"])
+    assert ms.list_namespaces() == ["backend", "public"]
 
 
 def test_at_time_tool(fixtures: Path):
-    setup_server(fixtures, ["teams/backend"])
+    setup_server(fixtures, ["backend"])
     r = ms.at_time("2025-02-28")
     types = {e["type"] for e in r["edges"]}
     assert "depends_on" in types
@@ -50,18 +50,18 @@ def test_at_time_tool(fixtures: Path):
 
 
 def test_history_tool(fixtures: Path):
-    setup_server(fixtures, ["teams/backend"])
+    setup_server(fixtures, ["backend"])
     h = ms.history("svc:payments-api")
     assert h[0]["kind"] == "node"
 
 
 def test_changes_tool(fixtures: Path):
-    setup_server(fixtures, ["teams/backend"])
+    setup_server(fixtures, ["backend"])
     r = ms.changes("2024-01-01", "2025-04-01")
     assert "depends_on" in {e["type"] for e in r["began"]}
 
 
 def test_search_tool(fixtures: Path):
-    setup_server(fixtures, ["teams/backend"])
+    setup_server(fixtures, ["backend"])
     r = ms.search("payments")
     assert "svc:payments-api" in r

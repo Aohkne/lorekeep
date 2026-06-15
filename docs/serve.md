@@ -8,9 +8,9 @@ Laputa resolves its data home with this precedence: explicit `LAPUTA_*` env >
 
 ```bash
 uvx laputa init                       # bootstrap ~/.config/laputa + ~/.local/share/laputa
-# add your docs under ~/.local/share/laputa/raw/teams/<ns>/
+# add your docs under ~/.local/share/laputa/raw/<ns>/
 LAPUTA_PROVIDER=fake uvx laputa compile    # (or set a real provider in config)
-uvx laputa mcp add --agent claude --ns teams/<ns>
+uvx laputa mcp add --agent claude --ns <ns>
 uvx laputa doctor
 ```
 
@@ -20,7 +20,7 @@ uvx laputa doctor
 ```json
 {"mcpServers": {"laputa": {"command": "uvx",
   "args": ["laputa", "serve", "--transport", "stdio"],
-  "env": {"LAPUTA_NS": "teams/<ns>"}}}}
+  "env": {"LAPUTA_NS": "<ns>"}}}}
 ```
 
 ## Local dev (repo co-located data)
@@ -54,7 +54,7 @@ stats the file's mtime, and if it changed (after `laputa compile`) the graph is
 rebuilt automatically. So the workflow is:
 
 ```bash
-<edit raw/teams/.../*.md>
+<edit raw/.../*.md>
 uvx laputa compile          # rebuilds facts.jsonl
 # next query from the agent sees the new graph — NO reconnect needed
 ```

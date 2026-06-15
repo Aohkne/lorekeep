@@ -22,7 +22,7 @@ def test_recompile_is_byte_identical(tmp_path: Path, fixtures: Path):
     raw = tmp_path / "raw"
     (raw / "teams/backend").mkdir(parents=True)
     (raw / "teams/backend/p.md").write_text(
-        (fixtures / "raw/teams/backend/payments.md").read_text())
+        (fixtures / "raw/backend/payments.md").read_text())
     schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
 
     out1, out2 = tmp_path / "g1", tmp_path / "g2"
@@ -40,7 +40,7 @@ def test_cache_makes_recompile_identical_without_new_llm_call(tmp_path: Path, fi
     raw = tmp_path / "raw"
     (raw / "teams/backend").mkdir(parents=True)
     (raw / "teams/backend/p.md").write_text(
-        (fixtures / "raw/teams/backend/payments.md").read_text())
+        (fixtures / "raw/backend/payments.md").read_text())
     schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
     cache = tmp_path / "shared.json"
 

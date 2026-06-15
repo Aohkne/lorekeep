@@ -2,14 +2,14 @@
 
 ## 1. Add raw docs
 
-Drop markdown under `raw/teams/<namespace>/`:
+Drop markdown under `raw/<namespace>/`:
 
 ```
-raw/teams/backend/payments.md
-raw/teams/frontend/web.md
+raw/backend/payments.md
+raw/frontend/web.md
 ```
 
-The directory under `teams/` becomes the fact's `ns`.
+The first directory under `raw/` becomes the fact's `ns` (e.g. `backend`, `frontend`).
 
 ## 2. Configure a provider
 

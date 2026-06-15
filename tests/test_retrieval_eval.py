@@ -10,7 +10,7 @@ def test_retrieval_report_all_pass(fixtures: Path, tmp_path: Path):
     rep = retrieval_report(
         graph_dir=out,
         questions_path=fixtures / "retrieval/questions.json",
-        allowed_ns=["teams/backend"],
+        allowed_ns=["backend"],
     )
     assert rep["total"] == 3
     assert rep["passed"] == 3

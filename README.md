@@ -38,7 +38,7 @@ knowledge.
 - **Temporal** — every fact carries `valid_from`/`valid_to` (half-open
   `[from, to)`); query "what was true at *T*", history, diffs.
 - **Namespace permission** — facts are tagged `ns` from the directory tree
-  (`raw/teams/<ns>/`); agents scoped to namespaces; cross-namespace edges
+  (`raw/<ns>/`); agents scoped to namespaces; cross-namespace edges
   hidden unless both endpoints are visible. Deny-by-default.
 - **MCP, stdio-first** — `laputa serve` exposes 8 read-only tools; `laputa mcp add`
   wires Claude Code / Cursor / Codex. No server process to babysit.
@@ -65,15 +65,15 @@ Once published to PyPI it becomes simply `uvx laputa …`.
 # 1. bootstrap a data home (~/.config/laputa + ~/.local/share/laputa)
 uvx laputa init
 
-# 2. add docs under the data home's raw/teams/<namespace>/
-mkdir -p ~/.local/share/laputa/raw/teams/backend
-cp your-docs.md ~/.local/share/laputa/raw/teams/backend/
+# 2. add docs under the data home's raw/<namespace>/
+mkdir -p ~/.local/share/laputa/raw/backend
+cp your-docs.md ~/.local/share/laputa/raw/backend/
 
 # 3. set a provider (edit ~/.config/laputa/config.yaml), then compile
 uvx laputa compile                # raw/*.md -> graph/facts.jsonl
 
 # 4. wire a coding agent (writes a portable .mcp.json)
-uvx laputa mcp add --agent claude --ns teams/backend
+uvx laputa mcp add --agent claude --ns backend
 
 # 5. verify
 uvx laputa doctor
@@ -85,7 +85,7 @@ Restart Claude Code → the 8 Laputa tools are available, scoped to your namespa
 
 ```
                        COMPILE (offline, curator)                     SYNC
-raw/teams/<ns>/*.md ──► ingest ──► extract(LLM) ──► resolve ──► writer ──► facts.jsonl
+raw/<ns>/*.md ──► ingest ──► extract(LLM) ──► resolve ──► writer ──► facts.jsonl
                                                                             │
                                           ┌─────────────────────────────────┘
                                           ▼  (git pull / aws s3 sync)
@@ -112,8 +112,8 @@ so `compile` is instantly visible without reconnecting.
 
 **fact** — one line of `facts.jsonl`, a `node` or `edge`:
 ```jsonl
-{"kind":"node","id":"svc:payments","type":"service","ns":["teams/backend"],"valid_from":"2024-01-15","valid_to":null,"props":{"lang":"go"},"src":["raw/teams/backend/payments.md:12"]}
-{"kind":"edge","id":"e_depends_on_0001","type":"depends_on","from":"svc:payments","to":"svc:auth","ns":["teams/backend"],"valid_from":"2024-01-15","valid_to":"2025-03-01","props":{},"src":["...:20"]}
+{"kind":"node","id":"svc:payments","type":"service","ns":["backend"],"valid_from":"2024-01-15","valid_to":null,"props":{"lang":"go"},"src":["raw/backend/payments.md:12"]}
+{"kind":"edge","id":"e_depends_on_0001","type":"depends_on","from":"svc:payments","to":"svc:auth","ns":["backend"],"valid_from":"2024-01-15","valid_to":"2025-03-01","props":{},"src":["...:20"]}
 ```
 - `ns` — namespace set; `["public"]` is globally visible.
 - `valid_to: null` ⇒ current. History = multiple edges, same endpoints, different windows.

@@ -12,7 +12,7 @@ def copy_fixture(src: Path, dst: Path) -> None:
 
 def test_compile_pipeline_produces_facts(tmp_path: Path, fixtures: Path):
     raw = tmp_path / "raw"
-    copy_fixture(fixtures / "raw/teams/backend/payments.md",
+    copy_fixture(fixtures / "raw/backend/payments.md",
                  raw / "teams/backend/payments.md")
     out = tmp_path / "graph"
     cache = tmp_path / "cache.json"

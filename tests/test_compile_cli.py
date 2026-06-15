@@ -14,9 +14,9 @@ def test_compile_command_uses_config_provider(monkeypatch, tmp_path: Path, fixtu
     monkeypatch.setenv("LAPUTA_SCHEMA", str(fixtures / "schema.json"))
     monkeypatch.setenv("LAPUTA_PROVIDER", "fake")
 
-    raw = tmp_path / "raw/teams/backend/payments.md"
+    raw = tmp_path / "raw/backend/payments.md"
     raw.parent.mkdir(parents=True)
-    raw.write_text((fixtures / "raw/teams/backend/payments.md").read_text())
+    raw.write_text((fixtures / "raw/backend/payments.md").read_text())
 
     result = runner.invoke(app, ["compile"])
     assert result.exit_code == 0, result.stdout
