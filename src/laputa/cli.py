@@ -12,6 +12,7 @@ from laputa.compile.providers import FakeProvider, LiteLLMProvider
 from laputa.config import load_config
 from laputa.pipeline import compile_graph
 from laputa.paths import resolve_paths
+from laputa.defaults import DEFAULT_CONFIG_YAML, DEFAULT_SCHEMA
 from laputa.schema_io import load_schema
 
 app = typer.Typer(help="Laputa — compile team docs into a temporal knowledge graph.")
@@ -194,6 +195,29 @@ def doctor() -> None:
         f"all checks passed: {len(store.node_ids())} nodes, "
         f"{len(store.all_edges())} edges, namespaces={ns}"
     )
+
+
+@app.command()
+def init() -> None:
+    """Bootstrap the data home: config + schema + raw/graph dirs."""
+    p = resolve_paths()
+    created = []
+    p["config"].parent.mkdir(parents=True, exist_ok=True)
+    if not p["config"].exists():
+        p["config"].write_text(DEFAULT_CONFIG_YAML)
+        created.append(str(p["config"]))
+    p["schema"].parent.mkdir(parents=True, exist_ok=True)
+    if not p["schema"].exists():
+        p["schema"].write_text(json.dumps(DEFAULT_SCHEMA, indent=2))
+        created.append(str(p["schema"]))
+    p["raw"].mkdir(parents=True, exist_ok=True)
+    p["out"].mkdir(parents=True, exist_ok=True)
+    typer.echo(f"home ready: config={p['config']}")
+    typer.echo(f"  schema={p['schema']}  raw={p['raw']}  graph={p['out']}")
+    if created:
+        typer.echo(f"  wrote defaults: {created}")
+    else:
+        typer.echo("  (existing config/schema preserved)")
 
 
 if __name__ == "__main__":
