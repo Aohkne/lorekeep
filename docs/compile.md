@@ -59,3 +59,11 @@ Exits non-zero if the graph has dangling edges.
 ## Next: serve to agents
 
 See [serve.md](serve.md) to expose the graph to Claude Code / Cursor / Codex over MCP.
+
+## Data home
+
+Laputa reads/writes data from a home resolved as: explicit `LAPUTA_*` env >
+`LAPUTA_HOME` > dev mode (`.laputa/` or `raw/` in CWD) > XDG
+(`~/.config/laputa` config, `~/.local/share/laputa` data). `laputa init`
+bootstraps a fresh home. In a source checkout, dev mode is auto-detected so
+`uv run laputa compile` uses the repo's `raw/` + `graph/`.

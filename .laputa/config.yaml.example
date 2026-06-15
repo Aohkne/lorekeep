@@ -28,4 +28,4 @@ compile:
   chunk_lines: 60
 ns:
   default: [public]
-install_source: local                              # pypi | local | git+URL | path
+install_source: pypi                              # pypi (portable .mcp.json) | local | git+URL | path

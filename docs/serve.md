@@ -1,60 +1,48 @@
 # Serving the knowledge graph to coding agents
 
-## 1. Compile first
+Laputa resolves its data home with this precedence: explicit `LAPUTA_*` env >
+`LAPUTA_HOME` > dev mode (`.laputa/` or `raw/` in CWD) > XDG default
+(`~/.config/laputa` + `~/.local/share/laputa`).
+
+## Installed use (recommended)
 
 ```bash
-LAPUTA_PROVIDER=fake uv run laputa compile   # produces graph/facts.jsonl
+uvx laputa init                       # bootstrap ~/.config/laputa + ~/.local/share/laputa
+# add your docs under ~/.local/share/laputa/raw/teams/<ns>/
+LAPUTA_PROVIDER=fake uvx laputa compile    # (or set a real provider in config)
+uvx laputa mcp add --agent claude --ns teams/<ns>
+uvx laputa doctor
 ```
 
-## 2. Scope your namespace
+`mcp add` writes a **portable** `.mcp.json` (no machine path) when
+`install_source` is `pypi` (the default from `init`):
 
-Set `LAPUTA_NS` to the namespaces the agent may read (comma-separated). Unset
-defaults to `public` (only public facts).
-
-```bash
-export LAPUTA_NS=teams/backend
-```
-
-## 3. Wire up a coding agent
-
-```bash
-uv run laputa mcp add --agent claude --ns teams/backend
-uv run laputa mcp add --agent cursor
-uv run laputa mcp add --agent codex  --ns teams/backend
-```
-
-This writes the agent's MCP config (`.mcp.json` / `.cursor/mcp.json` /
-`config.toml`) and prints an agent-memory snippet to paste into `CLAUDE.md` /
-`.cursorrules` / `AGENTS.md`. Set `install_source` in `.laputa/config.yaml`
-(`pypi` | `local` | `git+URL`) so the emitted command is correct.
-
-### Resulting configs
-
-Claude Code (`.mcp.json`):
 ```json
 {"mcpServers": {"laputa": {"command": "uvx",
   "args": ["laputa", "serve", "--transport", "stdio"],
-  "env": {"LAPUTA_NS": "teams/backend"}}}}
+  "env": {"LAPUTA_NS": "teams/<ns>"}}}}
 ```
 
-Codex (`~/.codex/config.toml`):
-```toml
-[mcp_servers.laputa]
-command = "uvx"
-args = ["laputa", "serve", "--transport", "stdio"]
-env = { LAPUTA_NS = "teams/backend" }
-```
+## Local dev (repo co-located data)
 
-## 4. Verify
+From the Laputa source checkout (has `.laputa/` → auto dev mode):
 
 ```bash
-uv run laputa doctor
+uv run laputa compile      # reads repo raw/, writes repo graph/
+uv run laputa serve
 ```
 
-Checks the graph loads, schema is valid, namespace resolves, and a tool responds.
+Force dev mode anywhere: `LAPUTA_DEV=1 laputa ...`.
 
-## 5. Tools available (read-only, scoped)
+## Custom knowledge base
+
+```bash
+LAPUTA_HOME=~/kb-work uvx laputa init
+LAPUTA_HOME=~/kb-work uvx laputa compile
+```
+
+## Tools (read-only, scoped)
 
 `search`, `get_node`, `neighbors`, `at_time`, `history`, `changes`,
-`list_namespaces`, `schema`. Every result is filtered to your namespace;
-cross-namespace edges are hidden unless both endpoints are visible.
+`list_namespaces`, `schema`. Results are filtered to `LAPUTA_NS`; cross-namespace
+edges are hidden unless both endpoints are visible.
