@@ -8,6 +8,10 @@
 graph/facts.jsonl
 graph/manifest.json
 
+# Personal trial data (local-only; do not commit — contains personal/work memory)
+raw/teams/*-memory/
+.mcp.json
+
 # Python
 __pycache__/
 *.py[cod]
