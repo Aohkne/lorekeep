@@ -212,4 +212,4 @@ embeddings/hybrid search, `wiki.md` views, full Tier-2 benchmark datasets
 
 ## License
 
-TBD.
+MIT — see [LICENSE](LICENSE).
