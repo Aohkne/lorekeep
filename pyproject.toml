@@ -12,6 +12,7 @@ dependencies = [
   "rich>=13.7",
   "networkx>=3.2",
   "mcp>=1.0",
+  "platformdirs>=4.0",
 ]
 
 [project.scripts]
