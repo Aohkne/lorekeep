@@ -2,6 +2,8 @@
 
 **A temporal knowledge graph for AI agents, served read-only over MCP.**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Laputa compiles a team's raw documentation into a versioned, time-aware
 knowledge graph (`facts.jsonl`) and exposes it to coding agents (Claude Code,
 Cursor, Codex) through the Model Context Protocol — with per-namespace
@@ -212,4 +214,9 @@ embeddings/hybrid search, `wiki.md` views, full Tier-2 benchmark datasets
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Laputa is released under the **MIT License** — see [`LICENSE`](LICENSE).
+
+Copyright © 2026 Manh Pham. You're free to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the software, provided the
+copyright and permission notice are included in all copies. The software is
+provided "as is", without warranty of any kind.
