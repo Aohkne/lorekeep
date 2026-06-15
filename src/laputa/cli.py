@@ -11,6 +11,7 @@ from laputa import __version__
 from laputa.compile.providers import FakeProvider, LiteLLMProvider
 from laputa.config import load_config
 from laputa.pipeline import compile_graph
+from laputa.paths import resolve_paths
 from laputa.schema_io import load_schema
 
 app = typer.Typer(help="Laputa — compile team docs into a temporal knowledge graph.")
@@ -22,15 +23,6 @@ def _main() -> None:
     """Laputa — compile team docs into a temporal knowledge graph."""
 
 
-def _paths() -> dict[str, Path]:
-    return {
-        "raw": Path(os.environ.get("LAPUTA_RAW", "raw")),
-        "out": Path(os.environ.get("LAPUTA_OUT", "graph")),
-        "cache": Path(os.environ.get("LAPUTA_CACHE", ".laputa/cache.json")),
-        "schema": Path(os.environ.get("LAPUTA_SCHEMA", "graph/schema.json")),
-        "config": Path(os.environ.get("LAPUTA_CONFIG", ".laputa/config.yaml")),
-    }
-
 
 @app.command()
 def version() -> None:
@@ -41,7 +33,7 @@ def version() -> None:
 @app.command()
 def compile() -> None:
     """Compile raw/ into graph/facts.jsonl."""
-    p = _paths()
+    p = resolve_paths()
     schema = load_schema(p["schema"])
     config = load_config(p["config"])
 
@@ -87,7 +79,7 @@ def compile() -> None:
 @app.command(name="eval")
 def eval_cmd() -> None:
     """Run Tier-1 construction-quality evaluation vs the gold corpus."""
-    p = _paths()
+    p = resolve_paths()
     gold_dir = Path(os.environ.get("LAPUTA_GOLD", "tests/fixtures/gold"))
     from laputa.eval.construction import extraction_report, structure_report
     report = {
@@ -104,7 +96,7 @@ def eval_cmd() -> None:
 @app.command()
 def check() -> None:
     """Validate the compiled graph: loads, no dangling edges."""
-    p = _paths()
+    p = resolve_paths()
     from laputa.eval.construction import structure_report
     struct = structure_report(p["out"])
     if struct["dangling_edge_rate"] > 0:
@@ -118,7 +110,7 @@ def serve(
     transport: str = typer.Option("stdio", "--transport", help="stdio (default) | http"),
 ) -> None:
     """Serve the scoped graph over MCP."""
-    p = _paths()
+    p = resolve_paths()
     raw_ns = os.environ.get("LAPUTA_NS")
     if raw_ns:
         allowed = [x.strip() for x in raw_ns.split(",") if x.strip()]
@@ -143,7 +135,7 @@ def mcp_add(
     from laputa.integrations import claude_code, codex, cursor
     from laputa.integrations.common import agent_memory_snippet, resolve_command
 
-    p = _paths()
+    p = resolve_paths()
     config = load_config(p["config"])
     command, args = resolve_command(config.install_source)
 
@@ -160,7 +152,7 @@ def mcp_add(
 @app.command()
 def doctor() -> None:
     """Verify install: graph loads, schema valid, ns resolves, a tool responds."""
-    p = _paths()
+    p = resolve_paths()
     problems = []
 
     facts_path = p["out"] / "facts.jsonl"
