@@ -9,8 +9,8 @@ graph/facts.jsonl
 graph/manifest.json
 
 # Personal trial data (local-only; do not commit — contains personal/work memory)
-raw/teams/*-memory/
-raw/teams/personal/
+raw/*-memory/
+raw/personal/
 .mcp.json
 
 # Python
