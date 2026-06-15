@@ -64,10 +64,16 @@ def compile() -> None:
         })
         provider = FakeProvider(responses=[canned])
     else:
+        api_key = None
+        if config.provider.api_key_env:
+            api_key = os.environ.get(config.provider.api_key_env)
+        if not api_key:
+            api_key = config.provider.api_key
         provider = LiteLLMProvider(
             model=config.provider.model,
             api_base=config.provider.api_base,
             temperature=config.provider.temperature,
+            api_key=api_key,
         )
 
     manifest = compile_graph(

@@ -10,7 +10,9 @@ from pydantic import BaseModel, Field
 class ProviderConfig(BaseModel):
     backend: str = "openai"          # openai | anthropic | ollama | <litellm prefix>
     model: str = "gpt-4o-mini"
-    api_base: str | None = None      # set for ollama, e.g. http://localhost:11434
+    api_base: str | None = None      # set for ollama or openai-compatible endpoints
+    api_key_env: str | None = None   # env var holding the api key (else litellm default)
+    api_key: str | None = None       # inline key (gitignored config only; env is safer)
     temperature: float = 0.0
 
 

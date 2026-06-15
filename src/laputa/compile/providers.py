@@ -27,16 +27,18 @@ class LiteLLMProvider:
     """Real provider backed by litellm. Supports openai/anthropic/ollama."""
 
     def __init__(self, model: str, api_base: str | None = None,
-                 temperature: float = 0.0) -> None:
+                 temperature: float = 0.0, api_key: str | None = None) -> None:
         self.model = model
         self.api_base = api_base
         self.temperature = temperature
+        self.api_key = api_key
 
     def extract_json(self, system: str, user: str) -> str:
         import litellm  # imported lazily so tests need not install it
         resp = litellm.completion(
             model=self.model,
             api_base=self.api_base,
+            api_key=self.api_key,
             temperature=self.temperature,
             messages=[
                 {"role": "system", "content": system},

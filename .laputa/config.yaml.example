@@ -1,8 +1,31 @@
 # Copy to .laputa/config.yaml (gitignored). Provider used at compile time only.
+# API keys NEVER go in this file - set them as env vars (api_key_env names which).
+#
+# Option A: Alibaba ModelStudio / DashScope (international, OpenAI-compatible)
 provider:
-  backend: openai            # openai | anthropic | ollama
-  model: gpt-4o-mini
-  api_base: null             # set http://localhost:11434 for ollama
+  backend: openai
+  model: openai/qwen-plus                          # qwen-max | qwen-plus | qwen-turbo
+  api_base: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+  api_key_env: DASHSCOPE_API_KEY                   # export DASHSCOPE_API_KEY=...
   temperature: 0.0
+#
+# Option B: OpenAI
+# provider:
+#   backend: openai
+#   model: openai/gpt-4o-mini
+#   api_base: null
+#   api_key_env: OPENAI_API_KEY
+#   temperature: 0.0
+#
+# Option C: Ollama (local, strict privacy)
+# provider:
+#   backend: ollama
+#   model: ollama/llama3
+#   api_base: http://localhost:11434
+#   api_key_env: null
+#   temperature: 0.0
 compile:
   chunk_lines: 60
+ns:
+  default: [public]
+install_source: local                              # pypi | local | git+URL | path
