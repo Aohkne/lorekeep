@@ -46,3 +46,20 @@ LAPUTA_HOME=~/kb-work uvx laputa compile
 `search`, `get_node`, `neighbors`, `at_time`, `history`, `changes`,
 `list_namespaces`, `schema`. Results are filtered to `LAPUTA_NS`; cross-namespace
 edges are hidden unless both endpoints are visible.
+
+## Connect once (lazy-reload)
+
+The server loads `facts.jsonl` into memory and **lazy-reloads** it: every query
+stats the file's mtime, and if it changed (after `laputa compile`) the graph is
+rebuilt automatically. So the workflow is:
+
+```bash
+<edit raw/teams/.../*.md>
+uvx laputa compile          # rebuilds facts.jsonl
+# next query from the agent sees the new graph — NO reconnect needed
+```
+
+Connect the MCP server **once**; memory updates via `compile` are visible
+immediately. Reconnect is only needed for **code** changes (rare; the serve path
+is stable) or **scope** changes (`.mcp.json` `LAPUTA_NS`).
+
