@@ -1,6 +1,7 @@
 """Ingest: raw markdown files -> DocChunks with provenance."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from laputa.models import DocChunk
@@ -34,8 +35,21 @@ def ingest_file(raw_root: Path, path: Path, chunk_lines: int) -> list[DocChunk]:
 
 
 def ingest(raw_root: Path, glob: str = "**/*.md", chunk_lines: int = 60) -> list[DocChunk]:
+    """Ingest files under raw_root into DocChunks.
+
+    Any path whose resolved target escapes raw_root is skipped with a stderr
+    warning. Everything under raw/ is sent to the LLM provider at compile, so a
+    planted symlink (e.g. raw/x/leak.md -> ~/.ssh/id_rsa) must not exfiltrate
+    files outside raw_root — fail closed.
+    """
+    root = raw_root.resolve()
     chunks: list[DocChunk] = []
     for p in sorted(raw_root.glob(glob)):
-        if p.is_file():
-            chunks.extend(ingest_file(raw_root, p, chunk_lines))
+        if not p.is_file():
+            continue
+        if not p.resolve().is_relative_to(root):
+            print(f"laputa: skip path outside raw_root (possible symlink): {p}",
+                  file=sys.stderr)
+            continue
+        chunks.extend(ingest_file(raw_root, p, chunk_lines))
     return chunks

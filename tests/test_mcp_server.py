@@ -65,3 +65,10 @@ def test_search_tool(fixtures: Path):
     setup_server(fixtures, ["backend"])
     r = ms.search("payments")
     assert "svc:payments-api" in r
+
+
+def test_neighbors_depth_is_capped(fixtures: Path):
+    setup_server(fixtures, ["backend"])
+    shallow = ms.neighbors("svc:payments-api", depth=1)
+    deep = ms.neighbors("svc:payments-api", depth=10_000)   # would traverse whole graph unbounded
+    assert {n["id"] for n in deep["nodes"]} == {n["id"] for n in shallow["nodes"]}

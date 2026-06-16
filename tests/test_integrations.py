@@ -46,3 +46,23 @@ def test_codex_writes_toml(tmp_path: Path):
 def test_agent_memory_snippet_mentions_provenance():
     s = agent_memory_snippet()
     assert "src" in s and "namespace" in s.lower()
+
+
+def test_codex_write_is_idempotent(tmp_path: Path):
+    codex.write_config(tmp_path, "uvx", ["laputa", "serve", "--transport", "stdio"], ns="team/a")
+    codex.write_config(tmp_path, "uvx", ["laputa", "serve", "--transport", "stdio"], ns="team/b")
+    text = (tmp_path / "config.toml").read_text()
+    assert text.count("[mcp_servers.laputa]") == 1   # replaced, not duplicated
+    assert 'LAPUTA_NS = "team/b"' in text             # updated value
+
+
+def test_codex_escapes_quotes_in_ns(tmp_path: Path):
+    codex.write_config(tmp_path, "uvx", ["laputa"], ns='team/"evil')
+    text = (tmp_path / "config.toml").read_text()
+    assert 'team/\\"evil' in text                      # quote escaped, TOML stays valid
+
+
+def test_codex_rejects_newline_in_ns(tmp_path: Path):
+    import pytest
+    with pytest.raises(ValueError):
+        codex.write_config(tmp_path, "uvx", ["laputa"], ns="team\n[malicious]")

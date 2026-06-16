@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from laputa.models import DocChunk, Edge, Manifest, Node
@@ -16,6 +18,27 @@ def _sort_key(fact: Node | Edge) -> tuple[str, str, str]:
     return (fact.kind, fact.type, fact.id)
 
 
+def _atomic_write(path: Path, data: str) -> None:
+    """Write data to path atomically: stage a temp file then os.replace onto it.
+
+    Prevents a torn read when the MCP server lazy-reloads facts.jsonl mid-write
+    (compile truncating the file while a query reads it). os.replace is atomic
+    when src and dst share a filesystem, which holds for a sibling temp file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def write_graph(
     out_dir: Path, nodes: list[Node], edges: list[Edge], manifest: Manifest,
 ) -> None:
@@ -23,8 +46,8 @@ def write_graph(
     facts = sorted(nodes + edges, key=_sort_key)
     lines = [f.to_json_line() for f in facts]
     text = "\n".join(lines) + ("\n" if lines else "")
-    (out_dir / "facts.jsonl").write_text(text, encoding="utf-8")
-    (out_dir / "manifest.json").write_text(manifest.to_json(), encoding="utf-8")
+    _atomic_write(out_dir / "facts.jsonl", text)
+    _atomic_write(out_dir / "manifest.json", manifest.to_json())
 
 
 def run_id(chunks: list[DocChunk], schema_version: int) -> str:

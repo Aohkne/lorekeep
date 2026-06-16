@@ -32,3 +32,16 @@ def test_ingest_sorted_and_skips_dirs(tmp_path: Path):
     chunks = ingest(raw)
     paths = [c.path for c in chunks]
     assert paths == sorted(paths)
+
+
+def test_ingest_skips_symlink_escaping_raw_root(tmp_path: Path):
+    raw = tmp_path / "raw"
+    (raw / "team").mkdir(parents=True)
+    (raw / "team" / "real.md").write_text("real-content\n")
+    outside = tmp_path / "secret.md"
+    outside.write_text("TOPSECRET\n")
+    (raw / "leak.md").symlink_to(outside)          # resolves outside raw_root
+    chunks = ingest(raw)
+    texts = "\n".join(c.text for c in chunks)
+    assert "real-content" in texts
+    assert "TOPSECRET" not in texts                 # symlinked secret not ingested

@@ -65,6 +65,7 @@ def get_node(id: str) -> dict:
 def neighbors(id: str, edge_type: str = "", depth: int = 1) -> dict:
     """Traverse neighbors up to depth (both directions), scoped to the caller."""
     scoped = _require()
+    depth = max(1, min(int(depth), 5))   # bound BFS cost; 5 hops spans any realistic graph
     res = scoped.neighbors(id, edge_type or None, depth)
     return {
         "nodes": [n.model_dump(mode="json", by_alias=True) for n in res["nodes"]],

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from typing import Any
 
@@ -38,10 +39,35 @@ def _parse_date(v: Any) -> date | None:
     return date.fromisoformat(v)
 
 
+def _extract_json(raw: str, chunk: DocChunk) -> str:
+    """Best-effort recover a JSON object from LLM output.
+
+    response_format=json_object usually yields clean JSON, but some models wrap
+    output in ```json fences or prepend prose. Strip fences, then fall back to
+    the first balanced {...} span. Raises ValueError (with chunk src) if the
+    output still can't be parsed, so the pipeline reports a clear failure.
+    """
+    s = raw.strip()
+    if s.startswith("```"):
+        s = s.strip("`")
+        brace = s.find("{")
+        if brace != -1:
+            s = s[brace:]
+    try:
+        json.loads(s)
+        return s
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        if m:
+            json.loads(m.group(0))      # validate; raises if malformed
+            return m.group(0)
+        raise ValueError(f"LLM returned non-JSON for {chunk.src}")
+
+
 def parse_response(
     raw: str, chunk: DocChunk, schema: Schema | None = None,
 ) -> tuple[list[Node], list[Edge], dict[str, list[str]]]:
-    data = json.loads(raw)
+    data = json.loads(_extract_json(raw, chunk))
     nodes: list[Node] = []
     for n in data.get("nodes", []):
         ntype = n.get("type")

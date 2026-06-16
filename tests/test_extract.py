@@ -98,3 +98,28 @@ def test_cache_persists_to_disk(tmp_path: Path):
     extract_chunk(c, SCHEMA, FakeProvider([raw]), cache)
     cache.save()
     assert p.exists()
+
+
+def test_parse_response_tolerates_fenced_json():
+    c = make_chunk()
+    payload = {"nodes": [{"id": "svc:a", "type": "service", "name": "a"}],
+               "edges": [], "aliases": {}}
+    raw = "```json\n" + json.dumps(payload) + "\n```"
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1 and nodes[0].id == "svc:a"
+
+
+def test_parse_response_tolerates_prose_wrapped_json():
+    c = make_chunk()
+    payload = {"nodes": [{"id": "svc:b", "type": "service", "name": "b"}],
+               "edges": [], "aliases": {}}
+    raw = "Here is the result:\n" + json.dumps(payload) + "\nThanks."
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1 and nodes[0].id == "svc:b"
+
+
+def test_parse_response_raises_on_non_json():
+    import pytest
+    c = make_chunk()
+    with pytest.raises(ValueError):
+        parse_response("no JSON here at all", c, schema=SCHEMA)
