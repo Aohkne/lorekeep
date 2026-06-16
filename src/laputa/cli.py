@@ -28,7 +28,7 @@ def _main() -> None:
 @app.command()
 def version() -> None:
     """Print the Laputa version."""
-    typer.echo(f"laputa {__version__}")
+    typer.echo(f"lorekeep {__version__}")
 
 
 @app.command()

@@ -13,7 +13,7 @@ def test_mcp_add_claude_project(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.stdout
     import json
     data = json.loads((tmp_path / ".mcp.json").read_text())
-    assert data["mcpServers"]["laputa"]["command"] == "laputa"
+    assert data["mcpServers"]["laputa"]["command"] == "lorekeep"
     assert "laputa knowledge base" in result.stdout.lower()   # snippet printed
 
 

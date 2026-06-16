@@ -30,7 +30,7 @@ provider:
 ## 3. Compile
 
 ```bash
-uv run laputa compile
+uv run lorekeep compile
 ```
 
 Produces `graph/facts.jsonl` + `graph/manifest.json`. Re-running is idempotent:
@@ -42,7 +42,7 @@ unchanged input yields a byte-identical file (extraction is cached under
 Author gold facts under `tests/fixtures/gold/<name>.facts.jsonl`, then:
 
 ```bash
-uv run laputa eval
+uv run lorekeep eval
 ```
 
 Reports extraction P/R/F1, entity-resolution F1, and graph-structure metrics.
@@ -51,7 +51,7 @@ Snapshots to `.laputa/eval/results.json`.
 ## 5. Validate
 
 ```bash
-uv run laputa check
+uv run lorekeep check
 ```
 
 Exits non-zero if the graph has dangling edges.
@@ -64,6 +64,6 @@ See [serve.md](serve.md) to expose the graph to Claude Code / Cursor / Codex ove
 
 Laputa reads/writes data from a home resolved as: explicit `LAPUTA_*` env >
 `LAPUTA_HOME` > dev mode (`.laputa/` or `raw/` in CWD) > XDG
-(`~/.config/laputa` config, `~/.local/share/laputa` data). `laputa init`
+(`~/.config/laputa` config, `~/.local/share/laputa` data). `lorekeep init`
 bootstraps a fresh home. In a source checkout, dev mode is auto-detected so
-`uv run laputa compile` uses the repo's `raw/` + `graph/`.
+`uv run lorekeep compile` uses the repo's `raw/` + `graph/`.

@@ -1,4 +1,4 @@
-"""Default config + schema used by `laputa init` to bootstrap a fresh home."""
+"""Default config + schema used by `lorekeep init` to bootstrap a fresh home."""
 from __future__ import annotations
 
 DEFAULT_SCHEMA = {

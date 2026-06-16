@@ -40,9 +40,9 @@ knowledge.
 - **Namespace permission** — facts are tagged `ns` from the directory tree
   (`raw/<ns>/`); agents scoped to namespaces; cross-namespace edges
   hidden unless both endpoints are visible. Deny-by-default.
-- **MCP, stdio-first** — `laputa serve` exposes 8 read-only tools; `laputa mcp add`
+- **MCP, stdio-first** — `lorekeep serve` exposes 8 read-only tools; `lorekeep mcp add`
   wires Claude Code / Cursor / Codex. No server process to babysit.
-- **Lazy-reload** — `laputa compile` updates the graph; the MCP server
+- **Lazy-reload** — `lorekeep compile` updates the graph; the MCP server
   auto-refreshes on the next query. Connect once, use forever.
 - **Provider-pluggable extraction** — litellm (OpenAI / Anthropic /
   DashScope/Qwen / Ollama). Strict-privacy → Ollama, fully local.
@@ -52,31 +52,32 @@ knowledge.
 ## Install
 
 ```bash
-# from a clone (PyPI publish pending):
-git clone <your-laputa-repo> laputa && cd laputa
-uv tool install .                 # installs the `laputa` command
-```
+# from PyPI:
+uvx lorekeep init                 # try it without installing
 
-Once published to PyPI it becomes simply `uvx laputa …`.
+# or from a clone:
+git clone https://github.com/manhhailua/laputa && cd laputa
+uv tool install .                 # installs the `lorekeep` command
+```
 
 ## Quickstart
 
 ```bash
 # 1. bootstrap a data home (~/.config/laputa + ~/.local/share/laputa)
-uvx laputa init
+uvx lorekeep init
 
 # 2. add docs under the data home's raw/<namespace>/
 mkdir -p ~/.local/share/laputa/raw/backend
 cp your-docs.md ~/.local/share/laputa/raw/backend/
 
 # 3. set a provider (edit ~/.config/laputa/config.yaml), then compile
-uvx laputa compile                # raw/*.md -> graph/facts.jsonl
+uvx lorekeep compile                # raw/*.md -> graph/facts.jsonl
 
 # 4. wire a coding agent (writes a portable .mcp.json)
-uvx laputa mcp add --agent claude --ns backend
+uvx lorekeep mcp add --agent claude --ns backend
 
 # 5. verify
-uvx laputa doctor
+uvx lorekeep doctor
 ```
 
 Restart Claude Code → the 8 Laputa tools are available, scoped to your namespace.
@@ -158,17 +159,17 @@ Path resolution (high → low): explicit `LAPUTA_*` env → `LAPUTA_HOME` →
 **dev mode** (`.laputa/` or `raw/` in CWD; auto-detected in a source checkout)
 → XDG (`~/.config/laputa`, `~/.local/share/laputa`). So:
 
-- **Installed**: `uvx laputa init` bootstraps the XDG home.
-- **Local dev**: from the repo, `uv run laputa compile` uses the repo's
+- **Installed**: `uvx lorekeep init` bootstraps the XDG home.
+- **Local dev**: from the repo, `uv run lorekeep compile` uses the repo's
   `raw/` + `graph/` (zero migration).
-- **Custom KB**: `LAPUTA_HOME=~/kb-work uvx laputa …`.
+- **Custom KB**: `LAPUTA_HOME=~/kb-work uvx lorekeep …`.
 
 See [`docs/compile.md`](docs/compile.md) and [`docs/serve.md`](docs/serve.md).
 
 ## Evaluation
 
 Tier-1 (CI): extraction P/R/F1 vs a gold corpus, entity-resolution pairwise F1,
-graph-structure metrics, determinism. Run: `uvx laputa eval`. The north star is
+graph-structure metrics, determinism. Run: `uvx lorekeep eval`. The north star is
 *systematic thinking with complete information* — memory-recall benchmarks
 (LoCoMo, LongMemEval) are parity checks, not the optimization target. See the
 [design spec](docs/superpowers/specs/2026-06-14-laputa-temporal-kg-mcp-design.md) §16.
@@ -197,9 +198,10 @@ docs/                  compile.md, serve.md, specs/, plans/
 ## Status
 
 **v1** — compile pipeline + serve (store/permission/MCP/integrations) + data-home
-+ dev mode + lazy-reload, all merged to `main`, ~106 tests green.
++ dev mode + lazy-reload, all merged to `main`, 114 tests green. Published to
+PyPI as `lorekeep`.
 
-Roadmap (phase 2+): PyPI publish, streamable-HTTP team server, OIDC/SSO,
+Roadmap (phase 2+): streamable-HTTP team server, OIDC/SSO,
 embeddings/hybrid search, `wiki.md` views, full Tier-2 benchmark datasets
 (HotpotQA/CronQuestions) and the bespoke Tier-3 Laputa-Reason eval.
 

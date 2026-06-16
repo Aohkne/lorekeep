@@ -7,11 +7,11 @@ Laputa resolves its data home with this precedence: explicit `LAPUTA_*` env >
 ## Installed use (recommended)
 
 ```bash
-uvx laputa init                       # bootstrap ~/.config/laputa + ~/.local/share/laputa
+uvx lorekeep init                     # bootstrap ~/.config/laputa + ~/.local/share/laputa
 # add your docs under ~/.local/share/laputa/raw/<ns>/
-LAPUTA_PROVIDER=fake uvx laputa compile    # (or set a real provider in config)
-uvx laputa mcp add --agent claude --ns <ns>
-uvx laputa doctor
+LAPUTA_PROVIDER=fake uvx lorekeep compile  # (or set a real provider in config)
+uvx lorekeep mcp add --agent claude --ns <ns>
+uvx lorekeep doctor
 ```
 
 `mcp add` writes a **portable** `.mcp.json` (no machine path) when
@@ -19,7 +19,7 @@ uvx laputa doctor
 
 ```json
 {"mcpServers": {"laputa": {"command": "uvx",
-  "args": ["laputa", "serve", "--transport", "stdio"],
+  "args": ["lorekeep", "serve", "--transport", "stdio"],
   "env": {"LAPUTA_NS": "<ns>"}}}}
 ```
 
@@ -28,17 +28,17 @@ uvx laputa doctor
 From the Laputa source checkout (has `.laputa/` → auto dev mode):
 
 ```bash
-uv run laputa compile      # reads repo raw/, writes repo graph/
-uv run laputa serve
+uv run lorekeep compile      # reads repo raw/, writes repo graph/
+uv run lorekeep serve
 ```
 
-Force dev mode anywhere: `LAPUTA_DEV=1 laputa ...`.
+Force dev mode anywhere: `LAPUTA_DEV=1 lorekeep ...`.
 
 ## Custom knowledge base
 
 ```bash
-LAPUTA_HOME=~/kb-work uvx laputa init
-LAPUTA_HOME=~/kb-work uvx laputa compile
+LAPUTA_HOME=~/kb-work uvx lorekeep init
+LAPUTA_HOME=~/kb-work uvx lorekeep compile
 ```
 
 ## Tools (read-only, scoped)
@@ -50,12 +50,12 @@ edges are hidden unless both endpoints are visible.
 ## Connect once (lazy-reload)
 
 The server loads `facts.jsonl` into memory and **lazy-reloads** it: every query
-stats the file's mtime, and if it changed (after `laputa compile`) the graph is
+stats the file's mtime, and if it changed (after `lorekeep compile`) the graph is
 rebuilt automatically. So the workflow is:
 
 ```bash
 <edit raw/.../*.md>
-uvx laputa compile          # rebuilds facts.jsonl
+uvx lorekeep compile          # rebuilds facts.jsonl
 # next query from the agent sees the new graph — NO reconnect needed
 ```
 

@@ -7,7 +7,7 @@ model and the configuration decisions that keep a deployment safe.
 ## Trust model
 
 - **Compile-only, single writer.** The graph (`graph/facts.jsonl`) is produced by
-  `laputa compile` and never mutated by the server. Agents read via MCP; there is
+  `lorekeep compile` and never mutated by the server. Agents read via MCP; there is
   no write API. No concurrency control is needed because readers are read-only.
 - **Per-process namespace scope.** An MCP server's visible data is fixed at startup
   by `LAPUTA_NS` (comma-separated namespaces). Visibility is enforced by a single
@@ -43,7 +43,7 @@ For team/shared `raw/` directories (a stated target), the trust boundary is
   inline value if the env var is unset.
 - `config.yaml` is gitignored by default (`.laputa/*` except the `.example`
   template). **Never commit a real `config.yaml`.** If an inline key is used,
-  `laputa compile` prints a warning recommending `api_key_env`.
+  `lorekeep compile` prints a warning recommending `api_key_env`.
 - Keys are passed only to `litellm.completion` at compile; the server never reads
   or transmits a key.
 
@@ -53,7 +53,7 @@ For team/shared `raw/` directories (a stated target), the trust boundary is
   `yaml.safe_load`; all user-supplied data is parsed as JSON. SQLite FTS uses
   parameterized queries.
 - Filesystem writes are confined to the data home (`raw/`, `graph/`, `.laputa/`)
-  and, for `laputa mcp add`, the agent config file (`.mcp.json` /
+  and, for `lorekeep mcp add`, the agent config file (`.mcp.json` /
   `.cursor/mcp.json` / `config.toml`), which is merged, not clobbered.
 - `facts.jsonl` and `manifest.json` are written atomically (temp file +
   `os.replace`), so a concurrent read during compile never sees a partial file.

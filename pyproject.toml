@@ -1,5 +1,5 @@
 [project]
-name = "laputa"
+name = "lorekeep"
 version = "0.1.0"
 description = "Temporal knowledge graph for AI agents via MCP"
 readme = "README.md"
@@ -19,7 +19,12 @@ dependencies = [
 ]
 
 [project.scripts]
-laputa = "laputa.cli:app"
+lorekeep = "laputa.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/manhhailua/laputa"
+Repository = "https://github.com/manhhailua/laputa"
+Security = "https://github.com/manhhailua/laputa/security/policy"
 
 [build-system]
 requires = ["hatchling"]
