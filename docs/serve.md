@@ -1,15 +1,15 @@
 # Serving the knowledge graph to coding agents
 
-Laputa resolves its data home with this precedence: explicit `LAPUTA_*` env >
-`LAPUTA_HOME` > dev mode (`.laputa/` or `raw/` in CWD) > XDG default
-(`~/.config/laputa` + `~/.local/share/laputa`).
+Lorekeep resolves its data home with this precedence: explicit `LOREKEEP_*` env >
+`LOREKEEP_HOME` > dev mode (`.lorekeep/` or `raw/` in CWD) > XDG default
+(`~/.config/lorekeep` + `~/.local/share/lorekeep`).
 
 ## Installed use (recommended)
 
 ```bash
-uvx lorekeep init                     # bootstrap ~/.config/laputa + ~/.local/share/laputa
-# add your docs under ~/.local/share/laputa/raw/<ns>/
-LAPUTA_PROVIDER=fake uvx lorekeep compile  # (or set a real provider in config)
+uvx lorekeep init                     # bootstrap ~/.config/lorekeep + ~/.local/share/lorekeep
+# add your docs under ~/.local/share/lorekeep/raw/<ns>/
+LOREKEEP_PROVIDER=fake uvx lorekeep compile  # (or set a real provider in config)
 uvx lorekeep mcp add --agent claude --ns <ns>
 uvx lorekeep doctor
 ```
@@ -18,33 +18,33 @@ uvx lorekeep doctor
 `install_source` is `pypi` (the default from `init`):
 
 ```json
-{"mcpServers": {"laputa": {"command": "uvx",
+{"mcpServers": {"lorekeep": {"command": "uvx",
   "args": ["lorekeep", "serve", "--transport", "stdio"],
-  "env": {"LAPUTA_NS": "<ns>"}}}}
+  "env": {"LOREKEEP_NS": "<ns>"}}}}
 ```
 
 ## Local dev (repo co-located data)
 
-From the Laputa source checkout (has `.laputa/` → auto dev mode):
+From the Lorekeep source checkout (has `.lorekeep/` → auto dev mode):
 
 ```bash
 uv run lorekeep compile      # reads repo raw/, writes repo graph/
 uv run lorekeep serve
 ```
 
-Force dev mode anywhere: `LAPUTA_DEV=1 lorekeep ...`.
+Force dev mode anywhere: `LOREKEEP_DEV=1 lorekeep ...`.
 
 ## Custom knowledge base
 
 ```bash
-LAPUTA_HOME=~/kb-work uvx lorekeep init
-LAPUTA_HOME=~/kb-work uvx lorekeep compile
+LOREKEEP_HOME=~/kb-work uvx lorekeep init
+LOREKEEP_HOME=~/kb-work uvx lorekeep compile
 ```
 
 ## Tools (read-only, scoped)
 
 `search`, `get_node`, `neighbors`, `at_time`, `history`, `changes`,
-`list_namespaces`, `schema`. Results are filtered to `LAPUTA_NS`; cross-namespace
+`list_namespaces`, `schema`. Results are filtered to `LOREKEEP_NS`; cross-namespace
 edges are hidden unless both endpoints are visible.
 
 ## Connect once (lazy-reload)
@@ -61,5 +61,5 @@ uvx lorekeep compile          # rebuilds facts.jsonl
 
 Connect the MCP server **once**; memory updates via `compile` are visible
 immediately. Reconnect is only needed for **code** changes (rare; the serve path
-is stable) or **scope** changes (`.mcp.json` `LAPUTA_NS`).
+is stable) or **scope** changes (`.mcp.json` `LOREKEEP_NS`).
 

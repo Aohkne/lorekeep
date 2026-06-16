@@ -1,10 +1,10 @@
-# Laputa local-only artifacts (never committed) — except the config template
-.laputa/*
-!.laputa/config.yaml.example
+# Lorekeep local-only artifacts (never committed) — except the config template
+.lorekeep/*
+!.lorekeep/config.yaml.example
 *.sqlite
 *.sqlite-*
 
-# Laputa compiled graph (reproducible via `laputa compile`; keep schema.json)
+# Lorekeep compiled graph (reproducible via `lorekeep compile`; keep schema.json)
 graph/facts.jsonl
 graph/manifest.json
 

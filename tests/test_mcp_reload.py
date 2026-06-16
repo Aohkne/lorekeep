@@ -1,10 +1,10 @@
 """Lazy-reload: the server refreshes the graph when facts.jsonl changes on disk,
-so memory updates (laputa compile) are visible without reconnecting the MCP client.
+so memory updates (lorekeep compile) are visible without reconnecting the MCP client.
 """
 import shutil
 from pathlib import Path
 
-import laputa.mcp_server as ms
+import lorekeep.mcp_server as ms
 
 
 def test_lazy_reload_on_facts_change(tmp_path: Path, fixtures: Path):

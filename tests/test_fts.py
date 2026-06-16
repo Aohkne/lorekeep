@@ -1,6 +1,6 @@
 from pathlib import Path
-from laputa.models import Node
-from laputa.store.fts import FTSIndex, scan_search, node_text
+from lorekeep.models import Node
+from lorekeep.store.fts import FTSIndex, scan_search, node_text
 
 
 def nd(id, name, lang=None):

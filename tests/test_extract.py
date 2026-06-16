@@ -1,7 +1,7 @@
 from datetime import date
 import json
-from laputa.models import DocChunk, Schema
-from laputa.compile.extract import build_prompt, parse_response, SYSTEM_PROMPT
+from lorekeep.models import DocChunk, Schema
+from lorekeep.compile.extract import build_prompt, parse_response, SYSTEM_PROMPT
 
 
 SCHEMA = Schema.load({
@@ -61,8 +61,8 @@ def test_parse_response_skips_invalid_node_type():
 
 
 from pathlib import Path
-from laputa.compile.extract import ExtractionCache, extract_chunk
-from laputa.compile.providers import FakeProvider
+from lorekeep.compile.extract import ExtractionCache, extract_chunk
+from lorekeep.compile.providers import FakeProvider
 
 
 def test_cache_key_depends_on_chunk_and_schema(tmp_path: Path):

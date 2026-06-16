@@ -14,7 +14,7 @@ The first directory under `raw/` becomes the fact's `ns` (e.g. `backend`, `front
 ## 2. Configure a provider
 
 ```bash
-cp .laputa/config.yaml.example .laputa/config.yaml
+cp .lorekeep/config.yaml.example .lorekeep/config.yaml
 # edit model / api_base as needed
 ```
 
@@ -35,7 +35,7 @@ uv run lorekeep compile
 
 Produces `graph/facts.jsonl` + `graph/manifest.json`. Re-running is idempotent:
 unchanged input yields a byte-identical file (extraction is cached under
-`.laputa/cache.json`).
+`.lorekeep/cache.json`).
 
 ## 4. Evaluate construction quality
 
@@ -46,7 +46,7 @@ uv run lorekeep eval
 ```
 
 Reports extraction P/R/F1, entity-resolution F1, and graph-structure metrics.
-Snapshots to `.laputa/eval/results.json`.
+Snapshots to `.lorekeep/eval/results.json`.
 
 ## 5. Validate
 
@@ -62,8 +62,8 @@ See [serve.md](serve.md) to expose the graph to Claude Code / Cursor / Codex ove
 
 ## Data home
 
-Laputa reads/writes data from a home resolved as: explicit `LAPUTA_*` env >
-`LAPUTA_HOME` > dev mode (`.laputa/` or `raw/` in CWD) > XDG
-(`~/.config/laputa` config, `~/.local/share/laputa` data). `lorekeep init`
+Lorekeep reads/writes data from a home resolved as: explicit `LOREKEEP_*` env >
+`LOREKEEP_HOME` > dev mode (`.lorekeep/` or `raw/` in CWD) > XDG
+(`~/.config/lorekeep` config, `~/.local/share/lorekeep` data). `lorekeep init`
 bootstraps a fresh home. In a source checkout, dev mode is auto-detected so
 `uv run lorekeep compile` uses the repo's `raw/` + `graph/`.

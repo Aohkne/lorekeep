@@ -1,0 +1,31 @@
+"""Load gold + compiled facts, and define match keys for evaluation."""
+from __future__ import annotations
+
+from pathlib import Path
+
+from lorekeep.facts_io import read_facts
+from lorekeep.models import Edge, Node
+
+
+def load_gold(gold_dir: Path) -> list[Node | Edge]:
+    """Load every *.facts.jsonl under gold_dir."""
+    facts: list[Node | Edge] = []
+    for p in sorted(gold_dir.glob("**/*.facts.jsonl")):
+        facts.extend(read_facts(p))
+    return facts
+
+
+def load_compiled(graph_dir: Path) -> list[Node | Edge]:
+    return read_facts(graph_dir / "facts.jsonl")
+
+
+def node_key(n: Node) -> tuple[str, str]:
+    return (n.type, n.props.get("name", n.id))
+
+
+def edge_key(e: Edge, nodes_by_id: dict[str, Node]) -> tuple[str, str, str]:
+    f = nodes_by_id.get(e.from_)
+    t = nodes_by_id.get(e.to)
+    fn = f.props.get("name", e.from_) if f else e.from_
+    tn = t.props.get("name", e.to) if t else e.to
+    return (e.type, fn, tn)

@@ -1,5 +1,5 @@
 from pathlib import Path
-from laputa.config import Config, load_config
+from lorekeep.config import Config, load_config
 
 
 def test_load_config(tmp_path: Path):

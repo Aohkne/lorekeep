@@ -1,6 +1,6 @@
 import shutil, tempfile
 from pathlib import Path
-import laputa.mcp_server as ms
+import lorekeep.mcp_server as ms
 
 
 def setup_server(fixtures: Path, allowed):

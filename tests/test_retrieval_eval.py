@@ -1,5 +1,5 @@
 from pathlib import Path
-from laputa.eval.retrieval import retrieval_report
+from lorekeep.eval.retrieval import retrieval_report
 
 
 def test_retrieval_report_all_pass(fixtures: Path, tmp_path: Path):

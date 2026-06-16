@@ -1,10 +1,10 @@
-# Laputa
+# Lorekeep
 
 **A temporal knowledge graph for AI agents, served read-only over MCP.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Laputa compiles a team's raw documentation into a versioned, time-aware
+Lorekeep compiles a team's raw documentation into a versioned, time-aware
 knowledge graph (`facts.jsonl`) and exposes it to coding agents (Claude Code,
 Cursor, Codex) through the Model Context Protocol — with per-namespace
 permission and zero servers to run.
@@ -25,7 +25,7 @@ Existing tools each miss part of what a team needs:
 | mcp-knowledge-graph | ✅ | ❌ | ❌ | ❌ (local) | ✅ |
 | mem0 / cognee | ❌ (DB) | partial | ❌ | partial (DB) | ✅ |
 
-Laputa targets the gap: **strictly file-based + temporal graph + compile-once +
+Lorekeep targets the gap: **strictly file-based + temporal graph + compile-once +
 namespace-scoped permission + MCP** — for team-level (not just single-user)
 knowledge.
 
@@ -56,21 +56,21 @@ knowledge.
 uvx lorekeep init                 # try it without installing
 
 # or from a clone:
-git clone https://github.com/manhhailua/laputa && cd laputa
+git clone https://github.com/manhhailua/lorekeep && cd lorekeep
 uv tool install .                 # installs the `lorekeep` command
 ```
 
 ## Quickstart
 
 ```bash
-# 1. bootstrap a data home (~/.config/laputa + ~/.local/share/laputa)
+# 1. bootstrap a data home (~/.config/lorekeep + ~/.local/share/lorekeep)
 uvx lorekeep init
 
 # 2. add docs under the data home's raw/<namespace>/
-mkdir -p ~/.local/share/laputa/raw/backend
-cp your-docs.md ~/.local/share/laputa/raw/backend/
+mkdir -p ~/.local/share/lorekeep/raw/backend
+cp your-docs.md ~/.local/share/lorekeep/raw/backend/
 
-# 3. set a provider (edit ~/.config/laputa/config.yaml), then compile
+# 3. set a provider (edit ~/.config/lorekeep/config.yaml), then compile
 uvx lorekeep compile                # raw/*.md -> graph/facts.jsonl
 
 # 4. wire a coding agent (writes a portable .mcp.json)
@@ -80,7 +80,7 @@ uvx lorekeep mcp add --agent claude --ns backend
 uvx lorekeep doctor
 ```
 
-Restart Claude Code → the 8 Laputa tools are available, scoped to your namespace.
+Restart Claude Code → the 8 Lorekeep tools are available, scoped to your namespace.
 
 ## How it works
 
@@ -137,7 +137,7 @@ namespace.
 
 ## Configuration
 
-`config.yaml` (resolved by precedence: explicit `LAPUTA_*` env > `LAPUTA_HOME` >
+`config.yaml` (resolved by precedence: explicit `LOREKEEP_*` env > `LOREKEEP_HOME` >
 dev marker > XDG):
 ```yaml
 provider:
@@ -151,18 +151,18 @@ install_source: pypi                                   # pypi = portable .mcp.js
 ```
 API keys never live in committed files — use `api_key_env` (env) or inline
 `api_key` in the gitignored config only. Examples (DashScope / OpenAI / Ollama)
-in [`.laputa/config.yaml.example`](.laputa/config.yaml.example).
+in [`.lorekeep/config.yaml.example`](.lorekeep/config.yaml.example).
 
 ## Data home & dev mode
 
-Path resolution (high → low): explicit `LAPUTA_*` env → `LAPUTA_HOME` →
-**dev mode** (`.laputa/` or `raw/` in CWD; auto-detected in a source checkout)
-→ XDG (`~/.config/laputa`, `~/.local/share/laputa`). So:
+Path resolution (high → low): explicit `LOREKEEP_*` env → `LOREKEEP_HOME` →
+**dev mode** (`.lorekeep/` or `raw/` in CWD; auto-detected in a source checkout)
+→ XDG (`~/.config/lorekeep`, `~/.local/share/lorekeep`). So:
 
 - **Installed**: `uvx lorekeep init` bootstraps the XDG home.
 - **Local dev**: from the repo, `uv run lorekeep compile` uses the repo's
   `raw/` + `graph/` (zero migration).
-- **Custom KB**: `LAPUTA_HOME=~/kb-work uvx lorekeep …`.
+- **Custom KB**: `LOREKEEP_HOME=~/kb-work uvx lorekeep …`.
 
 See [`docs/compile.md`](docs/compile.md) and [`docs/serve.md`](docs/serve.md).
 
@@ -172,12 +172,12 @@ Tier-1 (CI): extraction P/R/F1 vs a gold corpus, entity-resolution pairwise F1,
 graph-structure metrics, determinism. Run: `uvx lorekeep eval`. The north star is
 *systematic thinking with complete information* — memory-recall benchmarks
 (LoCoMo, LongMemEval) are parity checks, not the optimization target. See the
-[design spec](docs/superpowers/specs/2026-06-14-laputa-temporal-kg-mcp-design.md) §16.
+[design spec](docs/superpowers/specs/2026-06-14-lorekeep-temporal-kg-mcp-design.md) §16.
 
 ## Project layout
 
 ```
-src/laputa/
+src/lorekeep/
   models.py            shared contract (Node/Edge/Schema/Manifest)
   facts_io.py          facts.jsonl loader (store + eval)
   paths.py             4-tier path resolution (env/home/dev/XDG)
@@ -203,20 +203,20 @@ PyPI as `lorekeep`.
 
 Roadmap (phase 2+): streamable-HTTP team server, OIDC/SSO,
 embeddings/hybrid search, `wiki.md` views, full Tier-2 benchmark datasets
-(HotpotQA/CronQuestions) and the bespoke Tier-3 Laputa-Reason eval.
+(HotpotQA/CronQuestions) and the bespoke Tier-3 Lorekeep-Reason eval.
 
 ## Documentation
 
 - [Compile quickstart](docs/compile.md)
 - [Serve to coding agents](docs/serve.md)
-- [Design spec (architecture, permission, temporal, eval)](docs/superpowers/specs/2026-06-14-laputa-temporal-kg-mcp-design.md)
-- Implementation plans: [A compile](docs/superpowers/plans/2026-06-14-laputa-plan-a-compile-pipeline.md),
-  [B serve](docs/superpowers/plans/2026-06-14-laputa-plan-b-serve-mcp.md),
-  [C data-home](docs/superpowers/plans/2026-06-15-laputa-plan-c-data-home-dev-mode.md)
+- [Design spec (architecture, permission, temporal, eval)](docs/superpowers/specs/2026-06-14-lorekeep-temporal-kg-mcp-design.md)
+- Implementation plans: [A compile](docs/superpowers/plans/2026-06-14-lorekeep-plan-a-compile-pipeline.md),
+  [B serve](docs/superpowers/plans/2026-06-14-lorekeep-plan-b-serve-mcp.md),
+  [C data-home](docs/superpowers/plans/2026-06-15-lorekeep-plan-c-data-home-dev-mode.md)
 
 ## License
 
-Laputa is released under the **MIT License** — see [`LICENSE`](LICENSE).
+Lorekeep is released under the **MIT License** — see [`LICENSE`](LICENSE).
 
 Copyright © 2026 Manh Pham. You're free to use, copy, modify, merge, publish,
 distribute, sublicense, and/or sell copies of the software, provided the

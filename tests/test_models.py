@@ -1,6 +1,6 @@
 from datetime import date
 import json
-from laputa.models import Node, Edge, DocChunk, Schema, Manifest
+from lorekeep.models import Node, Edge, DocChunk, Schema, Manifest
 
 
 def test_node_serializes_with_sorted_keys():

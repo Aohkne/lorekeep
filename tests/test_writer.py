@@ -1,8 +1,8 @@
 from datetime import date
 from pathlib import Path
 import json
-from laputa.models import Node, Edge, Manifest
-from laputa.compile.writer import write_graph, run_id, facts_hash
+from lorekeep.models import Node, Edge, Manifest
+from lorekeep.compile.writer import write_graph, run_id, facts_hash
 
 
 def n(id, type="service"):
@@ -48,7 +48,7 @@ def test_manifest_written(tmp_path: Path):
 
 
 def test_run_id_deterministic():
-    from laputa.models import DocChunk
+    from lorekeep.models import DocChunk
     cs = [DocChunk(path="b.md", start_line=1, end_line=1, text="x", namespace="t/b"),
           DocChunk(path="a.md", start_line=1, end_line=1, text="x", namespace="t/a")]
     assert run_id(cs, 1) == run_id(list(reversed(cs)), 1)

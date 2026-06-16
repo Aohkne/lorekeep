@@ -1,5 +1,5 @@
 from pathlib import Path
-from laputa.compile.ingest import ingest, namespace_for
+from lorekeep.compile.ingest import ingest, namespace_for
 
 
 def test_namespace_from_path(tmp_path: Path):

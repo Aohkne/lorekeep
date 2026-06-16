@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from typer.testing import CliRunner
-from laputa.cli import app
+from lorekeep.cli import app
 
 runner = CliRunner()
 
@@ -12,9 +12,9 @@ def test_eval_construction_command(tmp_path: Path, fixtures: Path, monkeypatch):
     out.mkdir()
     (out / "facts.jsonl").write_text(
         (fixtures / "gold/payments.facts.jsonl").read_text())
-    monkeypatch.setenv("LAPUTA_OUT", str(out))
-    monkeypatch.setenv("LAPUTA_GOLD", str(fixtures / "gold"))
-    monkeypatch.setenv("LAPUTA_EVAL_RESULTS", str(tmp_path / "results.json"))
+    monkeypatch.setenv("LOREKEEP_OUT", str(out))
+    monkeypatch.setenv("LOREKEEP_GOLD", str(fixtures / "gold"))
+    monkeypatch.setenv("LOREKEEP_EVAL_RESULTS", str(tmp_path / "results.json"))
 
     result = runner.invoke(app, ["eval"])
     assert result.exit_code == 0, result.stdout
@@ -28,8 +28,8 @@ def test_check_command_reports_clean_graph(tmp_path: Path, fixtures: Path, monke
     out.mkdir()
     (out / "facts.jsonl").write_text(
         (fixtures / "gold/payments.facts.jsonl").read_text())
-    monkeypatch.setenv("LAPUTA_OUT", str(out))
-    monkeypatch.setenv("LAPUTA_SCHEMA", str(fixtures / "schema.json"))
+    monkeypatch.setenv("LOREKEEP_OUT", str(out))
+    monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
     result = runner.invoke(app, ["check"])
     assert result.exit_code == 0, result.stdout
     assert "ok" in result.stdout.lower()

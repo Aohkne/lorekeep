@@ -1,6 +1,6 @@
 from datetime import date
-from laputa.models import Node, Edge
-from laputa.compile.resolve import resolve, ResolveResult
+from lorekeep.models import Node, Edge
+from lorekeep.compile.resolve import resolve, ResolveResult
 
 
 def n(id, type="service", name=None):

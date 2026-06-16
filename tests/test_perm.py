@@ -1,5 +1,5 @@
-from laputa.models import Node, Edge
-from laputa.perm.ns import effective_ns, is_node_visible, is_edge_visible
+from lorekeep.models import Node, Edge
+from lorekeep.perm.ns import effective_ns, is_node_visible, is_edge_visible
 
 
 def n(id, ns):
@@ -38,7 +38,7 @@ def test_deny_default_when_endpoint_none():
     assert not is_edge_visible(e("a", "ghost", ["teams/backend"]), a, None, eff)
 
 
-from laputa.store.graph import GraphStore
+from lorekeep.store.graph import GraphStore
 
 
 def store_with_cross_ns(tmp_path):
@@ -56,7 +56,7 @@ def store_with_cross_ns(tmp_path):
 
 def test_scoped_get_node_hides_other_ns(tmp_path):
     g = store_with_cross_ns(tmp_path)
-    from laputa.perm.ns import ScopedGraph
+    from lorekeep.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, ["teams/backend"])
     assert scoped.get_node("a") is not None
     assert scoped.get_node("c") is None              # frontend hidden
@@ -64,7 +64,7 @@ def test_scoped_get_node_hides_other_ns(tmp_path):
 
 def test_scoped_neighbors_hides_cross_ns_edge(tmp_path):
     g = store_with_cross_ns(tmp_path)
-    from laputa.perm.ns import ScopedGraph
+    from lorekeep.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, ["teams/backend"])
     nb = scoped.neighbors("a", depth=1)
     ids = {n.id for n in nb["nodes"]}
@@ -74,15 +74,15 @@ def test_scoped_neighbors_hides_cross_ns_edge(tmp_path):
 
 def test_scoped_public_caller_sees_public_only(tmp_path):
     g = store_with_cross_ns(tmp_path)
-    from laputa.perm.ns import ScopedGraph
+    from lorekeep.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, [])                       # only public
     assert scoped.get_node("a") is None
 
 
 def test_scoped_snapshot_filters_hidden(tmp_path):
     g = store_with_cross_ns(tmp_path)
-    from laputa.perm.ns import ScopedGraph
-    from laputa.store.graph import parse_date
+    from lorekeep.perm.ns import ScopedGraph
+    from lorekeep.store.graph import parse_date
     scoped = ScopedGraph(g, ["teams/frontend"])
     nodes, edges = scoped.snapshot(parse_date("2024-01-15"))
     assert {n.id for n in nodes} == {"c"}            # backend hidden
@@ -90,15 +90,15 @@ def test_scoped_snapshot_filters_hidden(tmp_path):
 
 def test_scoped_history_empty_for_hidden(tmp_path):
     g = store_with_cross_ns(tmp_path)
-    from laputa.perm.ns import ScopedGraph
+    from lorekeep.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, ["teams/frontend"])
     assert scoped.history("a") == []                 # a hidden
 
 
 def test_scoped_changes_filters_edges_to_hidden(tmp_path):
     g = store_with_cross_ns(tmp_path)
-    from laputa.perm.ns import ScopedGraph
-    from laputa.store.graph import parse_date
+    from lorekeep.perm.ns import ScopedGraph
+    from lorekeep.store.graph import parse_date
     scoped = ScopedGraph(g, ["teams/backend"])
     rep = scoped.changes(parse_date("2000-01-01"), parse_date("2100-01-01"))
     # edge a->c: a visible, c hidden -> edge dropped
@@ -107,14 +107,14 @@ def test_scoped_changes_filters_edges_to_hidden(tmp_path):
 
 def test_list_namespaces(tmp_path):
     g = store_with_cross_ns(tmp_path)
-    from laputa.perm.ns import ScopedGraph
+    from lorekeep.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, ["teams/backend"])
     assert scoped.list_namespaces() == ["public", "teams/backend"]
 
 
 def test_scoped_search_filters_hidden(tmp_path):
     g = store_with_cross_ns(tmp_path)
-    from laputa.perm.ns import ScopedGraph
+    from lorekeep.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, ["teams/frontend"])
     # search 'a' would match node a (backend) and c (frontend name 'c' has no 'a'? c text has 'c')
     # node a is backend -> hidden; only visible results returned

@@ -1,6 +1,6 @@
-# Security policy — Laputa
+# Security policy — Lorekeep
 
-Laputa compiles team documents into a temporal knowledge graph and serves it
+Lorekeep compiles team documents into a temporal knowledge graph and serves it
 read-only to AI coding agents over MCP. This document describes the threat
 model and the configuration decisions that keep a deployment safe.
 
@@ -10,8 +10,8 @@ model and the configuration decisions that keep a deployment safe.
   `lorekeep compile` and never mutated by the server. Agents read via MCP; there is
   no write API. No concurrency control is needed because readers are read-only.
 - **Per-process namespace scope.** An MCP server's visible data is fixed at startup
-  by `LAPUTA_NS` (comma-separated namespaces). Visibility is enforced by a single
-  chokepoint, `ScopedGraph` (`src/laputa/perm/ns.py`), applied to **every** query.
+  by `LOREKEEP_NS` (comma-separated namespaces). Visibility is enforced by a single
+  chokepoint, `ScopedGraph` (`src/lorekeep/perm/ns.py`), applied to **every** query.
 - **Deny-by-default.** `effective_ns = allowed ∪ {public}`. A node is visible iff
   `node.ns ∩ effective_ns ≠ ∅`; an edge is visible iff **both** endpoints are
   visible **and** `edge.ns ∩ effective_ns ≠ ∅`.
@@ -26,7 +26,7 @@ At compile, **every file under `raw/` is sent to the configured LLM provider**
 for extraction. This is by design (the documents *are* the knowledge graph's
 source), but it has two consequences:
 
-1. Treat `raw/` as trusted content. Do not point `LAPUTA_RAW` at a directory
+1. Treat `raw/` as trusted content. Do not point `LOREKEEP_RAW` at a directory
    that holds secrets.
 2. **Symlink guard.** `compile/ingest.py` skips any file whose resolved target
    escapes `raw_root` and warns on stderr. This prevents a planted symlink
@@ -41,7 +41,7 @@ For team/shared `raw/` directories (a stated target), the trust boundary is
 - Prefer `api_key_env` (the name of an environment variable) over an inline
   `api_key`. The provider resolves the env var first and only falls back to the
   inline value if the env var is unset.
-- `config.yaml` is gitignored by default (`.laputa/*` except the `.example`
+- `config.yaml` is gitignored by default (`.lorekeep/*` except the `.example`
   template). **Never commit a real `config.yaml`.** If an inline key is used,
   `lorekeep compile` prints a warning recommending `api_key_env`.
 - Keys are passed only to `litellm.completion` at compile; the server never reads
@@ -52,7 +52,7 @@ For team/shared `raw/` directories (a stated target), the trust boundary is
 - No `subprocess`, shell, `eval`, `exec`, `pickle`, or `marshal`. Config uses
   `yaml.safe_load`; all user-supplied data is parsed as JSON. SQLite FTS uses
   parameterized queries.
-- Filesystem writes are confined to the data home (`raw/`, `graph/`, `.laputa/`)
+- Filesystem writes are confined to the data home (`raw/`, `graph/`, `.lorekeep/`)
   and, for `lorekeep mcp add`, the agent config file (`.mcp.json` /
   `.cursor/mcp.json` / `config.toml`), which is merged, not clobbered.
 - `facts.jsonl` and `manifest.json` are written atomically (temp file +
@@ -61,7 +61,7 @@ For team/shared `raw/` directories (a stated target), the trust boundary is
 ## Reporting a vulnerability
 
 Please open a private security advisory on
-[github.com/manhhailua/laputa](https://github.com/manhhailua/laputa/security/advisories/new)
+[github.com/manhhailua/lorekeep](https://github.com/manhhailua/lorekeep/security/advisories/new)
 rather than a public issue. Include the affected version, a reproduction, and
 impact. Reports are acknowledged within 7 days. A fix and disclosure are
 coordinated with the reporter.
@@ -71,6 +71,6 @@ coordinated with the reporter.
 - An inline `api_key` may live in a gitignored `config.yaml`. Owners are
   responsible for keeping that file local.
 - Shared `raw/` directories trust everyone with write access (see egress above).
-- The MCP client (the coding agent) is trusted within its `LAPUTA_NS` scope: it
+- The MCP client (the coding agent) is trusted within its `LOREKEEP_NS` scope: it
   can read everything in scope, which is the intended behavior. Scope assignment
   is an operational responsibility, not enforced by the server.

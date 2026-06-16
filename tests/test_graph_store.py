@@ -1,5 +1,5 @@
 from pathlib import Path
-from laputa.store.graph import GraphStore
+from lorekeep.store.graph import GraphStore
 
 
 def store_from_gold(fixtures: Path) -> GraphStore:
@@ -47,7 +47,7 @@ def test_neighbors_unknown_node(fixtures: Path):
     assert g.neighbors("nope") == {"nodes": [], "edges": []}
 
 
-from laputa.store.graph import parse_date
+from lorekeep.store.graph import parse_date
 
 
 def test_snapshot_includes_active_edge_before_valid_to(fixtures: Path):

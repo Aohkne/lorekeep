@@ -1,5 +1,5 @@
 from pathlib import Path
-from laputa.eval.gold import load_gold, load_compiled, node_key, edge_key
+from lorekeep.eval.gold import load_gold, load_compiled, node_key, edge_key
 
 
 def test_load_gold(tmp_path: Path, fixtures: Path):
@@ -10,20 +10,20 @@ def test_load_gold(tmp_path: Path, fixtures: Path):
 
 
 def test_node_key_uses_type_and_name():
-    from laputa.models import Node
+    from lorekeep.models import Node
     n = Node(id="svc:x", type="service", ns=("t/b",), props={"name": "auth"})
     assert node_key(n) == ("service", "auth")
 
 
 def test_edge_key_uses_type_and_endpoint_names():
-    from laputa.models import Node, Edge
+    from lorekeep.models import Node, Edge
     nodes = {"svc:a": Node(id="svc:a", type="service", ns=("t/b",), props={"name": "a"}),
              "svc:b": Node(id="svc:b", type="service", ns=("t/b",), props={"name": "b"})}
     e = Edge(id="e1", type="depends_on", **{"from": "svc:a"}, to="svc:b", ns=("t/b",))
     assert edge_key(e, nodes) == ("depends_on", "a", "b")
 
 
-from laputa.eval.construction import precision_recall_f1, extraction_report
+from lorekeep.eval.construction import precision_recall_f1, extraction_report
 
 
 def test_prf1_perfect():
@@ -39,10 +39,10 @@ def test_prf1_partial():
 def test_extraction_report_against_gold(tmp_path: Path, fixtures: Path):
     # compile with the canned fixture response, then score vs gold
     import json as _json
-    from laputa.pipeline import compile_graph
-    from laputa.compile.providers import FakeProvider
-    from laputa.models import Schema
-    from laputa.eval.gold import load_gold
+    from lorekeep.pipeline import compile_graph
+    from lorekeep.compile.providers import FakeProvider
+    from lorekeep.models import Schema
+    from lorekeep.eval.gold import load_gold
 
     raw = tmp_path / "raw"
     (raw / "teams/backend").mkdir(parents=True)
@@ -71,12 +71,12 @@ def test_extraction_report_against_gold(tmp_path: Path, fixtures: Path):
     assert report["edges"]["f1"] == 1.0
 
 
-from laputa.eval.construction import entity_resolution_f1
+from lorekeep.eval.construction import entity_resolution_f1
 
 
 def test_er_f1_perfect_merge():
     # two distinct mentions correctly merged under one canonical id
-    from laputa.models import Node
+    from lorekeep.models import Node
     compiled = [Node(id="svc:a", type="service", ns=("t/b",), props={"name": "a"}),
                 Node(id="svc:a", type="service", ns=("t/b",), props={"name": "a2"})]
     gold = [{"id": "svc:a", "aliases": ["a", "a2"]}]
@@ -86,7 +86,7 @@ def test_er_f1_perfect_merge():
 
 def test_er_f1_false_split():
     # gold says one entity, compiled split into two -> recall drops
-    from laputa.models import Node
+    from lorekeep.models import Node
     compiled = [Node(id="svc:a", type="service", ns=("t/b",), props={"name": "a"}),
                 Node(id="svc:b", type="service", ns=("t/b",), props={"name": "b"})]
     gold = [{"id": "svc:x", "aliases": ["a", "b"]}]
@@ -94,7 +94,7 @@ def test_er_f1_false_split():
     assert r["recall"] < 1.0
 
 
-from laputa.eval.construction import structure_report
+from lorekeep.eval.construction import structure_report
 
 
 def test_structure_metrics(tmp_path: Path, fixtures: Path):

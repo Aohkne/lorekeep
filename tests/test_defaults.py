@@ -1,7 +1,7 @@
 import json
 import yaml
-from laputa.defaults import DEFAULT_SCHEMA, DEFAULT_CONFIG_YAML
-from laputa.config import Config
+from lorekeep.defaults import DEFAULT_SCHEMA, DEFAULT_CONFIG_YAML
+from lorekeep.config import Config
 
 
 def test_default_schema_is_valid_json_v2():

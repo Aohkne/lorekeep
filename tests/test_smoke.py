@@ -1,5 +1,5 @@
 from typer.testing import CliRunner
-from laputa.cli import app
+from lorekeep.cli import app
 
 runner = CliRunner()
 

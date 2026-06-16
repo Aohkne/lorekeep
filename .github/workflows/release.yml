@@ -2,7 +2,7 @@ name: release
 
 # Publish to PyPI via OIDC trusted publishing (no API token).
 # Triggers on a published GitHub Release. Requires a "pending trusted publisher"
-# configured on PyPI (project = lorekeep, repo = manhhailua/laputa,
+# configured on PyPI (project = lorekeep, repo = manhhailua/lorekeep,
 # workflow = release.yml, environment = blank) before the first release.
 on:
   release:

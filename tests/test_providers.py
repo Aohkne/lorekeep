@@ -1,4 +1,4 @@
-from laputa.compile.providers import LLMProvider, FakeProvider, LiteLLMProvider
+from lorekeep.compile.providers import LLMProvider, FakeProvider, LiteLLMProvider
 
 
 def test_fake_provider_returns_fixed_output():

@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
-from laputa.pipeline import compile_graph
-from laputa.compile.providers import FakeProvider
-from laputa.models import Schema
+from lorekeep.pipeline import compile_graph
+from lorekeep.compile.providers import FakeProvider
+from lorekeep.models import Schema
 
 
 def test_recompile_is_byte_identical(tmp_path: Path, fixtures: Path):

@@ -1,28 +1,28 @@
 from pathlib import Path
 from typer.testing import CliRunner
-from laputa.cli import app
+from lorekeep.cli import app
 
 runner = CliRunner()
 
 
 def test_mcp_add_claude_project(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("LAPUTA_CONFIG", str(tmp_path / "config.yaml"))
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     (tmp_path / "config.yaml").write_text("install_source: local\n")
     result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--ns", "teams/backend"])
     assert result.exit_code == 0, result.stdout
     import json
     data = json.loads((tmp_path / ".mcp.json").read_text())
-    assert data["mcpServers"]["laputa"]["command"] == "lorekeep"
-    assert "laputa knowledge base" in result.stdout.lower()   # snippet printed
+    assert data["mcpServers"]["lorekeep"]["command"] == "lorekeep"
+    assert "lorekeep knowledge base" in result.stdout.lower()   # snippet printed
 
 
 def test_mcp_add_codex_user(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)        # user scope -> tmp_path
-    monkeypatch.setenv("LAPUTA_CONFIG", str(tmp_path / "config.yaml"))
-    (tmp_path / "config.yaml").write_text("install_source: git+https://github.com/x/laputa.git\n")
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
+    (tmp_path / "config.yaml").write_text("install_source: git+https://github.com/x/lorekeep.git\n")
     result = runner.invoke(app, ["mcp", "add", "--agent", "codex", "--scope", "user"])
     assert result.exit_code == 0, result.stdout
     text = (tmp_path / "config.toml").read_text()
-    assert "--from" in text and "git+https://github.com/x/laputa.git" in text
+    assert "--from" in text and "git+https://github.com/x/lorekeep.git" in text

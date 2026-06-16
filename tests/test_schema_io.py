@@ -1,5 +1,5 @@
 from pathlib import Path
-from laputa.schema_io import load_schema
+from lorekeep.schema_io import load_schema
 
 
 def test_load_schema_from_file(tmp_path: Path):
