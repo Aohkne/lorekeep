@@ -9,7 +9,7 @@ import typer
 
 from lorekeep import __version__
 from lorekeep.compile.providers import FakeProvider, LiteLLMProvider
-from lorekeep.config import load_config
+from lorekeep.config import Config, load_config
 from lorekeep.pipeline import compile_graph
 from lorekeep.paths import resolve_paths
 from lorekeep.defaults import DEFAULT_CONFIG_YAML, DEFAULT_SCHEMA
@@ -23,6 +23,25 @@ app = typer.Typer(help="Lorekeep — compile team docs into a temporal knowledge
 def _main() -> None:
     """Lorekeep — compile team docs into a temporal knowledge graph."""
 
+
+def _build_provider(config: Config) -> LiteLLMProvider:
+    """Create a real LLM provider from config.  Shared by compile + import."""
+    api_key = None
+    if config.provider.api_key_env:
+        api_key = os.environ.get(config.provider.api_key_env)
+    if not api_key:
+        api_key = config.provider.api_key
+    if api_key is config.provider.api_key and api_key:
+        typer.echo(
+            "warning: using inline api_key from config.yaml — prefer api_key_env "
+            "(env var). config.yaml is gitignored but env is safer."
+        )
+    return LiteLLMProvider(
+        model=config.provider.model,
+        api_base=config.provider.api_base,
+        temperature=config.provider.temperature,
+        api_key=api_key,
+    )
 
 
 @app.command()
@@ -57,22 +76,7 @@ def compile() -> None:
         })
         provider = FakeProvider(responses=[canned])
     else:
-        api_key = None
-        if config.provider.api_key_env:
-            api_key = os.environ.get(config.provider.api_key_env)
-        if not api_key:
-            api_key = config.provider.api_key
-        if api_key is config.provider.api_key and api_key:
-            typer.echo(
-                "warning: using inline api_key from config.yaml — prefer api_key_env "
-                "(env var). config.yaml is gitignored but env is safer."
-            )
-        provider = LiteLLMProvider(
-            model=config.provider.model,
-            api_base=config.provider.api_base,
-            temperature=config.provider.temperature,
-            api_key=api_key,
-        )
+        provider = _build_provider(config)
 
     manifest = compile_graph(
         raw_root=p["raw"], out_dir=p["out"], schema=schema,
@@ -223,6 +227,93 @@ def init() -> None:
         typer.echo(f"  wrote defaults: {created}")
     else:
         typer.echo("  (existing config/schema preserved)")
+
+
+@app.command("import")
+def import_cmd(
+    from_source: str = typer.Option(
+        "claude", "--from",
+        help="Source to import from (claude; extensible to cursor, codex)",
+    ),
+    quick: bool = typer.Option(
+        False, "--quick",
+        help="Quick mode: only import memory files, no LLM transcript analysis",
+    ),
+    session_path: str | None = typer.Option(
+        None, "--session-path",
+        help="Path to Claude session dir (auto-detect if omitted)",
+    ),
+    memory_ns: str = typer.Option(
+        "claude-memory", "--memory-ns",
+        help="Namespace for imported memory files",
+    ),
+    session_ns: str = typer.Option(
+        "claude-session", "--session-ns",
+        help="Namespace for imported session transcript files",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be imported without writing files",
+    ),
+) -> None:
+    """Import knowledge from Claude Code sessions into raw/.
+
+    Two modes:
+      --quick   Copy memory/*.md files only (fast, zero LLM cost).
+      (default) Memory + transcript analysis via LLM (deeper, uses provider).
+    """
+    if from_source != "claude":
+        typer.echo(f"unknown source: {from_source} (only 'claude' is supported)")
+        raise typer.Exit(code=1)
+
+    p = resolve_paths()
+    config = load_config(p["config"])
+
+    # Resolve session dir
+    if session_path:
+        session_dir = Path(session_path).expanduser()
+        if not session_dir.exists():
+            typer.echo(f"error: no Claude session found at {session_dir}")
+            raise typer.Exit(code=1)
+    else:
+        from lorekeep.importer.claude import find_current_session
+        session_dir = find_current_session()
+        if session_dir is None:
+            typer.echo("error: no Claude session found. "
+                       "Run Claude Code in this project first.")
+            raise typer.Exit(code=1)
+
+    # Build provider
+    provider = None
+    if not quick:
+        if os.environ.get("LOREKEEP_PROVIDER") == "fake":
+            from lorekeep.compile.providers import FakeProvider
+            # Provide enough canned responses for deep mode batches
+            canned = "# Knowledge Summary\n\n## Decisions\n- No real session data imported (fake provider).\n"
+            provider = FakeProvider(responses=[canned] * 50)
+        else:
+            provider = _build_provider(config)
+
+    from lorekeep.importer.claude import import_claude
+    result = import_claude(
+        raw_root=p["raw"],
+        session_dir=session_dir,
+        quick=quick,
+        memory_ns=memory_ns,
+        session_ns=session_ns,
+        provider=provider,
+        dry_run=dry_run,
+    )
+
+    mem_count = len(result.get("memory", []))
+    ses_count = len(result.get("session", []))
+    if dry_run:
+        typer.echo(f"dry-run: would import {mem_count} memories, "
+                   f"{ses_count} session files")
+    else:
+        typer.echo(f"imported: {mem_count} memories -> raw/{memory_ns}/, "
+                   f"{ses_count} session files -> raw/{session_ns}/")
+        if not quick:
+            typer.echo("next: lorekeep compile")
 
 
 if __name__ == "__main__":

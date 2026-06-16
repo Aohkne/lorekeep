@@ -1,0 +1,2 @@
+- [Lorekeep project state](lorekeep-project-state.md) -- purpose and status
+- [Lorekeep design](lorekeep-design.md) -- architecture decisions

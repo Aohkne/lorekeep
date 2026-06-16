@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 @runtime_checkable
 class LLMProvider(Protocol):
     def extract_json(self, system: str, user: str) -> str: ...
+    def complete(self, system: str, user: str) -> str: ...
 
 
 class FakeProvider:
@@ -17,7 +18,13 @@ class FakeProvider:
         self.calls: list[tuple[str, str]] = []
 
     def extract_json(self, system: str, user: str) -> str:
-        self.calls.append((system, user))
+        self.calls.append(("json", system, user))
+        if not self._responses:
+            raise RuntimeError("FakeProvider: no canned response left")
+        return self._responses.pop(0)
+
+    def complete(self, system: str, user: str) -> str:
+        self.calls.append(("complete", system, user))
         if not self._responses:
             raise RuntimeError("FakeProvider: no canned response left")
         return self._responses.pop(0)
@@ -45,5 +52,23 @@ class LiteLLMProvider:
                 {"role": "user", "content": user},
             ],
             response_format={"type": "json_object"},
+        )
+        return resp.choices[0].message.content
+
+    def complete(self, system: str, user: str) -> str:
+        """Free-form completion (no response_format constraint).
+
+        Used for tasks that need markdown or prose, not structured JSON.
+        """
+        import litellm
+        resp = litellm.completion(
+            model=self.model,
+            api_base=self.api_base,
+            api_key=self.api_key,
+            temperature=self.temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
         )
         return resp.choices[0].message.content

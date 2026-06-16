@@ -1,0 +1,14 @@
+{"type":"message","uuid":"msg1","parentUuid":"root","message":{"role":"user","content":"<command-message>test</command-message>\nhãy build 1 API bằng FastAPI"},"role":"user"}
+{"type":"message","uuid":"msg2","parentUuid":"msg1","message":{"role":"assistant","content":[{"type":"text","text":"FastAPI là lựa chọn tốt vì native async support."},{"type":"tool_use","name":"write","input":{"path":"main.py","content":"..."}}]},"role":"assistant"}
+{"type":"message","uuid":"msg3","parentUuid":"msg2","message":{"role":"user","content":"thêm authentication bằng JWT"},"role":"user"}
+{"type":"message","uuid":"msg4","parentUuid":"msg3","message":{"role":"assistant","content":[{"type":"text","text":"JWT cần secret key và middleware verify. Dùng python-jose cho encode/decode."},{"type":"thinking","thinking":"Nên dùng HS256 hay RS256?"}]},"role":"assistant"}
+{"type":"message","uuid":"msg5","parentUuid":"msg4","message":{"role":"user","content":"quyết định dùng PostgreSQL thay vì SQLite vì cần concurrent writes"},"role":"user"}
+{"type":"message","uuid":"msg6","parentUuid":"msg5","message":{"role":"assistant","content":[{"type":"text","text":"PostgreSQL với asyncpg driver là phương án tốt nhất cho concurrent writes."},{"type":"text","text":"Cần thêm deadlock retry logic cho các transaction conflict."}]},"role":"assistant"}
+{"type":"message","uuid":"msg7","parentUuid":"msg6","message":{"role":"user","content":"deploy lên k8s cluster nào?"},"role":"user"}
+{"type":"message","uuid":"msg8","parentUuid":"msg7","message":{"role":"assistant","content":[{"type":"text","text":"Deploy lên staging cluster trước. Production cần approval từ team lead."}]},"role":"assistant"}
+{"type":"message","uuid":"msg9","parentUuid":"msg8","message":{"role":"user","content":"dùng tool gì để monitoring?"},"role":"user"}
+{"type":"message","uuid":"msg10","parentUuid":"msg9","message":{"role":"assistant","content":[{"type":"text","text":"Datadog APM + Prometheus metrics. Cài datadog-agent làm DaemonSet trên k8s."}]},"role":"assistant"}
+{"type":"ai-title","uuid":"title1","parentUuid":"root","title":"Build FastAPI API with JWT auth and PostgreSQL"}
+{"type":"ai-title","uuid":"title2","parentUuid":"root","title":"Build FastAPI API with JWT auth and PostgreSQL"}
+{"type":"system","uuid":"sys1","parentUuid":"root","duration_ms":1234}
+{"type":"last-prompt","uuid":"lp1","parentUuid":"root"}
