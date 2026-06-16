@@ -1,5 +1,7 @@
 # Lorekeep
 
+<p align="center"><img src="cover.jpeg" alt="Lorekeep" /></p>
+
 **A temporal knowledge graph for AI agents, served read-only over MCP.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
