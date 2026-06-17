@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/manhhailua/lorekeep/compare/v0.1.1...v0.1.2) (2026-06-17)
+
+
+### Features
+
+* lorekeep import --from claude (memories + transcript) ([df599ae](https://github.com/manhhailua/lorekeep/commit/df599aeddeafa61b8baf51258106bc6937884566))
+
 ## [0.1.1](https://github.com/manhhailua/lorekeep/compare/v0.1.0...v0.1.1) (2026-06-16)
 
 
