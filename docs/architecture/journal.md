@@ -135,6 +135,38 @@ Default: truncate. Archive mode available via `lorekeep resolve --archive`.
 
 The key insight: the agent **already paid** for the LLM call. Proposing a fact captures that output before it disappears. Every conversation becomes a knowledge source at no extra cost.
 
+## Security model
+
+### Namespace enforcement
+
+Write tools do not accept a caller-provided `ns` parameter. The namespace is server-enforced from `LOREKEEP_NS` — stripped from `fact.ns` and replaced at journal-append time. An agent scoped to `backend` cannot inject facts into `frontend` regardless of what it puts in the fact payload. This is enforced at the MCP server layer before any journal write.
+
+### Confidence gate hardening
+
+Self-estimated confidence is the primary gate, but not the only one. Additional controls planned:
+
+1. **Cross-namespace edge gate**: any `link_facts` connecting nodes in different namespaces requires curator review regardless of confidence — cross-ns edges are opt-in.
+2. **New entity type gate**: introducing a fact with a `type` not yet present in the graph requires confidence ≥ 0.9 AND curator review.
+3. **Contradiction flag escalation**: if `flag_contradiction` is called on a fact that was itself agent-proposed, both facts are quarantined until curator resolves.
+4. **Audit trail**: every auto-merged fact carries full provenance (`agent`, `proposed_at`, `src`) for forensic review. A `lorekeep agent status` dashboard shows auto-merge rate per agent.
+
+### Rate limiting
+
+Per-agent write caps prevent journal flooding:
+
+| Limit | Value | Rationale |
+|---|---|---|
+| Per session | 200 entries | One conversation shouldn't dominate the journal |
+| Per minute | 30 entries | Burst protection |
+| Per fact id | 3 re-proposals | Idempotent within window; beyond that, escalate to curator |
+| Batch resolve threshold | 50 entries | Trigger (not a limit — resolve runs at threshold OR time interval) |
+
+### Journal storage
+
+`pending/` journals are committed to git for sync, but quarantined entries (confidence < 0.5) have their `fact` content redacted to only `id`, `type`, `agent`, and `proposed_at`. The full fact payload is written to a gitignored `pending/.quarantine/` directory. This prevents quarantined fact content from leaking to anyone with repository access while preserving the audit trail.
+
+Alternatively, `pending/` can be fully gitignored and synced via a separate channel (S3, shared filesystem) — configurable per deployment.
+
 ## Related
 
 - [Pipeline](pipeline.md) — how resolve merges journals into the graph.

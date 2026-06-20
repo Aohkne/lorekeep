@@ -35,11 +35,13 @@ Write tools **will not mutate** `facts.jsonl` directly. They will append to `pen
 
 | Tool | Purpose | Confidence |
 |---|---|---|
-| `propose_fact(fact, confidence, ns)` | Propose a new node or edge discovered during conversation | Agent-estimated (0-1) |
-| `link_facts(from_id, to_id, type, confidence, ns)` | Create an edge between two existing nodes | Typically high (≥0.8) |
-| `flag_contradiction(fact_a_id, fact_b_id, description, ns)` | Report conflicting facts for curator review | N/A (review, not merge) |
-| `update_fact(id, props, confidence, ns)` | Propose updated props for an existing fact | Typically medium-high |
-| `suggest_improvement(description, ns)` | Suggest a non-fact improvement (gap, missing entity) | N/A (review only) |
+| `propose_fact(fact, confidence)` | Propose a new node or edge. `ns` is server-enforced from `LOREKEEP_NS`, caller-provided `fact.ns` is stripped. | Agent-estimated (0-1) |
+| `link_facts(from_id, to_id, type, confidence)` | Create an edge between two existing nodes | Typically high (≥0.8) |
+| `flag_contradiction(fact_a_id, fact_b_id, description)` | Report conflicting facts for curator review | N/A (review, not merge) |
+| `update_fact(id, props, confidence)` | Propose updated props for an existing fact | Typically medium-high |
+| `suggest_improvement(description)` | Suggest a non-fact improvement (gap, missing entity) | N/A (review only) |
+
+All write tools derive `ns` from the server's verified `LOREKEEP_NS` scope, never from caller input. The `fact.ns` field inside proposed facts is stripped and replaced with the server-verified namespace at journal-append time. This prevents an agent scoped to `backend` from injecting facts into `frontend`.
 
 ### Confidence guidance for agents
 
@@ -58,10 +60,10 @@ Agent discovers knowledge during conversation
 Agent calls MCP write tool (e.g. propose_fact)
   │
   ▼
-Server validates: ns matches agent scope, fact matches schema
+Server validates: ns derived from LOREKEEP_NS (caller cannot override), fact.ns stripped and replaced, fact matches schema
   │  (validation errors returned immediately, not written)
   ▼
-Server appends to pending/<ns>/journal.jsonl
+Server appends to pending/<LOREKEEP_NS>/journal.jsonl
   │  (atomic append: write line + flush)
   ▼
 Returns to agent: {"accepted": true, "id": "<fact_id>", "status": "pending"}
@@ -133,7 +135,7 @@ Verifies: `facts.jsonl` loads, schema is valid, ns mapping resolves, journal dir
 - **Load:** skip corrupt lines with a warning; do not crash the server.
 - **Permission:** deny-by-default; unknown ns ⇒ see only `public`; never leak cross-namespace existence.
 - **Cache:** missing FTS cache ⇒ fall back to in-memory scan, rebuild lazily.
-- **Write:** validate fact schema and ns scope before appending to journal. Return clear error for invalid proposals (don't write bad data).
+- **Write:** validate fact schema and derive ns from `LOREKEEP_NS` (never trust caller-provided `ns`). Return clear error for invalid proposals (don't write bad data). Strip `fact.ns` and overwrite with server-verified namespace.
 - **Journal:** atomic append (write line + flush); corrupted journal lines skipped on load.
 - **Integration:** `doctor` surfaces config/load/ns/tool failures before the agent hits them.
 

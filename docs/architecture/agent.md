@@ -165,7 +165,7 @@ Actions are serialized through a state machine: only one mutation (compile, reso
 
 | Operation | Frequency | LLM cost | Notes |
 |---|---|---|---|
-| Watch + compile | On raw/ change | Chunk cache hit rate > 90% after first compile | Only new/changed chunks cost |
+| Watch + compile | On raw/ change | Chunk cache hit rate > 90% after first compile | Only new/changed chunks cost. In team setups with git-synced raw/, a teammate's push → your pull → new files → your daemon triggers LLM extract. Gate with `auto_compile: false` in config if you want manual-only compile on shared repos. |
 | Resolve | Every 5 min / 50 writes | **Zero** | Pure Python |
 | Lint | Nightly | **Zero** | Pure graph analysis (no LLM needed for structural lint) |
 | Lint (semantic) | Weekly | Low | Optional: LLM for semantic contradiction detection |

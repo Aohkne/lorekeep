@@ -96,11 +96,15 @@ Resolve loads `facts.jsonl` plus all pending journals, merges facts, and writes 
 3. Merge by source priority:
    - raw/-extracted facts: idempotent (cache hit = skip)
    - import facts: from raw/ compile
-   - agent-proposed facts: filtered by confidence
-     - High (≥0.8): merge automatically
-     - Medium (0.5-0.8): merge, append to manifest.review
-     - Low (<0.5): quarantine, do not merge
-4. Dedup by id: same id → merge props, src, ns (union)
+    - agent-proposed facts: filtered by confidence, with additional gates
+      - High (≥0.8): merge automatically (see security gates below)
+      - Medium (0.5-0.8): merge, append to manifest.review
+      - Low (<0.5): quarantine, do not merge
+    - Security gates on auto-merge (even for high confidence):
+      - Cross-namespace edges require curator review
+      - New entity types not in schema require confidence ≥ 0.9 + review
+      - Contradictions between agent-proposed facts → both quarantined
+3. Dedup by id: same id → merge props, src, ns (union). ns is always verified against the journal's namespace (server-enforced, not caller-provided).
 5. Alias resolution: collapse variants to canonical entities
 6. Validate: schema, ns, edge endpoints
 7. Sort + write facts.jsonl (atomic os.replace)
