@@ -11,8 +11,8 @@ LOREKEEP_PROVIDER=fake uvx lorekeep compile  # (or set a real provider in config
 uvx lorekeep mcp add --agent claude --ns <ns>
 uvx lorekeep doctor
 
-# Start the daemon to keep the graph up-to-date:
-uvx lorekeep agent watch &
+# Start the daemon to keep the graph up-to-date [planned phase 2]:
+# uvx lorekeep agent watch &
 ```
 
 `mcp add` writes a **portable** `.mcp.json` (no machine path) when
@@ -58,11 +58,11 @@ resolve pass.
 
 | Tool | Purpose | Confidence |
 |---|---|---|
-| `propose_fact(fact, confidence, ns)` | Propose a new node or edge | Agent-estimated (0-1) |
-| `link_facts(from_id, to_id, type, confidence, ns)` | Create an edge | Typically ≥ 0.8 |
-| `flag_contradiction(a, b, description, ns)` | Report conflicting facts | N/A |
-| `update_fact(id, props, confidence, ns)` | Update existing fact props | 0.5-0.8 |
-| `suggest_improvement(description, ns)` | Suggest gap or improvement | N/A |
+| `propose_fact(fact, confidence)` | Propose a new node or edge. `ns` is server-enforced, not callable. | Agent-estimated (0-1) |
+| `link_facts(from_id, to_id, type, confidence)` | Create an edge | Typically ≥ 0.8 |
+| `flag_contradiction(a, b, description)` | Report conflicting facts | N/A |
+| `update_fact(id, props, confidence)` | Update existing fact props | 0.5-0.8 |
+| `suggest_improvement(description)` | Suggest gap or improvement | N/A |
 
 **Confidence guidance for agents:**
 - ≥ 0.8: explicit claim with source citation. "The codebase shows service X uses database Y."

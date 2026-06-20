@@ -113,22 +113,34 @@ lorekeep agent evolve --apply <change>  # apply approved schema change
 
 ## Confidence gates
 
-All autonomous mutations are gated. The agent never silently corrupts the graph:
+All autonomous mutations are gated. The agent never silently corrupts the graph.
+
+Two distinct confidence thresholds exist — these are intentionally different gates:
+
+| Threshold | Applies to | Value |
+|---|---|---|
+| **Fact merge** | Agent-proposed facts entering `facts.jsonl` via resolve | ≥ 0.8 |
+| **Lint auto-fix** | Autonomous lint correction (e.g., marking stale facts) | ≥ 0.85 |
+
+Lint auto-fix has a higher bar because it modifies *existing* facts that may already be relied upon. Fact merge introduces *new* facts at lower risk.
 
 ```
 Autonomous action proposed
   │
-  ├── Confidence ≥ 0.85 (high)
+  ├── Confidence ≥ 0.85 (high) — lint auto-fix threshold
   │   └── Auto-apply → facts.jsonl + log
   │
-  ├── 0.5 ≤ Confidence < 0.85 (medium)
+  ├── 0.8 ≤ Confidence < 0.85 — fact merge only, no lint auto-fix
+  │   └── Merge fact OR flag lint finding for review
+  │
+  ├── 0.5 ≤ Confidence < 0.8 (medium)
   │   └── Apply + flag → manifest.review
   │
   └── Confidence < 0.5 (low)
       └── Reject → manifest.quarantine + notification
 ```
 
-Confidence is compound: for auto-fix, it considers both the lint finding confidence AND the fix confidence. Both must be ≥ 0.85 for auto-apply.
+Confidence is compound: for auto-fix, both the lint finding confidence AND the fix confidence must meet their respective thresholds for auto-apply.
 
 ## Daemon lifecycle
 
