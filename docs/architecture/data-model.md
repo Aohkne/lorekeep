@@ -72,7 +72,7 @@ Agent-proposed facts are written to append-only JSONL journals before being merg
 | Level | Range | Meaning | Resolve behavior |
 |---|---|---|---|
 | **High** | ≥ 0.8 | Explicit claim with source citation | Auto-merge |
-| **Medium** | 0.5–0.8 | Mentioned without explicit source | Merge, flag for review |
+| **Medium** | 0.5 to <0.8 | Mentioned without explicit source | Merge, flag for review |
 | **Low** | < 0.5 | Speculation / hedging language | Quarantine, do not merge |
 
 ### Resolve priority (when facts conflict by id)

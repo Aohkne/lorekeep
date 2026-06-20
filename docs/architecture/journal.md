@@ -20,18 +20,23 @@ The journal pattern solves this:
 
 ## Journal layout
 
+Journals use **two partitioning schemes simultaneously** — namespace-scoped for routing and agent-scoped for attribution:
+
 ```
 pending/
 ├── backend/journal.jsonl       # facts proposed in "backend" namespace
-├── frontend/journal.jsonl
-├── claude/journal.jsonl         # facts proposed by Claude Code agent
-└── codex/journal.jsonl
+├── frontend/journal.jsonl      # facts proposed in "frontend" namespace
+├── claude/journal.jsonl         # facts proposed by Claude Code agent (any ns)
+└── codex/journal.jsonl         # facts proposed by Codex agent (any ns)
 ```
 
-Journals are **partitioned by namespace or agent id** so:
-- Two agents in different namespaces never write to the same file
-- Resolve can load journals selectively (e.g., only `backend/` when scoped)
-- Journals are git-committable — line-based diffs merge cleanly
+**Write routing**: an agent in `LOREKEEP_NS=backend` calling `propose_fact` writes to `pending/backend/journal.jsonl`. The entry's `agent` field records attribution (`"claude"`).
+
+**Resolve loading**: resolve loads ALL journals (`pending/**/journal.jsonl`) — not selectively by namespace. This ensures agent-scoped journals (`pending/claude/`) are not missed and entries from all namespaces are merged together. Selectivity happens at the read path (ScopedGraph filters by ns), not at resolve.
+
+**Why dual partitioning?** Namespace partitions prevent write conflicts between agents in different scopes. Agent partitions provide an alternative write target when an agent needs to propose facts outside its primary namespace (curator review required). Both coexist; resolve loads them all.
+
+Journals are git-committable — line-based diffs merge cleanly across both partition schemes.
 
 ## Journal entry format
 
@@ -65,7 +70,7 @@ See [data model](data-model.md#pending-journal-format) for the full schema.
 │  2. Merge by priority (raw/ > import > agent-propose)       │
 │  3. Gate by confidence:                                      │
 │     ≥0.8 → auto-merge                                       │
-│     0.5-0.8 → merge + flag for review                       │
+│     0.5 to <0.8 → merge + flag for review                      │
 │     <0.5 → quarantine (do not merge)                        │
 │  4. Dedup, validate, sort                                    │
 │  5. Write facts.jsonl (atomic os.replace)                   │
@@ -158,7 +163,7 @@ Per-agent write caps prevent journal flooding:
 |---|---|---|
 | Per session | 200 entries | One conversation shouldn't dominate the journal |
 | Per minute | 30 entries | Burst protection |
-| Per fact id | 3 re-proposals | Idempotent within window; beyond that, escalate to curator |
+| Per fact id | 3 re-proposals per session | Idempotent dedup checks `(agent, fact_id)` within the same session. Beyond 3 re-proposals of the same fact id in one session, the entry is quarantined and escalated to curator. Re-proposals across different sessions are allowed (reset on session boundary). |
 | Batch resolve threshold | 50 entries | Trigger (not a limit — resolve runs at threshold OR time interval) |
 
 ### Journal storage

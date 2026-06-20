@@ -48,7 +48,7 @@ All write tools derive `ns` from the server's verified `LOREKEEP_NS` scope, neve
 Agents should self-estimate confidence when proposing facts:
 
 - **≥ 0.8**: Explicit claim with source citation from conversation context. "The codebase shows service X uses database Y."
-- **0.5–0.8**: Mentioned or implied without explicit source. "Based on the architecture discussion, service X likely depends on Y."
+- **0.5 to <0.8**: Mentioned or implied without explicit source. "Based on the architecture discussion, service X likely depends on Y."
 - **< 0.5**: Speculation or hedging. "It might be the case that..." — these are quarantined by resolve.
 
 ### Write tool flow
@@ -115,7 +115,7 @@ missing, it may be outside your scope, not nonexistent.
 
 When you discover new knowledge during conversation (services, dependencies,
 decisions), call propose_fact or link_facts to contribute it back. Estimate
-confidence: ≥0.8 for explicit claims with source, 0.5-0.8 for implications.
+confidence: ≥0.8 for explicit claims with source, 0.5 to <0.8 for implications.
 Facts enter the graph on the next resolve pass.
 ```
 
