@@ -27,9 +27,11 @@ The serve chain loads `facts.jsonl` once and exposes it to coding agents over MC
 
 Every read tool is auto-scoped by `allowed_ns`. See [permission](permission.md) and [temporal](temporal.md) for the filtering these tools apply.
 
-## Write tools (5 tools, journal-based)
+## Write tools (5 tools, journal-based) [planned]
 
-Write tools **do not mutate** `facts.jsonl` directly. They append to `pending/<ns>/journal.jsonl`. Facts become visible after the next resolve pass (see [pipeline](pipeline.md)).
+> **Status: planned (phase 2).** These 5 write tools are target architecture. Current v1 exposes only the 8 read tools above. Implementation tracked in [#15](https://github.com/manhhailua/lorekeep/issues/15).
+
+Write tools **will not mutate** `facts.jsonl` directly. They will append to `pending/<ns>/journal.jsonl`. Facts become visible after the next resolve pass (see [pipeline](pipeline.md)).
 
 | Tool | Purpose | Confidence |
 |---|---|---|

@@ -48,10 +48,12 @@ LOREKEEP_HOME=~/kb-work uvx lorekeep compile
 `list_namespaces`, `schema`. Results are filtered to `LOREKEEP_NS`; cross-namespace
 edges are hidden unless both endpoints are visible.
 
-## Write tools (5 tools, journal-based)
+## Write tools (5 tools, journal-based) [planned]
 
-Agents contribute knowledge during conversation at **zero LLM cost**. Facts
-are appended to `pending/` journals and merged into the graph on the next
+> **Planned for phase 2.** These write tools are not yet available. Current v1 exposes 8 read tools. See [#15](https://github.com/manhhailua/lorekeep/issues/15).
+
+When implemented, agents will contribute knowledge during conversation at **zero LLM cost**. Facts
+will be appended to `pending/` journals and merged into the graph on the next
 resolve pass.
 
 | Tool | Purpose | Confidence |
@@ -68,27 +70,27 @@ resolve pass.
 - < 0.5: speculation — these are quarantined, not merged.
 
 Facts become visible after the next resolve pass (every 5 min or 50 pending
-entries when daemon is running; or run `lorekeep resolve` manually).
+entries when daemon is running; or run `lorekeep resolve` manually). **Note: resolve and daemon are planned for phase 2.**
 
-## Keeping the graph current
+## Keeping the graph current [planned]
 
 Three approaches, from fully automatic to manual:
 
 ```bash
-# 1. Daemon (recommended) — fully autonomous
+# 1. Daemon (recommended) — fully autonomous [planned]
 uvx lorekeep agent watch
 # Watches raw/ → auto-compile on change
 # Watches pending/ → auto-resolve every 5 min / 50 writes
 # Nightly lint + weekly suggestions
 
-# 2. Manual with cron — scheduled
+# 2. Manual with cron — scheduled [planned]
 # */5 * * * * cd /path/to/lorekeep && uvx lorekeep resolve
 # 0 3 * * *   cd /path/to/lorekeep && uvx lorekeep agent lint
 
 # 3. Manual — curator-triggered
-uvx lorekeep compile          # rebuild from raw/
-uvx lorekeep resolve          # merge pending journals
-uvx lorekeep agent lint       # health check
+uvx lorekeep compile          # rebuild from raw/ [available in v1]
+# uvx lorekeep resolve        # merge pending journals [planned]
+# uvx lorekeep agent lint     # health check [planned]
 ```
 
 ## Connect once (lazy-reload)

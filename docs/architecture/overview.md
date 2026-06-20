@@ -8,7 +8,7 @@ Lorekeep builds a **living temporal knowledge graph** that coding agents both **
 2. **Strictly file-based storage** (`facts.jsonl` + `pending/` journals), for privacy and portability.
 3. **Namespace-scoped permission**, for team-level use rather than a single local user.
 
-The system is **append-and-resolve**: raw docs are compiled offline; agents propose facts at runtime through a journal; a periodic resolve pass merges all sources into `facts.jsonl` without additional LLM calls. This keeps the graph continuously up-to-date while strictly controlling API cost.
+The system is **compile-only in v1, append-and-resolve in phase 2**: raw docs are compiled offline; agents will propose facts at runtime through a journal; a periodic resolve pass merges all sources into `facts.jsonl` without additional LLM calls. This keeps the graph continuously up-to-date while strictly controlling API cost. The target architecture is described in this document; v1 status is noted throughout.
 
 ## North star
 
@@ -57,8 +57,8 @@ Lorekeep exists to let an agent reason about a domain **systematically and with 
     │            ◄── MCP write tools (journal)    │
     └───────────────────────────────────────────┘
 
-                    AUTONOMOUS AGENT (daemon)
-                    ═════════════════════════════
+                    AUTONOMOUS AGENT (daemon) [planned phase 2]
+                    ═════════════════════════════════════════
 
     lorekeep agent watch:
       ├── watch raw/ → auto-compile on change
