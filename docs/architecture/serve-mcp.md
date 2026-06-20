@@ -2,16 +2,17 @@
 
 > Adapted from the original design spec.
 
-The serve chain loads `facts.jsonl` once and exposes it read-only to coding agents over MCP. Permission is applied per request. There is **no write path** — compile is a CLI build step, never an MCP tool.
+The serve chain loads `facts.jsonl` once and exposes it to coding agents over MCP — both **read** queries and **write** proposals. Read queries go directly to the graph; write proposals append to pending journals and are merged into the graph by a periodic resolve pass.
 
 ## Server
 
 - **Transport:** stdio (default, for coding agents); streamable HTTP is a phase-2 team-server option.
 - **Load:** `facts.jsonl` loaded into an in-memory `GraphStore` (networkx `MultiDiGraph`); optional FTS cache rebuilt lazily.
 - **Auth → ns:** reads `LOREKEEP_NS` / config at startup; every tool call is scoped through `ScopedGraph`.
-- **Lazy-reload:** every query stats `facts.jsonl`'s mtime; if it changed (after `lorekeep compile`) the graph is rebuilt automatically. Connect the server once — `compile` is visible without reconnecting. Reconnect is only needed for code or scope (`.mcp.json` `LOREKEEP_NS`) changes.
+- **Lazy-reload:** every query stats `facts.jsonl`'s mtime; if it changed (after compile or resolve) the graph is rebuilt automatically. Connect the server once — graph updates are visible without reconnecting. Reconnect is only needed for code or scope (`.mcp.json` `LOREKEEP_NS`) changes.
+- **Journals:** write tools append to `pending/<ns>/journal.jsonl`; facts enter the graph on the next resolve pass, not immediately. This avoids write conflicts and keeps the read path fast.
 
-## Tools (read-only, v1)
+## Read tools (8 tools, scoped)
 
 | Tool | Purpose |
 |---|---|
@@ -24,9 +25,60 @@ The serve chain loads `facts.jsonl` once and exposes it read-only to coding agen
 | `list_namespaces()` | Namespaces visible to this caller. |
 | `schema()` | Available node/edge types. |
 
-Every tool is auto-scoped by `allowed_ns`. The agent surface is purely read-only, minimizing attack surface. See [permission](permission.md) and [temporal](temporal.md) for the filtering these tools apply.
+Every read tool is auto-scoped by `allowed_ns`. See [permission](permission.md) and [temporal](temporal.md) for the filtering these tools apply.
 
-Tools are plain module functions registered with `@mcp.tool()` but remain directly callable, so tests invoke them without the MCP transport.
+## Write tools (5 tools, journal-based)
+
+Write tools **do not mutate** `facts.jsonl` directly. They append to `pending/<ns>/journal.jsonl`. Facts become visible after the next resolve pass (see [pipeline](pipeline.md)).
+
+| Tool | Purpose | Confidence |
+|---|---|---|
+| `propose_fact(fact, confidence, ns)` | Propose a new node or edge discovered during conversation | Agent-estimated (0-1) |
+| `link_facts(from_id, to_id, type, confidence, ns)` | Create an edge between two existing nodes | Typically high (≥0.8) |
+| `flag_contradiction(fact_a_id, fact_b_id, description, ns)` | Report conflicting facts for curator review | N/A (review, not merge) |
+| `update_fact(id, props, confidence, ns)` | Propose updated props for an existing fact | Typically medium-high |
+| `suggest_improvement(description, ns)` | Suggest a non-fact improvement (gap, missing entity) | N/A (review only) |
+
+### Confidence guidance for agents
+
+Agents should self-estimate confidence when proposing facts:
+
+- **≥ 0.8**: Explicit claim with source citation from conversation context. "The codebase shows service X uses database Y."
+- **0.5–0.8**: Mentioned or implied without explicit source. "Based on the architecture discussion, service X likely depends on Y."
+- **< 0.5**: Speculation or hedging. "It might be the case that..." — these are quarantined by resolve.
+
+### Write tool flow
+
+```
+Agent discovers knowledge during conversation
+  │
+  ▼
+Agent calls MCP write tool (e.g. propose_fact)
+  │
+  ▼
+Server validates: ns matches agent scope, fact matches schema
+  │  (validation errors returned immediately, not written)
+  ▼
+Server appends to pending/<ns>/journal.jsonl
+  │  (atomic append: write line + flush)
+  ▼
+Returns to agent: {"accepted": true, "id": "<fact_id>", "status": "pending"}
+  │
+  ▼ ... later (resolve pass) ...
+  │
+Resolve loads journal, merges fact into facts.jsonl
+  │  (or quarantines if low confidence / invalid)
+  ▼
+MCP server lazy-reloads on next query → fact is now searchable
+```
+
+### Why journal-based writes?
+
+1. **Zero LLM cost**: The coding agent already ran the LLM for the conversation. Proposing a fact is just formatting existing output.
+2. **No write conflicts**: Append-only journals are trivially concurrent — multiple agents write to different files (partitioned by ns or agent id).
+3. **Gate before merge**: Low-confidence or malformed facts never enter `facts.jsonl`. Resolve validates, deduplicates, and prioritizes before merging.
+4. **Audit trail**: Journal entries carry `agent`, `proposed_at`, `confidence` — full provenance for every fact that enters the graph.
+5. **Read path unaffected**: Facts are only visible after resolve. The read path (GraphStore + ScopedGraph) serves only validated facts from `facts.jsonl`.
 
 ## Coding-agent integration
 
@@ -56,17 +108,22 @@ Before answering architecture/code/domain questions, query Lorekeep:
 search(q) → get_node(id) → neighbors / at_time / history as needed.
 Always cite `src` provenance. Knowledge is namespace-scoped — if a fact is
 missing, it may be outside your scope, not nonexistent.
+
+When you discover new knowledge during conversation (services, dependencies,
+decisions), call propose_fact or link_facts to contribute it back. Estimate
+confidence: ≥0.8 for explicit claims with source, 0.5-0.8 for implications.
+Facts enter the graph on the next resolve pass.
 ```
 
 ### `lorekeep doctor`
 
-Verifies: `facts.jsonl` loads, schema is valid, ns mapping resolves, and a tool responds. Fast onboarding feedback before the agent hits a real query.
+Verifies: `facts.jsonl` loads, schema is valid, ns mapping resolves, journal directory is writable, and a tool responds. Fast onboarding feedback before the agent hits a real query.
 
 ## Sync and multi-device
 
-- **git (primary):** commit `raw/` + `graph/` (`facts.jsonl`, `manifest.json`, `schema.json`). Each device clones/pulls and spawns its local MCP server. No binary store is committed; the FTS cache is gitignored and rebuilt locally.
+- **git (primary):** commit `raw/` + `graph/` + `pending/` (`facts.jsonl`, `manifest.json`, `schema.json`, journals). Each device clones/pulls and spawns its local MCP server. No binary store is committed; the FTS cache is gitignored and rebuilt locally.
 - **S3 (alternative):** `aws s3 sync` the same paths to an object store; devices sync down.
-- **Write conflicts:** compile is an explicit, curator-run CLI. v1 assumes a single compile host per period, or git-PR-based compile (line-based JSONL merges cleanly). Concurrent compiles from two devices are out of scope.
+- **Write conflicts:** journals are append-only, per-namespace or per-agent. No two agents write to the same journal line. Resolve serializes all journals into a single deterministic `facts.jsonl`. Concurrent journal appends from different devices merge cleanly via git.
 - **Future scale (>50k facts):** partition `facts.jsonl` to Parquet on S3; query via DuckDB/Polars directly on objects.
 
 ## Error handling (serve-side)
@@ -74,8 +131,11 @@ Verifies: `facts.jsonl` loads, schema is valid, ns mapping resolves, and a tool 
 - **Load:** skip corrupt lines with a warning; do not crash the server.
 - **Permission:** deny-by-default; unknown ns ⇒ see only `public`; never leak cross-namespace existence.
 - **Cache:** missing FTS cache ⇒ fall back to in-memory scan, rebuild lazily.
+- **Write:** validate fact schema and ns scope before appending to journal. Return clear error for invalid proposals (don't write bad data).
+- **Journal:** atomic append (write line + flush); corrupted journal lines skipped on load.
 - **Integration:** `doctor` surfaces config/load/ns/tool failures before the agent hits them.
 
 ## Next
 
 - Usage: [Serving the graph to agents](../guides/serve.md), [Data home & paths](../guides/data-home.md).
+- Design: [Pipeline](pipeline.md), [Journal](journal.md), [Agent](agent.md).

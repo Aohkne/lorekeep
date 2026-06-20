@@ -1,12 +1,37 @@
-# Compile pipeline
+# Pipeline: three write paths → one resolve
 
 > Adapted from the original design spec.
 
-The compile chain turns `raw/<ns>/*.md` into a deterministic `facts.jsonl` + `manifest.json`. It runs offline, curator-side, via the CLI — never through MCP. Orchestrated by `src/lorekeep/pipeline.py`.
+Knowledge enters the graph through three paths, all converging at a single resolve step that outputs `facts.jsonl`. The resolve runs periodically (or on-demand), keeping the graph continuously up-to-date without per-write LLM cost.
 
-`raw/` is populated by hand or by `lorekeep import`, which converts a coding agent's sessions (Claude Code, Cursor) into markdown; see the [import guide](../guides/import.md). Import and compile are independent curator steps.
+```
+                    THREE WRITE PATHS
+                    ═══════════════════
 
-## Steps
+PATH 1 — raw/ compile (curator, LLM-powered)
+  raw/<ns>/*.md ──► ingest ──► extract(LLM) ──┐
+                                               │
+PATH 2 — agent propose (runtime, ZERO LLM)     │
+  coding agent ──► propose_fact() ──► ─────────┤
+                  link_facts()                 │
+                  flag_contradiction()         │
+                                               │
+PATH 3 — import (curator, LLM-summarize)       │
+  agent sessions ──► import ──► raw/ ──► ──────┘
+                                               │
+                    ┌──────────────────────────┘
+                    ▼
+            ┌──────────────────┐
+            │     RESOLVE      │   pure Python, zero LLM calls
+            │  (periodic)      │
+            └──────┬───────────┘
+                   ▼
+            facts.jsonl + manifest.json
+```
+
+## Path 1: raw/ compile
+
+The original compile pipeline. Runs offline, curator-side.
 
 ```
 raw/<ns>/*.md ──► ingest ──► extract(LLM) ──► resolve ──► writer ──► facts.jsonl + manifest.json
@@ -17,11 +42,84 @@ raw/<ns>/*.md ──► ingest ──► extract(LLM) ──► resolve ──�
 3. **`resolve`** dedups entities (aliases → canonical id), validates graph integrity (edge endpoints exist), quarantines bad facts.
 4. **`writer`** emits deterministic `facts.jsonl` + `manifest.json`.
 
+`raw/` is populated by hand or by `lorekeep import`, which converts a coding agent's sessions (Claude Code, Cursor) into markdown; see the [import guide](../guides/import.md).
+
+## Path 2: agent propose (runtime, zero LLM cost)
+
+Coding agents propose facts during conversation through MCP write tools. Each proposal is appended to `pending/<ns>/journal.jsonl` as a journal entry.
+
+```python
+# Agent-side (Claude Code): agent discovers checkout service during conversation
+# It calls the MCP tool:
+propose_fact({
+    "fact": {
+        "kind": "node",
+        "id": "svc:checkout",
+        "type": "service",
+        "ns": ["backend"],
+        "props": {"lang": "rust"}
+    },
+    "confidence": 0.85,
+    "ns": "backend"
+})
+# → appended to pending/backend/journal.jsonl
+# → ZERO additional LLM cost (agent already ran LLM for the conversation)
+```
+
+Write tools available: `propose_fact`, `link_facts`, `flag_contradiction`, `update_fact`, `suggest_improvement`. See [serve & MCP](serve-mcp.md) for details.
+
+## Path 3: import sessions
+
+Converting agent conversation history into raw/ markdown, which then feeds into Path 1 compile. See the [import guide](../guides/import.md).
+
+## Resolve: merging all sources
+
+Resolve loads `facts.jsonl` plus all pending journals, merges facts, and writes a new `facts.jsonl`. **Zero LLM cost** — pure Python logic.
+
+### Trigger
+
+| Trigger | Behavior |
+|---|---|
+| **Batch size** | After N pending journal entries accumulate (default 50) |
+| **Time interval** | Every T minutes if pending entries exist (default 5) |
+| **Manual** | `lorekeep resolve` (curator runs explicitly) |
+| **Post-compile** | After a compile run, resolve immediately to integrate pending |
+| **Session end** | Agent session ends → resolve to persist discoveries |
+
+### Merge logic
+
+```
+1. Load current facts.jsonl (if exists)
+2. Load all pending journals (pending/<ns>/journal.jsonl)
+3. Merge by source priority:
+   - raw/-extracted facts: idempotent (cache hit = skip)
+   - import facts: from raw/ compile
+   - agent-proposed facts: filtered by confidence
+     - High (≥0.8): merge automatically
+     - Medium (0.5-0.8): merge, append to manifest.review
+     - Low (<0.5): quarantine, do not merge
+4. Dedup by id: same id → merge props, src, ns (union)
+5. Alias resolution: collapse variants to canonical entities
+6. Validate: schema, ns, edge endpoints
+7. Sort + write facts.jsonl (atomic os.replace)
+8. Mark processed journal entries as "merged" or "quarantined"
+9. Update manifest with new run_id, facts_hash, chunk_hashes
+```
+
+### Priority rules (same id conflict)
+
+| Source | Priority | Rationale |
+|---|---|---|
+| raw/ extracted | Highest | Curator-curated, provenanced to `path:line` |
+| import (path 3) | Medium | LLM-summarized from sessions, human-reviewed |
+| agent-proposed (high confidence) | Medium-High | Agent explicit claim, verified by confidence |
+| agent-proposed (medium confidence) | Low-Medium | Merged but flagged for review |
+
+Lower-priority facts never overwrite higher-priority facts for the same id. Conflicting props are merged (union), not replaced.
+
 ## Determinism
 
-`writer` sorts facts by `(kind, type, id)`, serializes with sorted keys and fixed separators, one object per line terminated by `\n`. Re-compiling unchanged input yields **byte-identical** output. This is essential for git-based sync and review, and is guarded by a determinism property test.
-
-The atomic-write helper (`os.replace` onto a sibling temp file) guarantees a reader never sees a half-written `facts.jsonl` — important because the MCP server lazy-reloads it on mtime change (see [serve & MCP](serve-mcp.md)).
+Re-compiling unchanged input (same raw/ + same journals with same statuses) yields **byte-identical** `facts.jsonl`. The writer sorts facts by `(kind, type, id)`, serializes with sorted keys and fixed separators, one object per line terminated by `\n`. The atomic-write helper (`os.replace` onto a sibling temp file) guarantees a reader never sees a half-written file — important because the MCP server lazy-reloads on mtime change.
 
 ## Incremental compile
 
@@ -33,11 +131,14 @@ The atomic-write helper (`os.replace` onto a sibling temp file) guarantees a rea
 - **Malformed candidate fact** ⇒ `resolve` quarantines to `manifest.quarantine`, drops from output.
 - **Edge with missing endpoint** ⇒ dropped (dangling edges surface in `lorekeep check`).
 - **Provider unavailable** ⇒ compile aborts with a clear message; partial results are not merged.
+- **Low-confidence agent proposal** ⇒ quarantined, never enters `facts.jsonl`; listed in resolve report.
+- **Journal parse error** ⇒ skip corrupted line, log warning, continue resolve.
 
 The serve-side error handling (corrupt-line skip, cache fallback) is covered in [serve & MCP](serve-mcp.md).
 
 ## Next
 
-- [Data model](data-model.md) — what the writer emits.
-- [Serve & MCP](serve-mcp.md) — how the compiled graph is queried.
+- [Data model](data-model.md) — what the writer emits, journal format.
+- [Journal](journal.md) — agent-driven knowledge accumulation in detail.
+- [Serve & MCP](serve-mcp.md) — how the compiled graph is queried and written.
 - Usage: [Compiling the graph](../guides/compile.md).

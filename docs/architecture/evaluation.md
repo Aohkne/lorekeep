@@ -64,8 +64,8 @@ The actual goal. No off-the-shelf benchmark fits team-doc systematic reasoning, 
 
 ### v1 IN
 
-ingest + extract + resolve + writer + `facts.jsonl`/manifest/schema + store (networkx, temporal) + permission + optional FTS cache + MCP (read + temporal, stdio) + `mcp add` for Claude Code/Cursor/Codex + `doctor` + `init` + `import` + docs + tests + **Tier-1 construction eval (CI)** + **Tier-2 retrieval/temporal-QA smoke**.
+ingest + extract + resolve + writer + `facts.jsonl`/manifest/schema + store (networkx, temporal) + permission + optional FTS cache + MCP (read + write tools, stdio) + `mcp add` for Claude Code/Cursor/Codex + `doctor` + `init` + `import` + journal (append-only pending) + agent daemon (watch + compile + resolve + lint) + docs + tests + **Tier-1 construction eval (CI)** + **Tier-2 retrieval/temporal-QA smoke**.
 
 ### v1 OUT (phase 2+)
 
-`wiki.md` views, Parquet/DuckDB at scale, streamable-HTTP team server, OIDC/SSO, ingest connectors (Confluence/PDF/URL), embeddings/hybrid search, agent write tools, **full Lorekeep-Reason dataset (Tier-3 scaling)**.
+`wiki.md` views, Parquet/DuckDB at scale, streamable-HTTP team server, OIDC/SSO, ingest connectors (Confluence/PDF/URL), embeddings/hybrid search, **full Lorekeep-Reason dataset (Tier-3 scaling)**.

@@ -1,6 +1,6 @@
 # Lorekeep documentation
 
-Lorekeep compiles a team's raw docs into a temporal knowledge graph (`facts.jsonl`) and serves it **read-only** to coding agents over MCP, with per-namespace permission.
+Lorekeep builds a **living temporal knowledge graph** that coding agents both **read and contribute to** — served over MCP, with per-namespace permission and zero marginal LLM cost for agent contributions.
 
 - New here? Start with the **[Quickstart](../README.md#quickstart)** in the project README, then the [Compiling](guides/compile.md) + [Serving](guides/serve.md) guides.
 - Want the why and how? Read **[Architecture overview](architecture/overview.md)**.
@@ -9,12 +9,14 @@ Lorekeep compiles a team's raw docs into a temporal knowledge graph (`facts.json
 
 Concepts and design — how the system fits together.
 
-- [**Overview**](architecture/overview.md) — compile-only model, goals, architecture diagram, key decisions, tech stack.
-- [Data model](architecture/data-model.md) — `facts.jsonl` format, schema, repository layout, components.
+- [**Overview**](architecture/overview.md) — append-and-resolve model, three write paths, architecture diagram, key decisions, tech stack.
+- [Data model](architecture/data-model.md) — `facts.jsonl` format, journal format, `pending/` directory, schema, repository layout, components.
+- [Pipeline](architecture/pipeline.md) — three write paths (raw/ compile, agent propose, import) → resolve → `facts.jsonl`.
+- [Journal](architecture/journal.md) — agent-driven knowledge accumulation: append-only, confidence-gated, zero LLM cost.
+- [Agent](architecture/agent.md) — autonomous agent: daemon, trigger model, lint, resolve, suggest, cost profile.
 - [Permission model](architecture/permission.md) — namespace visibility rules, deny-by-default, the single `ScopedGraph` chokepoint.
 - [Temporal model](architecture/temporal.md) — `valid_from`/`valid_to`, `at_time` / `history` / `changes`.
-- [Compile pipeline](architecture/pipeline.md) — ingest → extract → resolve → writer, determinism, incremental compile.
-- [Serve & MCP](architecture/serve-mcp.md) — the 8 read-only tools, lazy-reload, agent integration, sync.
+- [Serve & MCP](architecture/serve-mcp.md) — 8 read + 5 write MCP tools, lazy-reload, journal-based writes, agent integration, sync.
 - [Testing & evaluation](architecture/evaluation.md) — the three-tier eval strategy and scope.
 
 ## Guides
@@ -22,6 +24,6 @@ Concepts and design — how the system fits together.
 How to use it.
 
 - [Importing agent sessions](guides/import.md) — Claude Code + Cursor → `raw/`.
-- [Compiling the knowledge graph](guides/compile.md) — `raw/*.md` → `facts.jsonl`.
-- [Serving the graph to coding agents](guides/serve.md) — wire Claude Code / Cursor / Codex over MCP.
+- [Compiling the knowledge graph](guides/compile.md) — `raw/*.md` → `facts.jsonl` + resolve pending.
+- [Serving the graph to coding agents](guides/serve.md) — wire Claude Code / Cursor / Codex over MCP, write tools, daemon.
 - [Data home & path resolution](guides/data-home.md) — env / `LOREKEEP_HOME` / dev mode / XDG.

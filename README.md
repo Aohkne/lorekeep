@@ -2,7 +2,7 @@
 
 <p align="center"><img src="cover.jpeg" alt="Lorekeep" /></p>
 
-**A temporal knowledge graph for AI agents, served read-only over MCP.**
+**A living temporal knowledge graph for AI agents, over MCP — agents read and contribute at zero marginal LLM cost.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -13,7 +13,8 @@ permission and zero servers to run.
 
 It applies Andrej Karpathy's "LLM Knowledge Base" idea: raw docs are the
 **source code**, the compiled graph is the **executable**. Knowledge is
-processed once at compile time, not re-RAG'd on every query.
+processed once at compile time, not re-RAG'd per query — and agent
+conversations continuously enrich the graph through append-only journals.
 
 ---
 
@@ -33,8 +34,12 @@ knowledge.
 
 ## Features
 
-- **Compile-only** — a curator (human + LLM) builds the graph; agents only read.
-  No write path, no concurrency hell, deterministic output.
+- **Append-and-resolve** — three write paths (raw/ compile, agent propose,
+  import sessions) converge into one resolve step. Journals are append-only;
+  resolve is pure logic, zero LLM cost.
+- **Agent-driven knowledge** — agents propose facts at runtime via MCP write
+  tools at **zero marginal LLM cost**. Confidence-gated: high-confidence
+  auto-merge, low-confidence quarantine.
 - **File-sovereign** — `facts.jsonl` (one fact per line, sorted) is the single
   source of truth and the sync unit (git or S3). No binary store committed.
 - **Temporal** — every fact carries `valid_from`/`valid_to` (half-open
@@ -42,10 +47,13 @@ knowledge.
 - **Namespace permission** — facts are tagged `ns` from the directory tree
   (`raw/<ns>/`); agents scoped to namespaces; cross-namespace edges
   hidden unless both endpoints are visible. Deny-by-default.
-- **MCP, stdio-first** — `lorekeep serve` exposes 8 read-only tools; `lorekeep mcp add`
-  wires Claude Code / Cursor / Codex. No server process to babysit.
-- **Lazy-reload** — `lorekeep compile` updates the graph; the MCP server
-  auto-refreshes on the next query. Connect once, use forever.
+- **MCP, stdio-first** — `lorekeep serve` exposes 8 read + 5 write tools;
+  `lorekeep mcp add` wires Claude Code / Cursor / Codex.
+- **Autonomous agent** — `lorekeep agent watch` keeps the graph current:
+  auto-compile on raw/ change, auto-resolve pending journals, nightly lint,
+  weekly suggestions.
+- **Lazy-reload** — graph updates (compile or resolve) are visible on the next
+  query. Connect once, use forever.
 - **Provider-pluggable extraction** — litellm (OpenAI / Anthropic /
   DashScope/Qwen / Ollama). Strict-privacy → Ollama, fully local.
 - **Tier-1 eval** — extraction P/R/F1 vs a gold corpus, entity-resolution F1,
@@ -82,28 +90,38 @@ uvx lorekeep mcp add --agent claude --ns backend
 uvx lorekeep doctor
 ```
 
-Restart Claude Code → the 8 Lorekeep tools are available, scoped to your namespace.
+Restart Claude Code → 13 Lorekeep tools are available (8 read + 5 write), scoped to your namespace.
 
 ## How it works
 
 ```
-                       COMPILE (offline, curator)                     SYNC
-raw/<ns>/*.md ──► ingest ──► extract(LLM) ──► resolve ──► writer ──► facts.jsonl
-                                                                            │
-                                          ┌─────────────────────────────────┘
-                                          ▼  (git pull / aws s3 sync)
-                    SERVE + QUERY (runtime, per device)
-facts.jsonl ──load──► GraphStore (networkx, temporal) ──► ScopedGraph (ns) ──► MCP ──► agent
-                              ▲                                  │
-                              └── lazy-reload on mtime change ◄──┘
+               THREE WRITE PATHS                            SYNC
+               ════════════════
+raw/<ns>/*.md ──► ingest ──► extract(LLM) ──┐
+                                            │
+agent propose ──► MCP write tools ──► ──────┤
+  (ZERO LLM cost, journal append)           │
+                                            ├──► resolve ──► writer ──► facts.jsonl
+import ──► raw/ ──► compile ────────────────┘    (pure logic,          │
+                                                   ZERO LLM)            │
+                                                        ┌───────────────┘
+                                                        ▼ (git / S3 sync)
+               SERVE + QUERY (runtime, per device)
+facts.jsonl ──load──► GraphStore ──► ScopedGraph(ns) ──► MCP ──► agent
+                         ▲              ▲                      │
+                         │              │         ◄── read queries
+                         │              └────────── write proposals (journal)
+                         └── lazy-reload on mtime change
+
+               AUTONOMOUS AGENT (daemon)
+               lorekeep agent watch:
+                 ├── watch raw/ → auto-compile
+                 ├── periodic resolve → merge journals
+                 ├── nightly lint → health check
+                 └── weekly suggest → gaps, improvements
 ```
 
-**Pipeline** (`ingest → extract → resolve → writer`): markdown is chunked with
-provenance; an LLM extracts schema-constrained nodes/edges with temporal +
-namespace tags; aliases collapse to canonical entities; a deterministic writer
-emits sorted, byte-stable `facts.jsonl` + a `manifest.json` (provenance +
-errors + quarantine). Re-compiling unchanged input is byte-identical (per-chunk
-hash cache), so git diffs stay clean.
+**Three write paths → one resolve**: markdown is compiled by an LLM (chunked + cached); agents propose facts at runtime through MCP write tools at **zero marginal LLM cost** (the agent already ran the LLM for the conversation); agent sessions are imported into raw/. All converge at `resolve` — pure Python logic that merges, deduplicates, validates, and writes byte-stable `facts.jsonl`.
 
 **Serve**: `GraphStore` loads `facts.jsonl` into a networkx graph with temporal
 queries. `ScopedGraph` is the single permission chokepoint — every query is
@@ -131,11 +149,17 @@ neighbor the caller can't see.
 `[from,to)`), `history(id)` (versions of an entity), `changes(t1,t2)` (edges
 that began/ended in the window).
 
-## MCP tools (read-only, scoped)
+**Agent-driven knowledge** — agents propose facts at runtime through MCP write tools (zero LLM cost). Facts land in `pending/<ns>/journal.jsonl` with agent id, confidence score, and timestamp. Resolve merges them into the graph: high-confidence (≥0.8) auto-merge, medium (0.5-0.8) merge + flag, low (<0.5) quarantine.
 
-`search` · `get_node` · `neighbors` · `at_time` · `history` · `changes` ·
-`list_namespaces` · `schema`. Every result is filtered to the caller's
-namespace.
+**Autonomous agent** — `lorekeep agent watch` keeps the graph current: watches `raw/` for changes → auto-compile; monitors `pending/` → auto-resolve; nightly semantic lint; weekly gap suggestions. See [docs/architecture/agent.md](docs/architecture/agent.md).
+
+## MCP tools (8 read + 5 write, scoped)
+
+**Read:** `search` · `get_node` · `neighbors` · `at_time` · `history` · `changes` · `list_namespaces` · `schema`.
+
+**Write** (journal-based, zero LLM cost): `propose_fact` · `link_facts` · `flag_contradiction` · `update_fact` · `suggest_improvement`.
+
+Every result is filtered to the caller's namespace. Write tools append to `pending/` journals; facts enter the graph on the next resolve pass.
 
 ## Configuration
 
@@ -183,25 +207,26 @@ src/lorekeep/
   config.py, schema_io.py
   compile/{ingest,extract,resolve,writer}.py    the compile pipeline
   compile/providers.py                          LLMProvider (Fake/LiteLLM)
+  journal.py           append-only journal writer + loader
+  agent.py             autonomous agent CLI + daemon
   store/{graph,fts}.py                          GraphStore + optional FTS cache
   perm/ns.py                                    ScopedGraph permission chokepoint
-  mcp_server.py                                 FastMCP + 8 read tools (lazy-reload)
+  mcp_server.py                                 FastMCP + 8 read + 5 write tools
   integrations/{claude_code,cursor,codex,common}.py
   pipeline.py, cli.py
   eval/{gold,construction,retrieval}.py
-tests/                 ~106 tests
+tests/                 ~140 tests
 docs/                  README.md index, architecture/, guides/
 ```
 
 ## Status
 
-**v1** — compile pipeline + serve (store/permission/MCP/integrations) + data-home
-+ dev mode + lazy-reload, all merged to `main`, 114 tests green. Published to
-PyPI as `lorekeep`.
+**v1** — compile pipeline + serve (store/permission/MCP read+write/integrations) + journal (append-only pending) + agent daemon + data-home + dev mode + lazy-reload. Published to PyPI as `lorekeep`.
 
-Roadmap (phase 2+): streamable-HTTP team server, OIDC/SSO,
-embeddings/hybrid search, `wiki.md` views, full Tier-2 benchmark datasets
-(HotpotQA/CronQuestions) and the bespoke Tier-3 Lorekeep-Reason eval.
+Roadmap (phase 2+): `wiki.md` views (Obsidian-compatible markdown output),
+streamable-HTTP team server, OIDC/SSO, embeddings/hybrid search,
+full Tier-2 benchmark datasets (HotpotQA/CronQuestions) and the
+bespoke Tier-3 Lorekeep-Reason eval.
 
 ## Documentation
 
@@ -214,7 +239,7 @@ The [`docs/`](docs/README.md) index is the entry point.
 - [Data home & path resolution](docs/guides/data-home.md)
 
 **Architecture**
-- [Overview](docs/architecture/overview.md) · [Data model](docs/architecture/data-model.md) · [Permission](docs/architecture/permission.md) · [Temporal](docs/architecture/temporal.md) · [Compile pipeline](docs/architecture/pipeline.md) · [Serve & MCP](docs/architecture/serve-mcp.md) · [Testing & evaluation](docs/architecture/evaluation.md)
+- [Overview](docs/architecture/overview.md) · [Data model](docs/architecture/data-model.md) · [Pipeline](docs/architecture/pipeline.md) · [Journal](docs/architecture/journal.md) · [Agent](docs/architecture/agent.md) · [Permission](docs/architecture/permission.md) · [Temporal](docs/architecture/temporal.md) · [Serve & MCP](docs/architecture/serve-mcp.md) · [Testing & evaluation](docs/architecture/evaluation.md)
 
 ## License
 
