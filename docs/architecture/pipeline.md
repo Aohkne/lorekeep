@@ -31,37 +31,36 @@ PATH 3 — import (curator, LLM-summarize)       │
 
 ## Path 1: raw/ compile
 
-The original compile pipeline. Runs offline, curator-side.
+The original compile pipeline. Runs offline, curator-side. Extraction is LLM-powered; resolution merges with other sources in the global resolve step below.
 
 ```
-raw/<ns>/*.md ──► ingest ──► extract(LLM) ──► resolve ──► writer ──► facts.jsonl + manifest.json
+raw/<ns>/*.md ──► ingest ──► extract(LLM) ──► candidate facts ──► (to global resolve)
 ```
 
 1. **`ingest`** reads `raw/`, produces chunks with `path:line` source provenance (`DocChunk`).
-2. **`extract`** (LLM, schema-constrained) emits candidate node/edge facts with temporal + ns tags from each chunk.
-3. **`resolve`** dedups entities (aliases → canonical id), validates graph integrity (edge endpoints exist), quarantines bad facts.
-4. **`writer`** emits deterministic `facts.jsonl` + `manifest.json`.
+2. **`extract`** (LLM, schema-constrained) emits candidate node/edge facts with temporal + ns tags from each chunk. Candidates feed into the global resolve step alongside journal facts and import facts.
 
 `raw/` is populated by hand or by `lorekeep import`, which converts a coding agent's sessions (Claude Code, Cursor) into markdown; see the [import guide](../guides/import.md).
 
-## Path 2: agent propose (runtime, zero LLM cost)
+## Path 2: agent propose (runtime, zero LLM cost) [planned]
 
-Coding agents propose facts during conversation through MCP write tools. Each proposal is appended to `pending/<ns>/journal.jsonl` as a journal entry.
+> **Status: planned (phase 2).** MCP write tools and journal-based agent proposals are target architecture. Current v1 has no runtime write path. See [#15](https://github.com/manhhailua/lorekeep/issues/15).
+
+Coding agents will propose facts during conversation through MCP write tools. Each proposal is appended to `pending/<ns>/journal.jsonl` as a journal entry.
 
 ```python
 # Agent-side (Claude Code): agent discovers checkout service during conversation
-# It calls the MCP tool:
+# It calls the MCP tool (ns is server-enforced, not caller-provided):
 propose_fact({
     "fact": {
         "kind": "node",
         "id": "svc:checkout",
         "type": "service",
-        "ns": ["backend"],
         "props": {"lang": "rust"}
     },
-    "confidence": 0.85,
-    "ns": "backend"
+    "confidence": 0.85
 })
+# Server derives ns from LOREKEEP_NS, strips fact.ns if present
 # → appended to pending/backend/journal.jsonl
 # → ZERO additional LLM cost (agent already ran LLM for the conversation)
 ```
@@ -90,15 +89,20 @@ Resolve loads `facts.jsonl` plus all pending journals, merges facts, and writes 
 
 ```
 1. Load current facts.jsonl (if exists)
-2. Load all pending journals (pending/<ns>/journal.jsonl)
+2. Load all pending journals (pending/**/journal.jsonl — both ns-scoped and agent-scoped)
 3. Merge by source priority:
    - raw/-extracted facts: idempotent (cache hit = skip)
    - import facts: from raw/ compile
-   - agent-proposed facts: filtered by confidence
-     - High (≥0.8): merge automatically
-     - Medium (0.5-0.8): merge, append to manifest.review
+   - agent-proposed facts: filtered by confidence, with additional gates:
+     - High (≥0.8): merge automatically (see security gates below)
+     - Medium (0.5 to <0.8): merge, append to manifest.review
      - Low (<0.5): quarantine, do not merge
-4. Dedup by id: same id → merge props, src, ns (union)
+   - Security gates on auto-merge (even for high confidence):
+     - Cross-namespace edges require curator review
+     - New entity types not in schema require confidence ≥ 0.9 + review
+     - Contradictions between agent-proposed facts → both quarantined
+4. Dedup by id: same id → merge props, src, ns (union). ns is always
+   verified against the journal's namespace (server-enforced, not caller-provided).
 5. Alias resolution: collapse variants to canonical entities
 6. Validate: schema, ns, edge endpoints
 7. Sort + write facts.jsonl (atomic os.replace)
@@ -129,7 +133,7 @@ Re-compiling unchanged input (same raw/ + same journals with same statuses) yiel
 
 - **LLM failure / unparseable chunk** ⇒ log to `manifest.errors`, skip chunk, continue. Partial compile is valid; re-run fills the gaps.
 - **Malformed candidate fact** ⇒ `resolve` quarantines to `manifest.quarantine`, drops from output.
-- **Edge with missing endpoint** ⇒ dropped (dangling edges surface in `lorekeep check`).
+- **Edge with missing endpoint** ⇒ deferred to pending retry, not permanently dropped. Edges whose endpoints don't yet exist (e.g., node proposed in a different journal entry not yet resolved) are held in a retry queue and re-evaluated on subsequent resolve passes up to 5 times (or until the endpoint appears). After max retries, they are quarantined. Dangling edges also surface in `lorekeep check`.
 - **Provider unavailable** ⇒ compile aborts with a clear message; partial results are not merged.
 - **Low-confidence agent proposal** ⇒ quarantined, never enters `facts.jsonl`; listed in resolve report.
 - **Journal parse error** ⇒ skip corrupted line, log warning, continue resolve.

@@ -11,8 +11,8 @@ LOREKEEP_PROVIDER=fake uvx lorekeep compile  # (or set a real provider in config
 uvx lorekeep mcp add --agent claude --ns <ns>
 uvx lorekeep doctor
 
-# Start the daemon to keep the graph up-to-date:
-uvx lorekeep agent watch &
+# Start the daemon to keep the graph up-to-date [planned phase 2]:
+# uvx lorekeep agent watch &
 ```
 
 `mcp add` writes a **portable** `.mcp.json` (no machine path) when
@@ -48,19 +48,21 @@ LOREKEEP_HOME=~/kb-work uvx lorekeep compile
 `list_namespaces`, `schema`. Results are filtered to `LOREKEEP_NS`; cross-namespace
 edges are hidden unless both endpoints are visible.
 
-## Write tools (5 tools, journal-based)
+## Write tools (5 tools, journal-based) [planned]
 
-Agents contribute knowledge during conversation at **zero LLM cost**. Facts
-are appended to `pending/` journals and merged into the graph on the next
+> **Planned for phase 2.** These write tools are not yet available. Current v1 exposes 8 read tools. See [#15](https://github.com/manhhailua/lorekeep/issues/15).
+
+When implemented, agents will contribute knowledge during conversation at **zero LLM cost**. Facts
+will be appended to `pending/` journals and merged into the graph on the next
 resolve pass.
 
 | Tool | Purpose | Confidence |
 |---|---|---|
-| `propose_fact(fact, confidence, ns)` | Propose a new node or edge | Agent-estimated (0-1) |
-| `link_facts(from_id, to_id, type, confidence, ns)` | Create an edge | Typically ≥ 0.8 |
-| `flag_contradiction(a, b, description, ns)` | Report conflicting facts | N/A |
-| `update_fact(id, props, confidence, ns)` | Update existing fact props | 0.5-0.8 |
-| `suggest_improvement(description, ns)` | Suggest gap or improvement | N/A |
+| `propose_fact(fact, confidence)` | Propose a new node or edge. `ns` is server-enforced, not callable. | Agent-estimated (0-1) |
+| `link_facts(from_id, to_id, type, confidence)` | Create an edge | Typically ≥ 0.8 |
+| `flag_contradiction(a, b, description)` | Report conflicting facts | N/A |
+| `update_fact(id, props, confidence)` | Update existing fact props | 0.5-0.8 |
+| `suggest_improvement(description)` | Suggest gap or improvement | N/A |
 
 **Confidence guidance for agents:**
 - ≥ 0.8: explicit claim with source citation. "The codebase shows service X uses database Y."
@@ -68,27 +70,27 @@ resolve pass.
 - < 0.5: speculation — these are quarantined, not merged.
 
 Facts become visible after the next resolve pass (every 5 min or 50 pending
-entries when daemon is running; or run `lorekeep resolve` manually).
+entries when daemon is running; or run `lorekeep resolve` manually). **Note: resolve and daemon are planned for phase 2.**
 
-## Keeping the graph current
+## Keeping the graph current [planned]
 
 Three approaches, from fully automatic to manual:
 
 ```bash
-# 1. Daemon (recommended) — fully autonomous
+# 1. Daemon (recommended) — fully autonomous [planned]
 uvx lorekeep agent watch
 # Watches raw/ → auto-compile on change
 # Watches pending/ → auto-resolve every 5 min / 50 writes
 # Nightly lint + weekly suggestions
 
-# 2. Manual with cron — scheduled
+# 2. Manual with cron — scheduled [planned]
 # */5 * * * * cd /path/to/lorekeep && uvx lorekeep resolve
 # 0 3 * * *   cd /path/to/lorekeep && uvx lorekeep agent lint
 
 # 3. Manual — curator-triggered
-uvx lorekeep compile          # rebuild from raw/
-uvx lorekeep resolve          # merge pending journals
-uvx lorekeep agent lint       # health check
+uvx lorekeep compile          # rebuild from raw/ [available in v1]
+# uvx lorekeep resolve        # merge pending journals [planned]
+# uvx lorekeep agent lint     # health check [planned]
 ```
 
 ## Connect once (lazy-reload)
