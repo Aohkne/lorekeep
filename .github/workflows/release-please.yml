@@ -4,13 +4,12 @@ name: release-please
 # last release. If a version bump is warranted (feat = minor, fix = patch,
 # ! = major), it creates or updates a "Release PR" that auto-merges.
 #
-# When the Release PR merges, this workflow runs again and release-please
-# creates the git tag + GitHub Release. The publish job then builds and
-# publishes to PyPI via OIDC trusted publishing (zero-trust, no API token).
+# When the Release PR merges, this workflow runs again. release-please creates
+# the git tag + GitHub Release. The publish job then triggers release.yml via
+# workflow_dispatch to publish to PyPI via OIDC trusted publishing.
 #
-# Publish steps are inline here (not a reusable workflow call) to avoid
-# startup_failure caused by referencing .github/workflows/release.yml via
-# `uses:` — see PR #18.
+# dispatch is used instead of `uses:` because calling release.yml as a reusable
+# workflow caused startup_failure (see PR #18). dispatch works with GITHUB_TOKEN.
 on:
   push:
     branches: [main]
@@ -18,7 +17,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  id-token: write          # required for PyPI OIDC trusted publishing
+  actions: write            # needed to dispatch release.yml
 
 jobs:
   release-please:
@@ -36,19 +35,12 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    environment: pypi
     steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Build sdist + wheel
-        run: uv build
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Trigger release.yml publish
+        run: |
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.ref }}" \
+            -f ref="${{ needs.release-please.outputs.tag_name }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
