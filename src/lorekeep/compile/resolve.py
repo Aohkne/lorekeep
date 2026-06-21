@@ -187,5 +187,24 @@ def merge_journals(
             result.flagged.append((entry, "medium confidence, flagged for review"))
 
     result.nodes = list(nodes_by_id.values())
-    result.edges = existing_edges + new_edges
+
+    # Deduplicate + ID-regenerate edges (journal edges have empty id)
+    edge_by_key: dict[tuple[str, str, str], Edge] = {}
+    counter = 0
+    for e in existing_edges + new_edges:
+        key = (e.from_, e.to, e.type)
+        if key in edge_by_key:
+            # Merge props and src for duplicate edges
+            existing = edge_by_key[key]
+            merged_props = {**existing.props, **e.props}
+            merged_src = tuple(dict.fromkeys(existing.src + e.src))
+            edge_by_key[key] = existing.model_copy(
+                update={"props": merged_props, "src": merged_src}
+            )
+        else:
+            counter += 1
+            eid = e.id if e.id else f"e_{e.type}_{counter:04d}"
+            edge_by_key[key] = e if e.id else e.model_copy(update={"id": eid})
+
+    result.edges = list(edge_by_key.values())
     return result

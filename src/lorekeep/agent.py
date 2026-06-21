@@ -2,7 +2,8 @@
 
 The agent keeps the knowledge graph current: lint checks structural health,
 suggest identifies improvement opportunities, status provides a dashboard,
-and watch runs a daemon that auto-compiles and resolves on filesystem changes.
+and watch runs a daemon that monitors filesystem changes (auto-compile
+and auto-resolve are handled in the CLI layer).
 """
 from __future__ import annotations
 

@@ -573,24 +573,88 @@ def watch(
     pending_dir = p.get("pending")
 
     typer.echo(f"agent watch: monitoring raw={raw_dir}, pending={pending_dir}, interval={interval}s")
+    typer.echo("agent: auto-compile (raw/) and auto-resolve (pending/) enabled")
+    typer.echo("agent: MCP server lazy-reloads facts.jsonl — no reconnect needed")
     last_raw_mtime = 0.0
     last_pending_mtime = 0.0
+    has_raw = raw_dir.exists()
+    has_pending = pending_dir and pending_dir.exists()
 
     while True:
         try:
-            # Check raw/ for changes
-            raw_files = sorted(raw_dir.rglob("*.md")) if raw_dir.exists() else []
+            # Check raw/ for changes → auto-compile
+            raw_files = sorted(raw_dir.rglob("*.md")) if has_raw else []
             raw_mtime = max((f.stat().st_mtime for f in raw_files), default=0.0)
             if raw_mtime > last_raw_mtime and last_raw_mtime > 0:
-                typer.echo("agent: raw/ changed — run `lorekeep compile` to incorporate changes")
+                typer.echo(f"agent: raw/ changed ({len(raw_files)} files) — compiling...")
+                try:
+                    from pathlib import Path
+                    from lorekeep.pipeline import compile_graph
+                    from lorekeep.compile.providers import get_provider
+                    from lorekeep.defaults import default_schema
+                    schema = default_schema()
+                    provider = get_provider(p["config"])
+                    cache = p.get("cache", p["out"].parent / ".lorekeep" / "cache.json")
+                    compile_graph(raw_dir, p["out"], schema, provider, Path(cache))
+                    typer.echo("agent: compile done")
+                except Exception as exc:
+                    typer.echo(f"agent: compile error: {exc}")
             last_raw_mtime = raw_mtime
 
-            # Check pending/ for new journals
-            if pending_dir and pending_dir.exists():
+            # Check pending/ for new journals → auto-resolve
+            if has_pending:
                 journal_files = sorted(pending_dir.rglob("journal.jsonl"))
                 pending_mtime = max((f.stat().st_mtime for f in journal_files), default=0.0)
                 if pending_mtime > last_pending_mtime and last_pending_mtime > 0:
-                    typer.echo("agent: pending/ changed — run `lorekeep resolve` to merge pending facts")
+                    typer.echo("agent: pending/ changed — resolving...")
+                    try:
+                        from lorekeep.store.graph import GraphStore
+                        from lorekeep.facts_io import read_facts
+                        from lorekeep.compile.resolve import resolve as resolve_facts, merge_journals
+                        from lorekeep.compile.writer import write_graph
+                        from lorekeep.journal import load_journals, update_journal_status
+                        from lorekeep.models import Edge, Manifest, Node
+
+                        facts_path = p["out"] / "facts.jsonl"
+                        existing_nodes = []
+                        existing_edges = []
+                        if facts_path.exists():
+                            for f in read_facts(facts_path):
+                                if isinstance(f, Node):
+                                    existing_nodes.append(f)
+                                else:
+                                    existing_edges.append(f)
+
+                        journals = load_journals(pending_dir)
+                        pending_entries = [j for j in journals if j.status == "pending"]
+                        if pending_entries:
+                            merged = merge_journals(existing_nodes, existing_edges, pending_entries)
+                            resolved = resolve_facts(merged.nodes, merged.edges)
+                            manifest = Manifest(
+                                schema_version=0, chunk_count=0,
+                                node_count=len(resolved.nodes),
+                                edge_count=len(resolved.edges),
+                                run_id="auto-resolve", facts_hash="",
+                                merged_count=merged.merge_count,
+                                quarantined_count=merged.quarantine_count,
+                                flagged_count=merged.flagged_count,
+                            )
+                            write_graph(p["out"], resolved.nodes, resolved.edges, manifest)
+
+                            # Update journal status
+                            for ns in set(entry.ns for entry, _ in merged.merged):
+                                timestamps = {e.proposed_at for e, _ in merged.merged if e.ns == ns}
+                                if timestamps:
+                                    update_journal_status(pending_dir, ns, timestamps, "merged")
+                            for ns in set(entry.ns for entry, _ in merged.flagged):
+                                timestamps = {e.proposed_at for e, _ in merged.flagged if e.ns == ns}
+                                existing = {e.proposed_at for e, _ in merged.merged if e.ns == ns}
+                                to_flag = timestamps - existing
+                                if to_flag:
+                                    update_journal_status(pending_dir, ns, to_flag, "flagged")
+
+                            typer.echo(f"agent: resolve done — {merged.merge_count} merged, "
+                                       f"{merged.flagged_count} flagged, {merged.quarantine_count} quarantined")
                 last_pending_mtime = pending_mtime
 
             time.sleep(interval)

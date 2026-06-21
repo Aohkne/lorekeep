@@ -247,15 +247,22 @@ def flag_contradiction(fact_a_id: str, fact_b_id: str, description: str) -> dict
 
 @mcp.tool()
 def update_fact(id: str, props: dict, confidence: float) -> dict:
-    """Propose updated props for an existing fact."""
+    """Propose updated props for an existing node or edge."""
     scoped = _require()
-    existing = scoped.get_node(id)
-    if existing is None:
-        return {"error": f"node not found or out of scope: {id}"}
-    fact = existing.model_dump(mode="json", by_alias=True)
-    fact["props"] = props
-    fact.pop("ns", None)
-    return _write_journal(fact, confidence)
+    store = scoped._g
+    node = store.get_node(id)
+    if node is not None:
+        fact = node.model_dump(mode="json", by_alias=True)
+        fact["props"] = props
+        fact.pop("ns", None)
+        return _write_journal(fact, confidence)
+    for e in store.all_edges():
+        if e.id == id:
+            edge_dict = e.model_dump(mode="json", by_alias=True)
+            edge_dict["props"] = props
+            edge_dict.pop("ns", None)
+            return _write_journal(edge_dict, confidence)
+    return {"error": f"fact not found or out of scope: {id}"}
 
 
 @mcp.tool()
