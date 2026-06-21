@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.6](https://github.com/manhhailua/lorekeep/compare/v0.1.5...v0.1.6) (2026-06-21)
+
+
+### Bug Fixes
+
+* use setup-uv@v7, [@v8](https://github.com/v8) tag does not exist ([ff5a1b6](https://github.com/manhhailua/lorekeep/commit/ff5a1b634f9551a2d1e10ae843d273b8a1925dd8))
+* use setup-uv@v7, [@v8](https://github.com/v8) tag does not exist ([2c67bd7](https://github.com/manhhailua/lorekeep/commit/2c67bd78c2e53f78ccade493a40631e09209f372))
+* use setup-uv@v7, [@v8](https://github.com/v8) tag does not exist ([#22](https://github.com/manhhailua/lorekeep/issues/22)) ([ff5a1b6](https://github.com/manhhailua/lorekeep/commit/ff5a1b634f9551a2d1e10ae843d273b8a1925dd8))
+
 ## [0.1.5](https://github.com/manhhailua/lorekeep/compare/v0.1.4...v0.1.5) (2026-06-21)
 
 
