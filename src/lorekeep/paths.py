@@ -49,10 +49,18 @@ def resolve_paths() -> dict[str, Path]:
         v = os.environ.get(env_name)
         return Path(v).expanduser() if v else current
 
+    if home:
+        pending = base / "pending"
+    elif dev:
+        pending = cwd / "pending"
+    else:
+        pending = data_dir / "pending"
+
     return {
         "raw": override("LOREKEEP_RAW", raw),
         "out": override("LOREKEEP_OUT", out),
         "cache": override("LOREKEEP_CACHE", cache),
         "schema": override("LOREKEEP_SCHEMA", schema),
         "config": override("LOREKEEP_CONFIG", config),
+        "pending": override("LOREKEEP_PENDING", pending),
     }
