@@ -1,15 +1,23 @@
-"""Autonomous agent operations: lint, suggest, status, watch.
+"""Autonomous agent operations: ingest, lint, suggest, status, watch.
 
-The agent keeps the knowledge graph current: lint checks structural health,
-suggest identifies improvement opportunities, status provides a dashboard,
-and watch runs a daemon that monitors filesystem changes (auto-compile
-and auto-resolve are handled in the CLI layer).
+The agent keeps the knowledge graph current: ingest reads a source file
+and extracts facts via LLM with human-in-the-loop review, lint checks
+structural health, suggest identifies improvement opportunities, status
+provides a dashboard, and watch runs a daemon that monitors filesystem
+changes (auto-compile and auto-resolve are handled in the CLI layer).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lorekeep.compile.extract import (
+    SYSTEM_PROMPT,
+    build_prompt,
+    parse_response,
+)
+from lorekeep.compile.providers import LLMProvider
+from lorekeep.models import DocChunk, Schema
 from lorekeep.store.graph import GraphStore
 
 
@@ -153,3 +161,63 @@ def agent_status(
         dash.pending_journals = len([j for j in journals if j.status == "pending"])
 
     return dash
+
+
+@dataclass
+class IngestResult:
+    """Result of ingesting a single source file."""
+    source_path: str
+    ns: str
+    nodes: list[dict] = field(default_factory=list)
+    edges: list[dict] = field(default_factory=list)
+    chunk_count: int = 0
+
+
+def ingest_source(
+    source_path: Path,
+    raw_root: Path,
+    provider: LLMProvider,
+    schema: Schema,
+    chunk_lines: int = 60,
+) -> IngestResult:
+    """Read a source file, chunk it, and extract facts via LLM.
+
+    Returns proposed nodes and edges as raw dicts for human review.
+    Does NOT write to the journal — the CLI layer handles that after
+    the human approves.
+    """
+    from lorekeep.compile.ingest import namespace_for
+    ns = namespace_for(raw_root, source_path)
+    rel = str(source_path.relative_to(raw_root))
+    lines = source_path.read_text(encoding="utf-8").splitlines()
+
+    all_nodes: list[dict] = []
+    all_edges: list[dict] = []
+    chunk_count = 0
+
+    for start in range(0, len(lines), chunk_lines):
+        block = lines[start:start + chunk_lines]
+        if not any(line.strip() for line in block):
+            continue
+        chunk = DocChunk(
+            path=rel,
+            start_line=start + 1,
+            end_line=start + len(block),
+            text="\n".join(block),
+            namespace=ns,
+        )
+        chunk_count += 1
+        raw = provider.extract_json(SYSTEM_PROMPT, build_prompt(chunk, schema))
+        nodes, edges, _aliases = parse_response(raw, chunk, schema)
+        for n in nodes:
+            all_nodes.append(n.model_dump(mode="json", by_alias=True))
+        for e in edges:
+            all_edges.append(e.model_dump(mode="json", by_alias=True))
+
+    return IngestResult(
+        source_path=str(rel),
+        ns=ns,
+        nodes=all_nodes,
+        edges=all_edges,
+        chunk_count=chunk_count,
+    )

@@ -449,8 +449,183 @@ def import_cmd(
 
 # --- Agent subcommand group -----------------------------------------------
 
-agent_app = typer.Typer(help="Autonomous agent operations: lint, suggest, status, watch.")
+agent_app = typer.Typer(help="Autonomous agent operations: ingest, lint, suggest, status, watch.")
 app.add_typer(agent_app, name="agent")
+
+
+@agent_app.command()
+def ingest(
+    source: str = typer.Argument(
+        ..., help="Path to a source .md file under raw/",
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Approve all extracted facts without review",
+    ),
+) -> None:
+    """Conversational ingest: read a source, extract facts via LLM, review and journal.
+
+    This is the Karpathy Ingest operation: the LLM reads the source, extracts
+    key facts (nodes and edges), and the human reviews them before they enter
+    the knowledge graph via the pending journal.
+
+    Run `lorekeep resolve` or `lorekeep compile` afterwards to merge approved
+    facts into facts.jsonl.
+    """
+    from datetime import datetime, timezone
+
+    p = resolve_paths()
+    schema = load_schema(p["schema"])
+    config = load_config(p["config"])
+    raw_root = p["raw"]
+    pending_dir = p.get("pending")
+    if pending_dir is None:
+        typer.echo("ingest: no pending directory configured")
+        raise typer.Exit(code=1)
+
+    source_path = Path(source).expanduser()
+    if not source_path.is_absolute():
+        source_path = Path.cwd() / source_path
+    source_path = source_path.resolve()
+
+    if not source_path.exists():
+        typer.echo(f"ingest: source not found: {source_path}")
+        raise typer.Exit(code=1)
+
+    if not source_path.is_relative_to(raw_root.resolve()):
+        typer.echo(f"ingest: source must be under raw/ ({raw_root})")
+        raise typer.Exit(code=1)
+
+    # Build provider (fake or real)
+    if os.environ.get("LOREKEEP_PROVIDER") == "fake":
+        canned = json.dumps({
+            "nodes": [
+                {"id": "svc:payments-api", "type": "service", "name": "payments-api",
+                 "props": {"lang": "go"}, "valid_from": "2024-01-15"},
+                {"id": "svc:auth", "type": "service", "name": "auth"},
+                {"id": "team:backend", "type": "team", "name": "team-backend"},
+                {"id": "dec:adr-007", "type": "decision",
+                 "props": {"title": "payments-api adopts internal signing"}},
+            ],
+            "edges": [
+                {"type": "depends_on", "from": "svc:payments-api", "to": "svc:auth",
+                 "valid_from": "2024-01-15", "valid_to": "2025-03-01"},
+                {"type": "decided_by", "from": "dec:adr-007", "to": "team:backend"},
+            ],
+            "aliases": {},
+        })
+        provider = FakeProvider(responses=[canned])
+    else:
+        provider = _build_provider(config)
+
+    from lorekeep.agent import ingest_source
+
+    try:
+        result = ingest_source(
+            source_path=source_path,
+            raw_root=raw_root,
+            provider=provider,
+            schema=schema,
+            chunk_lines=config.compile.chunk_lines,
+        )
+    except Exception as exc:
+        typer.echo(f"ingest: extraction failed: {exc}")
+        raise typer.Exit(code=1)
+
+    if not result.nodes and not result.edges:
+        typer.echo("ingest: no facts extracted from source")
+        return
+
+    # Show extracted facts
+    typer.echo(f"\nSource: {result.source_path}  (ns={result.ns}, chunks={result.chunk_count})")
+    typer.echo(f"Extracted: {len(result.nodes)} nodes, {len(result.edges)} edges\n")
+
+    for n in result.nodes:
+        props_str = ", ".join(f"{k}={v}" for k, v in n.get("props", {}).items())
+        vf = n.get("valid_from", "")
+        vt = n.get("valid_to", "")
+        valid = f" [{vf}..{vt}]" if vf or vt else ""
+        typer.echo(f"  NODE: {n['id']} ({n['type']}){valid}")
+        if props_str:
+            typer.echo(f"    {props_str}")
+
+    for e in result.edges:
+        vf = e.get("valid_from", "")
+        vt = e.get("valid_to", "")
+        valid = f" [{vf}..{vt}]" if vf or vt else ""
+        typer.echo(f"  EDGE: {e['from']} --[{e['type']}]--> {e['to']}{valid}")
+
+    # Interactive review (unless --yes)
+    approved_nodes: list[dict] = []
+    approved_edges: list[dict] = []
+
+    if yes:
+        approved_nodes = list(result.nodes)
+        approved_edges = list(result.edges)
+    else:
+        typer.echo("")
+        if result.nodes:
+            if typer.confirm(f"Approve all {len(result.nodes)} nodes?", default=True):
+                approved_nodes = list(result.nodes)
+            elif typer.confirm("Review each node individually?", default=True):
+                for n in result.nodes:
+                    props_str = ", ".join(f"{k}={v}" for k, v in n.get("props", {}).items())
+                    line = f"  {n['id']} ({n['type']}) — {props_str}"
+                    if typer.confirm(f"Approve? {line}", default=True):
+                        approved_nodes.append(n)
+
+        if result.edges:
+            if typer.confirm(f"Approve all {len(result.edges)} edges?", default=True):
+                approved_edges = list(result.edges)
+            elif typer.confirm("Review each edge individually?", default=True):
+                for e in result.edges:
+                    line = f"  {e['from']} --[{e['type']}]--> {e['to']}"
+                    if typer.confirm(f"Approve? {line}", default=True):
+                        approved_edges.append(e)
+
+    if not approved_nodes and not approved_edges:
+        typer.echo("\ningest: nothing approved — no journal entries written")
+        return
+
+    # Write approved facts to journal
+    from lorekeep.journal import append_journal
+    from lorekeep.models import JournalEntry
+
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    entry_count = 0
+
+    for n in approved_nodes:
+        n["src"] = list(n.get("src", []))
+        if result.source_path not in n["src"]:
+            n["src"].append(result.source_path)
+        entry = JournalEntry(
+            fact=n,
+            agent="cli-ingest",
+            ns=result.ns,
+            confidence=1.0,           # human-approved → max confidence
+            proposed_at=now,
+            status="pending",
+        )
+        append_journal(pending_dir, entry, result.ns)
+        entry_count += 1
+
+    for e in approved_edges:
+        e["src"] = list(e.get("src", []))
+        if result.source_path not in e["src"]:
+            e["src"].append(result.source_path)
+        entry = JournalEntry(
+            fact=e,
+            agent="cli-ingest",
+            ns=result.ns,
+            confidence=1.0,
+            proposed_at=now,
+            status="pending",
+        )
+        append_journal(pending_dir, entry, result.ns)
+        entry_count += 1
+
+    typer.echo(f"\ningest: {entry_count} facts written to pending/{result.ns}/journal.jsonl")
+    typer.echo("next: run `lorekeep resolve` to merge into facts.jsonl")
 
 
 @agent_app.command()
@@ -655,6 +830,8 @@ def watch(
 
                             typer.echo(f"agent: resolve done — {merged.merge_count} merged, "
                                        f"{merged.flagged_count} flagged, {merged.quarantine_count} quarantined")
+                    except Exception as exc:
+                        typer.echo(f"agent: resolve error: {exc}")
                 last_pending_mtime = pending_mtime
 
             time.sleep(interval)
