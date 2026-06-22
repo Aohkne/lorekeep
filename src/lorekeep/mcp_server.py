@@ -1,32 +1,38 @@
-"""FastMCP server exposing the scoped temporal graph, read-only.
+"""FastMCP server exposing the scoped temporal graph with read + write tools.
 
 Tools are plain module functions using a module-global ScopedGraph set by
 configure(). @mcp.tool() registers them with FastMCP but they remain directly
 callable, so tests invoke them without the MCP transport.
+
+Write tools append to pending/<ns>/journal.jsonl; facts enter the graph on
+the next resolve pass.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from lorekeep.models import Schema
+from lorekeep.journal import append_journal
+from lorekeep.models import JournalEntry, Schema
 from lorekeep.perm.ns import ScopedGraph
 from lorekeep.schema_io import load_schema
 from lorekeep.store.graph import GraphStore, parse_date
 
 mcp = FastMCP("lorekeep")
 
-_state: dict = {}          # graph_dir, allowed_ns, schema_path, facts_mtime
+_state: dict = {}          # graph_dir, allowed_ns, schema_path, pending_dir, facts_mtime
 _scope: ScopedGraph | None = None
 _schema: Schema | None = None
 
 
-def configure(graph_dir, allowed_ns, schema_path=None, fts_path=None) -> None:
+def configure(graph_dir, allowed_ns, schema_path=None, fts_path=None, pending_dir=None) -> None:
     """Set the graph location + scope, then build. Safe to call again to refresh."""
     _state["graph_dir"] = Path(graph_dir)
     _state["allowed_ns"] = list(allowed_ns)
     _state["schema_path"] = Path(schema_path) if schema_path else None
+    _state["pending_dir"] = Path(pending_dir) if pending_dir else None
     _rebuild()
 
 
@@ -114,6 +120,185 @@ def changes(from_t: str, to_t: str) -> dict:
 def search(query: str, limit: int = 10) -> list:
     """Text search over node ids/props, scoped to the caller."""
     return _require().search(query, limit)
+
+
+# --- Write tools (journal-based) -----------------------------------------
+
+
+def _active_ns() -> tuple[str, ...]:
+    allowed = _state.get("allowed_ns", ["public"])
+    return tuple(ns for ns in allowed if ns != "public") or ("public",)
+
+
+def _primary_ns() -> str:
+    active = _active_ns()
+    return active[0] if active else "public"
+
+
+def _pending_dir() -> Path | None:
+    return _state.get("pending_dir")
+
+
+def _write_journal(fact_dict: dict, confidence: float, agent: str = "mcp") -> dict:
+    pending = _pending_dir()
+    if pending is None:
+        return {"error": "no pending directory configured"}
+    ns = _primary_ns()
+    fact_dict["ns"] = list(_active_ns())
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    entry = JournalEntry(
+        fact=fact_dict,
+        agent=agent,
+        ns=ns,
+        confidence=max(0.0, min(1.0, float(confidence))),
+        proposed_at=now,
+        status="pending",
+    )
+    append_journal(pending, entry, ns)
+    return {
+        "accepted": True,
+        "id": fact_dict.get("id", ""),
+        "status": "pending",
+        "ns": ns,
+        "proposed_at": now,
+    }
+
+
+@mcp.tool()
+def propose_fact(fact: dict, confidence: float) -> dict:
+    """Propose a new node or edge. ns is server-enforced, caller ns is stripped."""
+    if not _schema:
+        return {"error": "no schema loaded"}
+    fact_type = fact.get("type", "")
+    if fact["kind"] == "node":
+        if not _schema.is_valid_node_type(fact_type):
+            return {"error": f"unknown node type: {fact_type}"}
+    elif fact["kind"] == "edge":
+        if not _schema.is_valid_edge_type(fact_type):
+            return {"error": f"unknown edge type: {fact_type}"}
+    else:
+        return {"error": f"unknown fact kind: {fact.get('kind')}"}
+    fact.pop("ns", None)
+    if "src" not in fact:
+        fact["src"] = []
+    return _write_journal(fact, confidence)
+
+
+@mcp.tool()
+def link_facts(from_id: str, to_id: str, edge_type: str, confidence: float) -> dict:
+    """Create an edge between two existing nodes, server-enforced ns."""
+    scoped = _require()
+    if scoped.get_node(from_id) is None:
+        return {"error": f"from node not found or out of scope: {from_id}"}
+    if scoped.get_node(to_id) is None:
+        return {"error": f"to node not found or out of scope: {to_id}"}
+    if not _schema:
+        return {"error": "no schema loaded"}
+    if not _schema.is_valid_edge_type(edge_type):
+        return {"error": f"unknown edge type: {edge_type}"}
+    fact = {
+        "kind": "edge",
+        "id": "",
+        "type": edge_type,
+        "from": from_id,
+        "to": to_id,
+        "ns": [],
+        "props": {},
+        "src": [],
+    }
+    return _write_journal(fact, confidence)
+
+
+@mcp.tool()
+def flag_contradiction(fact_a_id: str, fact_b_id: str, description: str) -> dict:
+    """Report conflicting facts for curator review (always quarantined)."""
+    pending = _pending_dir()
+    if pending is None:
+        return {"error": "no pending directory configured"}
+    ns = _primary_ns()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    flag_fact = {
+        "kind": "node",
+        "id": f"contradiction:{fact_a_id}:{fact_b_id}",
+        "type": "note",
+        "ns": list(_active_ns()),
+        "props": {
+            "title": f"contradiction: {fact_a_id} vs {fact_b_id}",
+            "topic": description,
+        },
+        "src": [],
+    }
+    entry = JournalEntry(
+        fact=flag_fact,
+        agent="mcp",
+        ns=ns,
+        confidence=0.0,
+        proposed_at=now,
+        status="pending",
+    )
+    append_journal(pending, entry, ns)
+    return {
+        "accepted": True,
+        "id": flag_fact["id"],
+        "status": "pending",
+        "note": "Flagged for curator review. Both facts will be quarantined on next resolve.",
+    }
+
+
+@mcp.tool()
+def update_fact(id: str, props: dict, confidence: float) -> dict:
+    """Propose updated props for an existing node or edge."""
+    scoped = _require()
+    store = scoped._g
+    node = store.get_node(id)
+    if node is not None:
+        fact = node.model_dump(mode="json", by_alias=True)
+        fact["props"] = props
+        fact.pop("ns", None)
+        return _write_journal(fact, confidence)
+    for e in store.all_edges():
+        if e.id == id:
+            edge_dict = e.model_dump(mode="json", by_alias=True)
+            edge_dict["props"] = props
+            edge_dict.pop("ns", None)
+            return _write_journal(edge_dict, confidence)
+    return {"error": f"fact not found or out of scope: {id}"}
+
+
+@mcp.tool()
+def suggest_improvement(description: str) -> dict:
+    """Suggest a non-fact improvement (gap, missing entity) - review only."""
+    pending = _pending_dir()
+    if pending is None:
+        return {"error": "no pending directory configured"}
+    ns = _primary_ns()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    suggestion_fact = {
+        "kind": "node",
+        "id": f"suggestion:{_primary_ns()}:{now[:19]}",
+        "type": "note",
+        "ns": list(_active_ns()),
+        "props": {
+            "title": "improvement suggestion",
+            "topic": description,
+        },
+        "src": [],
+    }
+    entry = JournalEntry(
+        fact=suggestion_fact,
+        agent="mcp",
+        ns=ns,
+        confidence=0.0,
+        proposed_at=now,
+        status="pending",
+    )
+    append_journal(pending, entry, ns)
+    return {
+        "accepted": True,
+        "id": suggestion_fact["id"],
+        "status": "pending",
+        "note": "Suggestion recorded for curator review.",
+    }
 
 
 if __name__ == "__main__":

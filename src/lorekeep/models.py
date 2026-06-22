@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -110,6 +110,22 @@ class QuarantineItem(BaseModel):
     reason: str
 
 
+class JournalEntry(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    fact: dict[str, Any]
+    agent: str
+    ns: str
+    confidence: float
+    proposed_at: str
+    status: str = "pending"
+
+
+class ReviewItem(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    fact_id: str
+    reason: str
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: int
@@ -121,6 +137,10 @@ class Manifest(BaseModel):
     chunk_hashes: dict[str, list[str]] = Field(default_factory=dict)
     errors: list[CompileError] = Field(default_factory=list)
     quarantine: list[QuarantineItem] = Field(default_factory=list)
+    review: list[ReviewItem] = Field(default_factory=list)
+    merged_count: int = 0
+    quarantined_count: int = 0
+    flagged_count: int = 0
 
     def to_json(self) -> str:
         return json.dumps(self.model_dump(mode="json"), sort_keys=True, indent=2)

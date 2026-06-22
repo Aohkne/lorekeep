@@ -116,6 +116,101 @@ def check() -> None:
 
 
 @app.command()
+def resolve(
+    archive: bool = typer.Option(
+        False, "--archive",
+        help="Archive processed journal entries instead of truncating",
+    ),
+) -> None:
+    """Merge pending journal entries into facts.jsonl (full resolve pass)."""
+    p = resolve_paths()
+    from lorekeep.store.graph import GraphStore
+    from lorekeep.facts_io import read_facts
+    from lorekeep.compile.resolve import resolve as resolve_facts, merge_journals
+    from lorekeep.compile.writer import write_graph
+    from lorekeep.journal import load_journals, update_journal_status
+    from lorekeep.models import Manifest
+
+    facts_path = p["out"] / "facts.jsonl"
+    pending = p.get("pending")
+    if not pending or not pending.exists():
+        typer.echo("resolve: no pending directory, nothing to do")
+        return
+
+    journals = load_journals(pending)
+    pending_entries = [j for j in journals if j.status == "pending"]
+    if not pending_entries:
+        typer.echo("resolve: no pending journal entries")
+        return
+
+    # Load current facts
+    existing_nodes = []
+    existing_edges = []
+    if facts_path.exists():
+        facts = read_facts(facts_path)
+        from lorekeep.models import Edge, Node
+        for f in facts:
+            if isinstance(f, Node):
+                existing_nodes.append(f)
+            else:
+                existing_edges.append(f)
+
+    # Merge journals
+    merged = merge_journals(existing_nodes, existing_edges, pending_entries)
+
+    # Run standard resolve over merged facts
+    resolved = resolve_facts(merged.nodes, merged.edges)
+
+    # Build manifest
+    manifest = Manifest(
+        schema_version=0,
+        chunk_count=0,
+        node_count=len(resolved.nodes),
+        edge_count=len(resolved.edges),
+        run_id="resolve",
+        facts_hash="",
+        merged_count=merged.merge_count,
+        quarantined_count=merged.quarantine_count,
+        flagged_count=merged.flagged_count,
+        quarantine=[{"fact": q[0].fact, "reason": q[1]} for q in resolved.quarantined],
+        review=[{"fact_id": f[0].fact.get("id", ""), "reason": f[1]}
+                for f in merged.flagged],
+    )
+    write_graph(p["out"], resolved.nodes, resolved.edges, manifest)
+
+    # Update journal status per namespace
+    ns_to_merged: dict[str, set[str]] = {}
+    ns_to_flagged: dict[str, set[str]] = {}
+    ns_to_quarantined: dict[str, set[str]] = {}
+    for entry, _ in merged.merged:
+        ns_to_merged.setdefault(entry.ns, set()).add(entry.proposed_at)
+    for entry, _ in merged.flagged:
+        ns_to_flagged.setdefault(entry.ns, set()).add(entry.proposed_at)
+    for entry, _ in merged.quarantined:
+        ns_to_quarantined.setdefault(entry.ns, set()).add(entry.proposed_at)
+
+    # Flagged entries are still merged into the graph (just flagged for review)
+    for ns, timestamps in ns_to_flagged.items():
+        existing = ns_to_merged.get(ns, set())
+        ns_to_merged[ns] = existing | timestamps
+
+    for ns, timestamps in ns_to_merged.items():
+        update_journal_status(pending, ns, timestamps, "merged")
+    for ns, timestamps in ns_to_quarantined.items():
+        # Don't overwrite merged status for entries already handled
+        already = ns_to_merged.get(ns, set())
+        to_quarantine = timestamps - already
+        if to_quarantine:
+            update_journal_status(pending, ns, to_quarantine, "quarantined")
+
+    typer.echo(
+        f"resolve: {len(resolved.nodes)} nodes, {len(resolved.edges)} edges — "
+        f"{merged.merge_count} merged, {merged.flagged_count} flagged, "
+        f"{merged.quarantine_count} quarantined"
+    )
+
+
+@app.command()
 def serve(
     transport: str = typer.Option("stdio", "--transport", help="stdio (default) | http"),
 ) -> None:
@@ -127,7 +222,7 @@ def serve(
     else:
         allowed = load_config(p["config"]).ns.default
     from lorekeep.mcp_server import configure, mcp
-    configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"])
+    configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
     mcp.run(transport=transport)
 
 
@@ -190,7 +285,7 @@ def doctor() -> None:
 
     try:
         from lorekeep.mcp_server import configure, list_namespaces
-        configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"])
+        configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
         ns = list_namespaces()
     except Exception as exc:
         problems.append(f"mcp configure/tool failed: {exc}")
@@ -350,6 +445,225 @@ def import_cmd(
                    f"{ses_count} session files -> raw/{session_ns}/")
         if not quick:
             typer.echo("next: lorekeep compile")
+
+
+# --- Agent subcommand group -----------------------------------------------
+
+agent_app = typer.Typer(help="Autonomous agent operations: lint, suggest, status, watch.")
+app.add_typer(agent_app, name="agent")
+
+
+@agent_app.command()
+def lint(
+    auto_fix: bool = typer.Option(
+        False, "--auto-fix",
+        help="Auto-apply high-confidence fixes",
+    ),
+    focus: str = typer.Option(
+        None, "--focus",
+        help="Lint a specific entity by id",
+    ),
+) -> None:
+    """Run semantic health checks on the graph."""
+    p = resolve_paths()
+    facts_path = p["out"] / "facts.jsonl"
+    if not facts_path.exists():
+        typer.echo("lint: no graph — run `lorekeep compile` first")
+        raise typer.Exit(code=1)
+
+    from lorekeep.store.graph import GraphStore
+    from lorekeep.agent import lint as agent_lint
+    store = GraphStore.from_jsonl(facts_path)
+    report = agent_lint(store)
+
+    if focus:
+        report.orphans = [o for o in report.orphans if o == focus]
+        report.stale = [s for s in report.stale if s == focus]
+        report.missing_endpoints = [m for m in report.missing_endpoints
+                                     if m["edge_id"] == focus]
+
+    if not report.has_issues:
+        typer.echo("lint: no issues found")
+        return
+
+    if report.contradictions:
+        typer.echo(f"contradictions: {len(report.contradictions)}")
+        for c in report.contradictions[:10]:
+            typer.echo(f"  {c['id']}")
+    if report.orphans:
+        typer.echo(f"orphans: {len(report.orphans)}")
+        for o in report.orphans[:10]:
+            typer.echo(f"  {o}")
+    if report.stale:
+        typer.echo(f"stale: {len(report.stale)}")
+    if report.missing_endpoints:
+        typer.echo(f"missing endpoints: {len(report.missing_endpoints)}")
+    if report.coverage_gaps:
+        typer.echo(f"coverage gaps: {report.coverage_gaps}")
+
+    if auto_fix:
+        typer.echo("auto-fix: not yet implemented (planned)")
+
+    typer.echo(f"total issues: {report.issue_count}")
+
+
+@agent_app.command()
+def suggest() -> None:
+    """Generate improvement suggestions for the graph."""
+    p = resolve_paths()
+    facts_path = p["out"] / "facts.jsonl"
+    if not facts_path.exists():
+        typer.echo("suggest: no graph — run `lorekeep compile` first")
+        raise typer.Exit(code=1)
+
+    from lorekeep.store.graph import GraphStore
+    from lorekeep.agent import suggest as agent_suggest
+    store = GraphStore.from_jsonl(facts_path)
+    report = agent_suggest(store)
+
+    if report.gaps:
+        typer.echo("knowledge gaps:")
+        for g in report.gaps:
+            typer.echo(f"  {g}")
+    if report.under_sourced:
+        typer.echo(f"under-sourced entities: {len(report.under_sourced)}")
+        for u in report.under_sourced[:10]:
+            typer.echo(f"  {u}")
+    if report.suggestions:
+        typer.echo("suggestions:")
+        for s in report.suggestions:
+            typer.echo(f"  {s}")
+
+    if not report.gaps and not report.under_sourced and not report.suggestions:
+        typer.echo("suggest: no suggestions (graph looks healthy)")
+
+
+@agent_app.command()
+def status() -> None:
+    """Print a graph health dashboard."""
+    p = resolve_paths()
+    facts_path = p["out"] / "facts.jsonl"
+    if not facts_path.exists():
+        typer.echo("status: no graph — run `lorekeep compile` first")
+        raise typer.Exit(code=1)
+
+    from lorekeep.store.graph import GraphStore
+    from lorekeep.agent import agent_status
+    store = GraphStore.from_jsonl(facts_path)
+    dash = agent_status(store, p.get("pending"))
+
+    typer.echo(f"nodes: {dash.node_count}")
+    typer.echo(f"edges: {dash.edge_count}")
+    typer.echo(f"namespaces: {dash.namespace_count} ({', '.join(dash.namespaces)})")
+    typer.echo(f"lint issues: {dash.lint_issues}")
+    typer.echo(f"pending journals: {dash.pending_journals}")
+
+
+@agent_app.command()
+def watch(
+    interval: int = typer.Option(
+        60, "--interval",
+        help="Polling interval in seconds",
+    ),
+) -> None:
+    """Run the autonomous agent daemon: watch raw/ and pending/ for changes."""
+    import time
+    p = resolve_paths()
+    raw_dir = p["raw"]
+    pending_dir = p.get("pending")
+
+    typer.echo(f"agent watch: monitoring raw={raw_dir}, pending={pending_dir}, interval={interval}s")
+    typer.echo("agent: auto-compile (raw/) and auto-resolve (pending/) enabled")
+    typer.echo("agent: MCP server lazy-reloads facts.jsonl — no reconnect needed")
+    last_raw_mtime = 0.0
+    last_pending_mtime = 0.0
+    has_raw = raw_dir.exists()
+    has_pending = pending_dir and pending_dir.exists()
+
+    while True:
+        try:
+            # Check raw/ for changes → auto-compile
+            raw_files = sorted(raw_dir.rglob("*.md")) if has_raw else []
+            raw_mtime = max((f.stat().st_mtime for f in raw_files), default=0.0)
+            if raw_mtime > last_raw_mtime and last_raw_mtime > 0:
+                typer.echo(f"agent: raw/ changed ({len(raw_files)} files) — compiling...")
+                try:
+                    from pathlib import Path
+                    from lorekeep.pipeline import compile_graph
+                    from lorekeep.compile.providers import get_provider
+                    from lorekeep.defaults import default_schema
+                    schema = default_schema()
+                    provider = get_provider(p["config"])
+                    cache = p.get("cache", p["out"].parent / ".lorekeep" / "cache.json")
+                    compile_graph(raw_dir, p["out"], schema, provider, Path(cache))
+                    typer.echo("agent: compile done")
+                except Exception as exc:
+                    typer.echo(f"agent: compile error: {exc}")
+            last_raw_mtime = raw_mtime
+
+            # Check pending/ for new journals → auto-resolve
+            if has_pending:
+                journal_files = sorted(pending_dir.rglob("journal.jsonl"))
+                pending_mtime = max((f.stat().st_mtime for f in journal_files), default=0.0)
+                if pending_mtime > last_pending_mtime and last_pending_mtime > 0:
+                    typer.echo("agent: pending/ changed — resolving...")
+                    try:
+                        from lorekeep.store.graph import GraphStore
+                        from lorekeep.facts_io import read_facts
+                        from lorekeep.compile.resolve import resolve as resolve_facts, merge_journals
+                        from lorekeep.compile.writer import write_graph
+                        from lorekeep.journal import load_journals, update_journal_status
+                        from lorekeep.models import Edge, Manifest, Node
+
+                        facts_path = p["out"] / "facts.jsonl"
+                        existing_nodes = []
+                        existing_edges = []
+                        if facts_path.exists():
+                            for f in read_facts(facts_path):
+                                if isinstance(f, Node):
+                                    existing_nodes.append(f)
+                                else:
+                                    existing_edges.append(f)
+
+                        journals = load_journals(pending_dir)
+                        pending_entries = [j for j in journals if j.status == "pending"]
+                        if pending_entries:
+                            merged = merge_journals(existing_nodes, existing_edges, pending_entries)
+                            resolved = resolve_facts(merged.nodes, merged.edges)
+                            manifest = Manifest(
+                                schema_version=0, chunk_count=0,
+                                node_count=len(resolved.nodes),
+                                edge_count=len(resolved.edges),
+                                run_id="auto-resolve", facts_hash="",
+                                merged_count=merged.merge_count,
+                                quarantined_count=merged.quarantine_count,
+                                flagged_count=merged.flagged_count,
+                            )
+                            write_graph(p["out"], resolved.nodes, resolved.edges, manifest)
+
+                            # Update journal status
+                            for ns in set(entry.ns for entry, _ in merged.merged):
+                                timestamps = {e.proposed_at for e, _ in merged.merged if e.ns == ns}
+                                if timestamps:
+                                    update_journal_status(pending_dir, ns, timestamps, "merged")
+                            for ns in set(entry.ns for entry, _ in merged.flagged):
+                                timestamps = {e.proposed_at for e, _ in merged.flagged if e.ns == ns}
+                                existing = {e.proposed_at for e, _ in merged.merged if e.ns == ns}
+                                to_flag = timestamps - existing
+                                if to_flag:
+                                    update_journal_status(pending_dir, ns, to_flag, "flagged")
+
+                            typer.echo(f"agent: resolve done — {merged.merge_count} merged, "
+                                       f"{merged.flagged_count} flagged, {merged.quarantine_count} quarantined")
+                last_pending_mtime = pending_mtime
+
+            time.sleep(interval)
+        except KeyboardInterrupt:
+            typer.echo("\nagent: shutting down")
+            break
+        except Exception as exc:
+            typer.echo(f"agent: error: {exc}")
+            time.sleep(interval)
 
 
 if __name__ == "__main__":

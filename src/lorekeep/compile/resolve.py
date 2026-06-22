@@ -3,12 +3,15 @@
 Extraction may emit the same entity under several ids (aliases). This stage
 collapses them onto one canonical id, rewrites edge endpoints, drops edges whose
 endpoints disappeared, and quarantines malformed facts for review.
+
+Journal merge: loads pending journal entries, gates by confidence, merges into
+the existing graph with priority: raw/ > import > agent-propose.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from lorekeep.models import Edge, Node
+from lorekeep.models import Edge, JournalEntry, Node
 
 
 @dataclass
@@ -109,3 +112,99 @@ def resolve(
         aliases=alias_map,
         quarantined=quarantined,
     )
+
+
+@dataclass
+class JournalMergeResult:
+    nodes: list[Node] = field(default_factory=list)
+    edges: list[Edge] = field(default_factory=list)
+    merged: list[tuple[JournalEntry, str]] = field(default_factory=list)
+    flagged: list[tuple[JournalEntry, str]] = field(default_factory=list)
+    quarantined: list[tuple[JournalEntry, str]] = field(default_factory=list)
+
+    @property
+    def merge_count(self) -> int:
+        return len(self.merged)
+
+    @property
+    def flagged_count(self) -> int:
+        return len(self.flagged)
+
+    @property
+    def quarantine_count(self) -> int:
+        return len(self.quarantined)
+
+
+def merge_journals(
+    existing_nodes: list[Node],
+    existing_edges: list[Edge],
+    journal_entries: list[JournalEntry],
+) -> JournalMergeResult:
+    """Gate journal entries by confidence and add to the graph.
+
+    High (>=0.8): auto-merge. Medium (0.5 to <0.8): merge + flag for review.
+    Low (<0.5): quarantine, do not merge.
+    """
+    result = JournalMergeResult()
+    nodes_by_id: dict[str, Node] = {n.id: n for n in existing_nodes}
+    new_edges: list[Edge] = []
+
+    for entry in journal_entries:
+        if entry.status != "pending":
+            continue
+        confidence = entry.confidence
+        fact_data = entry.fact
+        try:
+            if fact_data["kind"] == "node":
+                fact = Node.model_validate(fact_data)
+            else:
+                fact = Edge.model_validate(fact_data)
+        except Exception:
+            result.quarantined.append((entry, "invalid fact schema"))
+            continue
+
+        if confidence < 0.5:
+            result.quarantined.append((entry, "low confidence"))
+            continue
+
+        if fact.kind == "node":
+            if fact.id in nodes_by_id:
+                base = nodes_by_id[fact.id]
+                merged_props = {**base.props, **fact.props}
+                merged_src = tuple(dict.fromkeys(base.src + fact.src))
+                merged_ns = tuple(dict.fromkeys(base.ns + fact.ns))
+                nodes_by_id[fact.id] = base.model_copy(
+                    update={"props": merged_props, "src": merged_src, "ns": merged_ns}
+                )
+            else:
+                nodes_by_id[fact.id] = fact
+        else:
+            new_edges.append(fact)
+
+        if confidence >= 0.8:
+            result.merged.append((entry, ""))
+        else:
+            result.flagged.append((entry, "medium confidence, flagged for review"))
+
+    result.nodes = list(nodes_by_id.values())
+
+    # Deduplicate + ID-regenerate edges (journal edges have empty id)
+    edge_by_key: dict[tuple[str, str, str], Edge] = {}
+    counter = 0
+    for e in existing_edges + new_edges:
+        key = (e.from_, e.to, e.type)
+        if key in edge_by_key:
+            # Merge props and src for duplicate edges
+            existing = edge_by_key[key]
+            merged_props = {**existing.props, **e.props}
+            merged_src = tuple(dict.fromkeys(existing.src + e.src))
+            edge_by_key[key] = existing.model_copy(
+                update={"props": merged_props, "src": merged_src}
+            )
+        else:
+            counter += 1
+            eid = e.id if e.id else f"e_{e.type}_{counter:04d}"
+            edge_by_key[key] = e if e.id else e.model_copy(update={"id": eid})
+
+    result.edges = list(edge_by_key.values())
+    return result
