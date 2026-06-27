@@ -34,7 +34,7 @@ knowledge.
 
 ## Features
 
-- **Append-and-resolve** [planned] — three write paths (raw/ compile, agent propose,
+- **Append-and-resolve** — three write paths (raw/ compile, agent ingest,
   import sessions) converge into one resolve step. Journals are append-only;
   resolve is pure logic, zero LLM cost.
 - **Agent-driven knowledge** [planned] — agents propose facts at runtime via MCP write
@@ -49,9 +49,9 @@ knowledge.
   hidden unless both endpoints are visible. Deny-by-default.
 - **MCP, stdio-first** — `lorekeep serve` exposes 8 read tools (5 write tools planned);
   `lorekeep mcp add` wires Claude Code / Cursor / Codex.
-- **Autonomous agent** [planned] — `lorekeep agent watch` keeps the graph current:
-  auto-compile on raw/ change, auto-resolve pending journals, nightly lint,
-  weekly suggestions.
+- **Autonomous agent daemon** — `lorekeep agent watch` keeps the graph current:
+  auto-compile on raw/ change, auto-resolve pending journals, delta import of
+  agent session memory. Runs in the background; MCP server lazy-reloads.
 - **Lazy-reload** — graph updates (compile or resolve) are visible on the next
   query. Connect once, use forever.
 - **Provider-pluggable extraction** — litellm (OpenAI / Anthropic /
@@ -92,6 +92,39 @@ uvx lorekeep doctor
 
 Restart Claude Code → 8 Lorekeep read tools are available, scoped to your namespace.
 
+## Lifecycle
+
+The full journey from install to continuous use — see the
+[Getting started guide](docs/guides/getting-started.md) for details.
+
+```
+ INIT          CURATE              SERVE              KEEP CURRENT          SYNC
+ ════          ═══════             ══════             ════════════          ════
+ ┌─────┐   ┌──────────┐        ┌─────────┐       ┌───────────────┐    ┌────────┐
+ │init │──►│raw/*.md  │──►     │mcp add  │──►    │ agent watch   │──► │backup  │
+ │     │   │compile   │ compile│serve    │ serve │  raw/  → compile│   │        │
+ │     │   │          │────────│         │       │  pending/ → resolve   │
+ └─────┘   └──────────┘        └─────────┘       │  memory/ → import │    └────────┘
+                                   ▲             └───────┬───────┘         │
+                                   │                     │ lazy-reload     │ git sync
+                                   │◄────────────────────┘                 │
+                                   │◄──────────────────────────────────────┘
+```
+
+| Step | Command | What it does |
+|---|---|---|
+| 1. Bootstrap | `lorekeep init` | Create data home (config + schema + dirs) |
+| 2. Curate | `raw/<ns>/*.md` | Drop markdown docs under namespace dirs |
+| 3. Compile | `lorekeep compile` | LLM-extract facts → `facts.jsonl` (cached, deterministic) |
+| 4. Wire agent | `lorekeep mcp add --agent claude --ns <ns>` | Write `.mcp.json`, scoped to namespace |
+| 5. Verify | `lorekeep doctor` | Graph loads, schema valid, tool responds |
+| 6. Serve | `lorekeep serve` | MCP server (read-only, 8 tools, lazy-reload) |
+| 7. Keep current | `lorekeep agent watch &` | Daemon: auto-compile, auto-resolve, delta-import sessions |
+| 8. Back up | `lorekeep backup` | Push data home to private git repo (raw/ + schema.json) |
+
+Steps 1–6 are one-time setup. Step 7 runs in the background for continuous
+updates. Step 8 syncs across machines.
+
 ## How it works
 
 ```
@@ -113,12 +146,11 @@ facts.jsonl ──load──► GraphStore ──► ScopedGraph(ns) ──► M
                           │              └────────── write proposals (journal) [planned]
                          └── lazy-reload on mtime change
 
-               AUTONOMOUS AGENT (daemon) [planned phase 2]
+               AUTONOMOUS AGENT DAEMON
                lorekeep agent watch:
                  ├── watch raw/ → auto-compile
-                 ├── periodic resolve → merge journals
-                 ├── nightly lint → health check
-                 └── weekly suggest → gaps, improvements
+                 ├── watch pending/ → auto-resolve
+                 └── watch Claude memory/ → delta import → raw/
 ```
 
 **Three write paths → one resolve**: markdown is compiled by an LLM (chunked + cached); agents will propose facts at runtime through MCP write tools at **zero marginal LLM cost** (the agent already ran the LLM for the conversation) — **planned for phase 2**; agent sessions are imported into raw/. All converge at `resolve` — pure Python logic that merges, deduplicates, validates, and writes byte-stable `facts.jsonl`.
@@ -151,7 +183,7 @@ that began/ended in the window).
 
 **Agent-driven knowledge** [planned] — agents will propose facts at runtime through MCP write tools (zero LLM cost). Facts land in `pending/<ns>/journal.jsonl` with agent id, confidence score, and timestamp. Resolve merges them into the graph: high-confidence (≥0.8) auto-merge, medium (0.5-0.8) merge + flag, low (<0.5) quarantine.
 
-**Autonomous agent** [planned] — `lorekeep agent watch` keeps the graph current: watches `raw/` for changes → auto-compile; monitors `pending/` → auto-resolve; nightly semantic lint; weekly gap suggestions. See [docs/architecture/agent.md](docs/architecture/agent.md).
+**Autonomous agent daemon** — `lorekeep agent watch` keeps the graph current: watches `raw/` for changes → auto-compile; monitors `pending/` → auto-resolve; delta-imports Claude session memory into `raw/`. Scheduled lint and weekly suggestions are planned. See [docs/architecture/agent.md](docs/architecture/agent.md).
 
 ## MCP tools (8 read, scoped; 5 write planned)
 
@@ -182,8 +214,11 @@ in [`.lorekeep/config.yaml.example`](.lorekeep/config.yaml.example).
 ## Data home & dev mode
 
 Path resolution (high → low): explicit `LOREKEEP_*` env → `LOREKEEP_HOME` →
-**dev mode** (`.lorekeep/` or `raw/` in CWD; auto-detected in a source checkout)
+**dev mode** (`.lorekeep/` in CWD; auto-detected in a source checkout)
 → XDG (`~/.config/lorekeep`, `~/.local/share/lorekeep`).
+
+Back up the data home to a private git repo with `lorekeep backup` — see
+[`docs/guides/backup.md`](docs/guides/backup.md).
 
 Full details, per-path overrides, and `lorekeep init`: [`docs/guides/data-home.md`](docs/guides/data-home.md).
 For usage, see the [`docs/`](docs/README.md) index.
@@ -207,8 +242,8 @@ src/lorekeep/
   config.py, schema_io.py
   compile/{ingest,extract,resolve,writer}.py    the compile pipeline
   compile/providers.py                          LLMProvider (Fake/LiteLLM)
-  journal.py           append-only journal writer + loader [planned phase 2]
-  agent.py             autonomous agent CLI + daemon [planned phase 2]
+  journal.py           append-only journal writer + loader
+  agent.py             autonomous agent: ingest, lint, suggest, status, watch
   store/{graph,fts}.py                          GraphStore + optional FTS cache
   perm/ns.py                                    ScopedGraph permission chokepoint
   mcp_server.py                                 FastMCP + 8 read tools (5 write planned)
@@ -221,19 +256,21 @@ docs/                  README.md index, architecture/, guides/
 
 ## Status
 
-**v1 (implemented)** — compile pipeline + serve (store/permission/MCP read/integrations) + import + data-home + dev mode + lazy-reload + eval. Published to PyPI as `lorekeep`.
+**v1 (implemented)** — compile pipeline + serve (store/permission/MCP read/integrations) + import + agent daemon (watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode + lazy-reload + backup + eval. Published to PyPI as `lorekeep`.
 
-**Phase 2 (planned)** — journal (append-only pending) + MCP write tools + agent daemon + `wiki.md` views (Obsidian-compatible markdown output), streamable-HTTP team server, OIDC/SSO, embeddings/hybrid search, full Tier-2 benchmark datasets (HotpotQA/CronQuestions) and the bespoke Tier-3 Lorekeep-Reason eval.
+**Phase 2 (planned)** — MCP write tools (runtime fact proposals via `propose_fact`, `link_facts`, etc.) + `wiki.md` views (Obsidian-compatible markdown output), streamable-HTTP team server, OIDC/SSO, embeddings/hybrid search, scheduled nightly lint/suggest in daemon, schema evolve, full Tier-2 benchmark datasets (HotpotQA/CronQuestions) and the bespoke Tier-3 Lorekeep-Reason eval.
 
 ## Documentation
 
 The [`docs/`](docs/README.md) index is the entry point.
 
 **Guides**
+- [Getting started](docs/guides/getting-started.md)
 - [Importing agent sessions](docs/guides/import.md)
 - [Compiling the knowledge graph](docs/guides/compile.md)
 - [Serving the graph to coding agents](docs/guides/serve.md)
 - [Data home & path resolution](docs/guides/data-home.md)
+- [Backing up the data home](docs/guides/backup.md)
 
 **Architecture**
 - [Overview](docs/architecture/overview.md) · [Data model](docs/architecture/data-model.md) · [Pipeline](docs/architecture/pipeline.md) · [Journal](docs/architecture/journal.md) · [Agent](docs/architecture/agent.md) · [Permission](docs/architecture/permission.md) · [Temporal](docs/architecture/temporal.md) · [Serve & MCP](docs/architecture/serve-mcp.md) · [Testing & evaluation](docs/architecture/evaluation.md)

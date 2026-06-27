@@ -1,17 +1,10 @@
 # Lorekeep local-only artifacts (never committed) — except the config template
 .lorekeep/*
 !.lorekeep/config.yaml.example
+!.lorekeep/schema.json
 *.sqlite
 *.sqlite-*
 
-# Lorekeep compiled graph (reproducible via `lorekeep compile`; keep schema.json)
-graph/facts.jsonl
-graph/manifest.json
-
-# Personal trial data (local-only; do not commit — contains personal/work memory)
-raw/*-memory/
-raw/personal/
-raw/claude-session/
 .mcp.json
 
 # Python

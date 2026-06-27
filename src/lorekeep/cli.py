@@ -12,7 +12,7 @@ from lorekeep.compile.providers import FakeProvider, LiteLLMProvider
 from lorekeep.config import Config, load_config
 from lorekeep.pipeline import compile_graph
 from lorekeep.paths import resolve_paths
-from lorekeep.defaults import DEFAULT_CONFIG_YAML, DEFAULT_SCHEMA
+from lorekeep.defaults import DEFAULT_CONFIG_YAML, DEFAULT_SCHEMA, PROVIDER_PRESETS
 from lorekeep.schema_io import load_schema
 
 app = typer.Typer(help="Lorekeep — compile team docs into a temporal knowledge graph.")
@@ -31,11 +31,6 @@ def _build_provider(config: Config) -> LiteLLMProvider:
         api_key = os.environ.get(config.provider.api_key_env)
     if not api_key:
         api_key = config.provider.api_key
-    if api_key is config.provider.api_key and api_key:
-        typer.echo(
-            "warning: using inline api_key from config.yaml — prefer api_key_env "
-            "(env var). config.yaml is gitignored but env is safer."
-        )
     return LiteLLMProvider(
         model=config.provider.model,
         api_base=config.provider.api_base,
@@ -301,27 +296,153 @@ def doctor() -> None:
     )
 
 
+def _is_interactive() -> bool:
+    """True if stdin is a TTY (user can answer prompts)."""
+    import sys
+    return sys.stdin.isatty()
+
+
 @app.command()
-def init() -> None:
+def init(
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="Skip interactive prompts, use defaults",
+    ),
+) -> None:
     """Bootstrap the data home: config + schema + raw/graph dirs."""
     p = resolve_paths()
     created = []
     p["config"].parent.mkdir(parents=True, exist_ok=True)
-    if not p["config"].exists():
-        p["config"].write_text(DEFAULT_CONFIG_YAML)
+    config_existed = p["config"].exists()
+    ns = "public"
+    name = ""
+    bio = ""
+
+    if not config_existed:
+        if not yes and _is_interactive():
+            ns, name, bio = _interactive_init(p)
+        else:
+            p["config"].write_text(DEFAULT_CONFIG_YAML)
         created.append(str(p["config"]))
+    elif p["config"].exists():
+        try:
+            ns = load_config(p["config"]).ns.default[0]
+        except Exception:
+            pass
+
     p["schema"].parent.mkdir(parents=True, exist_ok=True)
     if not p["schema"].exists():
         p["schema"].write_text(json.dumps(DEFAULT_SCHEMA, indent=2))
         created.append(str(p["schema"]))
+
     p["raw"].mkdir(parents=True, exist_ok=True)
     p["out"].mkdir(parents=True, exist_ok=True)
+
     typer.echo(f"home ready: config={p['config']}")
     typer.echo(f"  schema={p['schema']}  raw={p['raw']}  graph={p['out']}")
     if created:
         typer.echo(f"  wrote defaults: {created}")
     else:
         typer.echo("  (existing config/schema preserved)")
+
+    # First file: the user's about.md (profile from onboarding) — replaces the
+    # generic welcome sample. Written only on first init (fresh config + empty raw/).
+    if not config_existed and not any(p["raw"].rglob("*.md")):
+        ns_dir = p["raw"] / ns
+        ns_dir.mkdir(parents=True, exist_ok=True)
+        about_md = (
+            f"# {name or '(your name)'}\n\n"
+            f"{bio or '(your bio — a one-line intro about you)'}\n"
+        )
+        (ns_dir / "about.md").write_text(about_md)
+        typer.echo(f"  wrote: {ns_dir / 'about.md'}")
+
+    if not config_existed:
+        typer.echo("\nNext steps:")
+        typer.echo("  1. Compile:           uvx lorekeep compile   (or LOREKEEP_PROVIDER=fake)")
+        typer.echo(f"  2. Wire an agent:     uvx lorekeep mcp add --agent claude --ns {ns}")
+
+
+def _interactive_init(p: dict) -> tuple[str, str, str]:
+    """Walk the user through provider, model, API key, namespace, name, and bio.
+
+    Returns ``(ns, name, bio)`` — the namespace plus the user's profile answers,
+    so the caller can write the first file ``raw/<ns>/about.md``.
+    """
+    import yaml
+
+    typer.echo("\n=== Lorekeep setup ===\n")
+
+    provider_menu = "Choose an LLM provider:\n" + "\n".join(
+        f"  {k}. {v['label']}" for k, v in PROVIDER_PRESETS.items()
+    )
+    choice = typer.prompt(provider_menu, default="1")
+    preset = PROVIDER_PRESETS.get(choice, PROVIDER_PRESETS["1"])
+    typer.echo(f"  → {preset['label']}\n")
+
+    model = typer.prompt("Model (litellm string)", default=preset["model"])
+
+    api_key = None
+    if preset.get("api_key_env"):
+        # Inline key, stored in the gitignored config.yaml. Empty input = skip.
+        api_key = typer.prompt(
+            "API key (saved into the gitignored config.yaml)",
+            default="",
+            hide_input=True,
+        ) or None
+        if api_key:
+            typer.echo("  → key stored in config.yaml\n")
+        else:
+            typer.echo("  → skipped (add one to config.yaml later)\n")
+    else:
+        typer.echo("  → No API key needed for this provider.\n")
+
+    ns = typer.prompt("Default namespace", default="me")
+    name = typer.prompt("Your name (what the agent calls you)", default="")
+    bio = typer.prompt("Bio (one-line intro about you)", default="")
+
+    install_source = "local" if (Path.cwd() / ".lorekeep").exists() else "pypi"
+
+    config = {
+        "provider": {
+            "backend": preset["backend"],
+            "model": model,
+            "api_base": preset["api_base"],
+            "api_key_env": None,
+            "api_key": api_key,
+            "temperature": 0.0,
+        },
+        "compile": {"chunk_lines": 60},
+        "ns": {"default": [ns]},
+        "install_source": install_source,
+    }
+    p["config"].write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
+    return ns, name, bio
+
+
+@app.command()
+def backup(
+    init_remote: str = typer.Option(
+        None, "--init", help="remote URL; sets up the backup repo + initial push"
+    ),
+) -> None:
+    """Commit + push the data home to your private backup repo."""
+    from lorekeep.backup import BackupError, backup as backup_home, init_backup
+
+    home = resolve_paths()["home"]
+    try:
+        if init_remote:
+            init_backup(home, init_remote)
+            typer.echo(f"backup: repo ready at {home} -> {init_remote}")
+        else:
+            pushed = backup_home(home)
+            if pushed:
+                typer.echo(f"backup: pushed to remote from {home}")
+            else:
+                typer.echo(f"backup: up to date (no changes at {home})")
+    except BackupError as exc:
+        typer.echo(f"backup failed: {exc}")
+        raise typer.Exit(code=1)
 
 
 @app.command("import")
