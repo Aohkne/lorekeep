@@ -61,6 +61,8 @@ knowledge.
   DashScope/Qwen / Ollama). Strict-privacy → Ollama, fully local.
 - **Tier-1 eval** — extraction P/R/F1 vs a gold corpus, entity-resolution F1,
   graph-structure metrics, determinism property tests.
+- **Tier-2 LoCoMo eval** — long-term conversations → graph → retrieval QA.
+  F1 per category (single-hop, temporal, multi-hop, adversarial abstention).
 
 ## Install
 
@@ -228,11 +230,27 @@ For usage, see the [`docs/`](docs/README.md) index.
 
 ## Evaluation
 
-Tier-1 (CI): extraction P/R/F1 vs a gold corpus, entity-resolution pairwise F1,
-graph-structure metrics, determinism. Run: `uvx lorekeep eval`. The north star is
-*systematic thinking with complete information* — memory-recall benchmarks
-(LoCoMo, LongMemEval) are parity checks, not the optimization target. See
-[`docs/architecture/evaluation.md`](docs/architecture/evaluation.md).
+**Tier-1** (CI): extraction P/R/F1 vs a gold corpus, entity-resolution pairwise F1,
+graph-structure metrics, determinism. Run: `uvx lorekeep eval`.
+
+**Tier-2 LoCoMo** (per-release): long-term conversation → graph → retrieval QA.
+Run: `uvx lorekeep eval-locomo --data locomo10.json --compile`.
+
+| Category | Recall | Description |
+|---|---|---|
+| Temporal | 0.71 | "When did X happen?" |
+| Single-hop | 0.58 | "What is X's Y?" |
+| Multi-hop | 0.49 | "Who did X's sister work with?" |
+| Descriptive | 0.73 | "What did X do?" |
+| Adversarial | 0.85 | Abstention — plausible-but-wrong answer not found |
+| **Overall** | **0.71** | 199 QA, 1 conversation, DeepSeek extraction |
+
+*Graph-guided retrieval: keyword search → get_node → neighbors(depth=1-2) →
+source markdown enrichment. No agent-LLM synthesis (programmatic baseline).*
+
+The north star is *systematic thinking with complete information* — memory-recall
+benchmarks (LoCoMo, LongMemEval) are parity checks, not the optimization target.
+See [`docs/architecture/evaluation.md`](docs/architecture/evaluation.md).
 
 ## Project layout
 
@@ -255,6 +273,7 @@ src/lorekeep/
   integrations/{claude_code,cursor,codex,opencode,common}.py
   pipeline.py, cli.py
   eval/{gold,construction,retrieval}.py
+  eval/locomo.py                                Tier-2 LoCoMo eval
 tests/                 ~310 tests
 docs/                  README.md index, architecture/, guides/
 ```
@@ -263,7 +282,7 @@ docs/                  README.md index, architecture/, guides/
 
 **v1 (implemented)** — compile pipeline + serve (store/permission/MCP 9 read+5 write/4-agent integrations) + import (Claude/Cursor/Codex/opencode) + session-end hooks + agent daemon (watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode + lazy-reload + backup + eval + scope awareness (`meta` tool) + **wiki** (Obsidian-compatible markdown output). Published to PyPI as `lorekeep`.
 
-**Phase 2 (planned)** — streamable-HTTP team server, OIDC/SSO, embeddings/hybrid search, scheduled nightly lint/suggest in daemon, schema evolve, full Tier-2 benchmark datasets (HotpotQA/CronQuestions) and the bespoke Tier-3 Lorekeep-Reason eval.
+**Phase 2 (planned)** — streamable-HTTP team server, OIDC/SSO, embeddings/hybrid search, scheduled nightly lint/suggest in daemon, schema evolve, HotpotQA/CronQuestions/LongMemEval benchmark datasets and the bespoke Tier-3 Lorekeep-Reason eval.
 
 ## Documentation
 
