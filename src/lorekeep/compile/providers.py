@@ -52,6 +52,39 @@ class LiteLLMProvider:
         self.temperature = temperature
         self.api_key = api_key
 
+    def extract_json(self, system: str, user: str) -> str:
+        import litellm
+        resp = litellm.completion(
+            model=self.model,
+            api_base=self.api_base,
+            api_key=self.api_key,
+            temperature=self.temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format={"type": "json_object"},
+        )
+        return resp.choices[0].message.content
+
+    def complete(self, system: str, user: str) -> str:
+        """Free-form completion (no response_format constraint).
+
+        Used for tasks that need markdown or prose, not structured JSON.
+        """
+        import litellm
+        resp = litellm.completion(
+            model=self.model,
+            api_base=self.api_base,
+            api_key=self.api_key,
+            temperature=self.temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        return resp.choices[0].message.content
+
 
 def setup_observability(
     provider: str | None = None,
@@ -83,36 +116,3 @@ def setup_observability(
     if callbacks:
         litellm.success_callback = callbacks
         litellm.failure_callback = callbacks
-
-    def extract_json(self, system: str, user: str) -> str:
-        import litellm  # imported lazily so tests need not install it
-        resp = litellm.completion(
-            model=self.model,
-            api_base=self.api_base,
-            api_key=self.api_key,
-            temperature=self.temperature,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            response_format={"type": "json_object"},
-        )
-        return resp.choices[0].message.content
-
-    def complete(self, system: str, user: str) -> str:
-        """Free-form completion (no response_format constraint).
-
-        Used for tasks that need markdown or prose, not structured JSON.
-        """
-        import litellm
-        resp = litellm.completion(
-            model=self.model,
-            api_base=self.api_base,
-            api_key=self.api_key,
-            temperature=self.temperature,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
-        return resp.choices[0].message.content
