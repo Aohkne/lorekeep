@@ -27,6 +27,17 @@ def _main() -> None:
 
 def _build_provider(config: Config) -> LiteLLMProvider:
     """Create a real LLM provider from config.  Shared by compile + import."""
+    from lorekeep.compile.providers import setup_observability
+
+    obs = config.observability
+    if obs.provider:
+        setup_observability(
+            provider=obs.provider,
+            api_key_env=obs.api_key_env,
+            project=obs.project,
+            api_url=obs.api_url,
+        )
+
     api_key = None
     if config.provider.api_key_env:
         api_key = os.environ.get(config.provider.api_key_env)
@@ -98,7 +109,7 @@ def hook() -> None:
 
 @app.command()
 def compile() -> None:
-    """Compile raw/ into graph/facts.jsonl."""
+    """Compile raw/ → facts.jsonl + merge pending + generate wiki (all-in-one)."""
     p = resolve_paths()
     schema = load_schema(p["schema"])
     config = load_config(p["config"])
@@ -334,6 +345,59 @@ def serve(
 mcp_app = typer.Typer(help="Coding-agent integration.")
 app.add_typer(mcp_app, name="mcp")
 
+config_app = typer.Typer(help="View and edit lorekeep config.")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Print the current config.yaml."""
+    p = resolve_paths()
+    if not p["config"].exists():
+        typer.echo("No config.yaml found — run `lorekeep init` first.")
+        raise typer.Exit(code=1)
+    typer.echo(p["config"].read_text(encoding="utf-8"))
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="Dot-notation key (e.g. provider.model)"),
+    value: str = typer.Argument(..., help="Value to set"),
+) -> None:
+    """Set a config value (e.g. `config set provider.model deepseek/deepseek-chat`)."""
+    import yaml
+    p = resolve_paths()
+    if not p["config"].exists():
+        typer.echo("No config.yaml found — run `lorekeep init` first.")
+        raise typer.Exit(code=1)
+
+    data = yaml.safe_load(p["config"].read_text(encoding="utf-8")) or {}
+
+    keys = key.split(".")
+    target = data
+    for k in keys[:-1]:
+        target = target.setdefault(k, {})
+
+    final_key = keys[-1]
+    if isinstance(target.get(final_key), list):
+        target[final_key] = [v.strip() for v in value.split(",")]
+    elif isinstance(target.get(final_key), bool):
+        target[final_key] = value.lower() in ("true", "1", "yes")
+    elif isinstance(target.get(final_key), int):
+        target[final_key] = int(value)
+    elif isinstance(target.get(final_key), float):
+        target[final_key] = float(value)
+    elif value.lower() in ("null", "none", ""):
+        target[final_key] = None
+    else:
+        target[final_key] = value
+
+    p["config"].write_text(
+        yaml.dump(data, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+    typer.echo(f"  {key} = {value}")
+
 
 @mcp_app.command("add")
 def mcp_add(
@@ -507,6 +571,13 @@ def init(
         _start_daemon(p)
     elif watch and not _is_interactive():
         typer.echo("\n  (skipped daemon start in non-interactive mode — run `lorekeep agent watch` manually)")
+    else:
+        typer.echo(
+            "\n  Daemon disabled (--no-watch). Agent-controlled mode:\n"
+            "  - Run `lorekeep compile` after editing raw/*.md (does compile + resolve + wiki)\n"
+            "  - Run `lorekeep resolve` to merge agent-proposed facts (zero LLM cost)\n"
+            "  - MCP server lazy-reloads on next query — no daemon needed"
+        )
 
     if config_existed:
         typer.echo("\nAlready initialized.")
@@ -756,8 +827,11 @@ def _auto_import_and_compile(p: dict) -> None:
             chunk_lines=config.compile.chunk_lines,
         )
         pending_dir = p.get("pending")
+        resolved = False
         if pending_dir and pending_dir.exists():
-            _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
+            resolved = _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
+        if not resolved:
+            _auto_generate_wiki(p["out"], p["wiki"])
         typer.echo(f"  compiled: {manifest.node_count} nodes, {manifest.edge_count} edges")
     except Exception as exc:
         typer.echo(f"  compile skipped: {exc}")
@@ -1000,8 +1074,46 @@ def import_cmd(
 
 # --- Agent subcommand group -----------------------------------------------
 
-agent_app = typer.Typer(help="Autonomous agent operations: ingest, lint, suggest, status, watch.")
+agent_app = typer.Typer(help="Autonomous agent operations: ingest, lint, suggest, status, watch, daemon.")
 app.add_typer(agent_app, name="agent")
+
+daemon_app = typer.Typer(help="Install/uninstall daemon as persistent OS service.")
+agent_app.add_typer(daemon_app, name="daemon")
+
+
+@daemon_app.command("install")
+def daemon_install() -> None:
+    """Install daemon as a persistent OS service (survives restart).
+
+    Linux: systemd user service. macOS: launchd LaunchAgent. Windows: Startup folder.
+    """
+    from lorekeep.daemon_service import install as svc_install
+    p = resolve_paths()
+    try:
+        platform_name, config_path = svc_install(p["home"])
+        typer.echo(f"daemon: installed as {platform_name} service → {config_path}")
+        typer.echo(f"daemon: will auto-start on login/restart")
+    except RuntimeError as exc:
+        typer.echo(f"daemon: {exc}")
+        raise typer.Exit(code=1)
+
+
+@daemon_app.command("uninstall")
+def daemon_uninstall() -> None:
+    """Remove the persistent daemon service."""
+    from lorekeep.daemon_service import uninstall as svc_uninstall
+    removed = svc_uninstall()
+    if removed:
+        typer.echo("daemon: service removed")
+    else:
+        typer.echo("daemon: no service found")
+
+
+@daemon_app.command("status")
+def daemon_status() -> None:
+    """Check if the persistent daemon service is installed and running."""
+    from lorekeep.daemon_service import status as svc_status
+    typer.echo(svc_status())
 
 
 @agent_app.command()
@@ -1265,6 +1377,47 @@ def status() -> None:
     typer.echo(f"pending journals: {dash.pending_journals}")
 
 
+def _discover_watchable_sessions() -> list[tuple[str, Path, Path]]:
+    """Find agent session memory dirs that support quick import.
+
+    Returns [(agent_name, session_dir, memory_dir), ...].
+    Only Claude + Codex have memory dirs for zero-LLM quick import.
+    Cursor/opencode are deep-only — handled by session-end hooks.
+    """
+    sessions: list[tuple[str, Path, Path]] = []
+
+    try:
+        from lorekeep.importer.claude import find_current_session as find_claude
+        sd = find_claude()
+        if sd and (sd / "memory").is_dir() and any((sd / "memory").glob("*.md")):
+            sessions.append(("claude", sd, sd / "memory"))
+    except Exception:
+        pass
+
+    try:
+        from lorekeep.importer.codex import _codex_home
+        mem_dir = _codex_home() / "memories"
+        if mem_dir.is_dir() and any(mem_dir.glob("*.md")):
+            sessions.append(("codex", mem_dir.parent, mem_dir))
+    except Exception:
+        pass
+
+    return sessions
+
+
+def _quick_import_session(agent: str, session_dir: Path, memory_dir: Path, raw_dir: Path) -> int:
+    """Quick-import memory files for one agent. Returns file count."""
+    if agent == "claude":
+        from lorekeep.importer.claude import import_memories
+        written = import_memories(session_dir, raw_dir, "claude-memory")
+        return len(written)
+    if agent == "codex":
+        from lorekeep.importer.codex import import_memories
+        written = import_memories(raw_dir, "codex-memory")
+        return len(written)
+    return 0
+
+
 @agent_app.command()
 def watch(
     interval: int = typer.Option(
@@ -1278,9 +1431,10 @@ def watch(
 ) -> None:
     """Run the autonomous agent daemon: watch raw/, pending/, and agent sessions.
 
-    Watches raw/ for new/changed markdown sources → auto-compile.
+    Watches raw/ for new/changed markdown → auto-compile.
     Watches pending/ for new journal entries → auto-resolve.
-    Watches agent session dirs (Claude memory/) → delta quick import → raw/.
+    Watches Claude + Codex memory dirs → delta quick import → raw/.
+    Cursor/opencode are handled by session-end hooks (`lorekeep hook`).
     """
     import time
     p = resolve_paths()
@@ -1289,37 +1443,57 @@ def watch(
 
     typer.echo(f"agent watch: monitoring raw={raw_dir}, pending={pending_dir}, interval={interval}s")
     typer.echo("agent: auto-compile (raw/) and auto-resolve (pending/) enabled")
-
-    # Attempt session discovery once at startup
-    session_dir = None
-    session_memory_dir = None
     if watch_sessions:
-        try:
-            from lorekeep.importer.claude import find_current_session
-            sd = find_current_session()
-            if sd is not None and (sd / "memory").is_dir():
-                session_dir = sd
-                session_memory_dir = sd / "memory"
-                typer.echo(f"agent: watching session memory={session_memory_dir}")
-        except Exception:
-            pass
-
+        typer.echo("agent: session watch enabled (Claude + Codex memory dirs)")
     typer.echo("agent: MCP server lazy-reloads facts.jsonl — no reconnect needed")
+
+    pid_file = p["home"] / ".daemon.pid"
+    if pid_file.exists():
+        try:
+            old_pid = int(pid_file.read_text().strip())
+            import os as _os
+            _os.kill(old_pid, 0)
+            typer.echo(f"agent: daemon already running (PID {old_pid}), exiting")
+            raise typer.Exit(code=1)
+        except (ProcessLookupError, ValueError, PermissionError):
+            pass
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()))
+
     last_raw_mtime = 0.0
+    last_raw_count = -1
     last_pending_mtime = 0.0
-    last_session_mtime = 0.0
-    last_session_import = 0.0          # debounce timer (seconds since epoch)
-    has_raw = raw_dir.exists()
-    has_pending = pending_dir and pending_dir.exists()
+    session_state: dict[str, float] = {}
+    session_import_time: dict[str, float] = {}
+
+    # One-time resolve of pending journals present at startup
+    if pending_dir and pending_dir.exists():
+        from lorekeep.journal import load_journals
+        journals = load_journals(pending_dir)
+        if any(j.status == "pending" for j in journals):
+            typer.echo("agent: resolving pending journals at startup...")
+            _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
 
     while True:
         try:
+            # Re-check existence each cycle (raw/ or pending/ may be created after start)
+            has_raw = raw_dir.exists()
+            has_pending = pending_dir and pending_dir.exists()
             # --- raw/ watch → auto-compile ----------------------------------
             raw_files = sorted(raw_dir.rglob("*.md")) if has_raw else []
             raw_mtime = max((f.stat().st_mtime for f in raw_files), default=0.0)
+            raw_count = len(raw_files)
             compiled = False
-            if raw_mtime > last_raw_mtime and last_raw_mtime > 0:
-                typer.echo(f"agent: raw/ changed ({len(raw_files)} files) — compiling...")
+
+            should_compile = False
+            if last_raw_count >= 0:
+                if raw_count != last_raw_count:
+                    should_compile = True
+                elif raw_mtime > last_raw_mtime:
+                    should_compile = True
+
+            if should_compile:
+                typer.echo(f"agent: raw/ changed ({raw_count} files) — compiling...")
                 try:
                     schema = load_schema(p["schema"])
                     config = load_config(p["config"])
@@ -1334,11 +1508,8 @@ def watch(
                 except Exception as exc:
                     typer.echo(f"agent: compile error: {exc}")
             last_raw_mtime = raw_mtime
+            last_raw_count = raw_count
 
-            # --- After compile, re-merge pending journals -------------------
-            # compile is a destructive overwrite that regenerates facts.jsonl
-            # from raw/ only.  Re-merge pending journal entries so facts
-            # approved via agent ingest / MCP write tools are not lost.
             if compiled and has_pending:
                 _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
 
@@ -1352,23 +1523,28 @@ def watch(
                 last_pending_mtime = pending_mtime
 
             # --- session watch → delta quick import → raw/ ------------------
-            if session_memory_dir and session_memory_dir.is_dir():
-                mem_files = sorted(session_memory_dir.glob("*.md"))
-                session_mtime = max((f.stat().st_mtime for f in mem_files), default=0.0)
+            # Re-discover every cycle (cheap — just directory scans).
+            # Detects new sessions opened after daemon start.
+            if watch_sessions:
                 now = time.monotonic()
-                # Debounce: max once per 30 seconds
-                if (session_mtime > last_session_mtime and last_session_mtime > 0
-                        and now - last_session_import >= 30):
-                    typer.echo(f"agent: session memory changed ({len(mem_files)} files) — importing...")
-                    try:
-                        from lorekeep.importer.claude import import_memories
-                        written = import_memories(session_dir, raw_dir, "claude-memory")
-                        if written:
-                            typer.echo(f"agent: session import done — {len(written)} files -> raw/claude-memory/")
-                            last_session_import = now
-                    except Exception as exc:
-                        typer.echo(f"agent: session import error: {exc}")
-                last_session_mtime = session_mtime
+                sessions = _discover_watchable_sessions()
+                for agent_name, session_dir, memory_dir in sessions:
+                    mem_files = sorted(memory_dir.glob("*.md"))
+                    mem_mtime = max((f.stat().st_mtime for f in mem_files), default=0.0)
+                    prev = session_state.get(agent_name, 0.0)
+                    last_import = session_import_time.get(agent_name, 0.0)
+
+                    if (mem_mtime > prev and prev > 0
+                            and now - last_import >= 30):
+                        typer.echo(f"agent: {agent_name} memory changed ({len(mem_files)} files) — importing...")
+                        try:
+                            count = _quick_import_session(agent_name, session_dir, memory_dir, raw_dir)
+                            if count:
+                                typer.echo(f"agent: {agent_name} import done — {count} files → raw/{agent_name}-memory/")
+                                session_import_time[agent_name] = now
+                        except Exception as exc:
+                            typer.echo(f"agent: {agent_name} import error: {exc}")
+                    session_state[agent_name] = mem_mtime
 
             time.sleep(interval)
         except KeyboardInterrupt:
@@ -1377,6 +1553,8 @@ def watch(
         except Exception as exc:
             typer.echo(f"agent: error: {exc}")
             time.sleep(interval)
+
+    pid_file.unlink(missing_ok=True)
 
 
 def _do_auto_resolve(out_dir: Path, pending_dir: Path, wiki_dir: Path | None = None) -> bool:
