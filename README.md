@@ -48,8 +48,9 @@ just single-user.
   Runs in the background; MCP server lazy-reloads.
 - **Session-end hooks** — `lorekeep hook` auto-imports agent memory when a
   session ends (Claude / Cursor / Codex / opencode). Wired by `mcp add`.
-- **Obsidian wiki** — auto-generated after every compile/resolve: human-browsable
-  markdown pages with `[[wikilinks]]`, YAML frontmatter, graph view.
+- **Obsidian + Tolaria wiki** — auto-generated after every compile/resolve: flat
+  markdown pages with `[[wikilinks]]`, YAML frontmatter (incl. relationship
+  fields), tags. The same `wiki/` folder opens in both Obsidian and Tolaria.
 - **Lazy-reload** — graph updates visible on next query. Connect once, use forever.
 - **Provider-pluggable extraction** — litellm (OpenAI / Anthropic /
   DashScope/Qwen / Ollama). Strict-privacy → Ollama, fully local.
@@ -88,7 +89,7 @@ uvx lorekeep mcp add --agent claude --ns private
 uvx lorekeep doctor
 ```
 
-Restart Claude Code → 14 Lorekeep tools are available (9 read + 5 write), scoped to your namespace. Open `~/.local/share/lorekeep/wiki/` in Obsidian to browse the graph as a human.
+Restart Claude Code → 14 Lorekeep tools are available (9 read + 5 write), scoped to your namespace. Open `~/.local/share/lorekeep/wiki/` in Obsidian to browse the graph as a human — or just run `uvx lorekeep wiki --open` to generate + launch it. See [Browsing the wiki in Obsidian](docs/guides/wiki.md).
 
 ## Lifecycle
 

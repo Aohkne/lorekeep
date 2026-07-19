@@ -25,8 +25,17 @@ app = typer.Typer(help="Lorekeep — compile team docs into a temporal knowledge
 
 # Empty callback forces multi-command mode so subcommands are not auto-promoted.
 @app.callback()
-def _main() -> None:
+def _main(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug-level logs."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Warnings only; suppress progress."),
+) -> None:
     """Lorekeep — compile team docs into a temporal knowledge graph."""
+    import logging as _logging
+    from lorekeep.output import configure_logging
+    if os.environ.get("LOREKEEP_DEBUG"):
+        verbose = True
+    level = _logging.DEBUG if verbose else (_logging.WARNING if quiet else _logging.INFO)
+    configure_logging(level)
 
 
 def _build_provider(config: Config) -> LiteLLMProvider:
@@ -134,18 +143,15 @@ def _report_compile_errors(manifest, *, exit_on_total_failure: bool = True) -> N
         return
     for e in errs:
         log.error("compile error %s:%s: %s", e.path, e.line, e.message)
+    from lorekeep.output import dim, error, warn
     total_fail = manifest.node_count == 0 and manifest.chunk_count > 0
     if total_fail:
-        typer.echo(
+        error(
             f"compile: ALL {manifest.chunk_count} chunk(s) failed — 0 nodes produced. "
-            "Check provider config (model, api_base, api_key).",
-            err=True,
+            "Check provider config (model, api_base, api_key)."
         )
         for e in errs:
-            typer.echo(
-                f"  {e.path}:{e.line}: {e.message}",
-                err=True,
-            )
+            dim(f"  {e.path}:{e.line}: {e.message}")
         if exit_on_total_failure:
             raise typer.Exit(code=1)
     else:
@@ -157,40 +163,64 @@ def _report_compile_errors(manifest, *, exit_on_total_failure: bool = True) -> N
         distinct = set(messages)
         systemic = len(errs) >= 3 and (len(distinct) == 1 or max(messages.count(m) for m in distinct) >= 0.8 * len(errs))
         if systemic:
-            typer.echo(
+            error(
                 f"compile: {len(errs)} of {manifest.chunk_count} chunk(s) failed "
-                f"with the same error ({manifest.node_count} nodes still produced).",
-                err=True,
+                f"with the same error ({manifest.node_count} nodes still produced)."
             )
             for e in errs:
-                typer.echo(f"  {e.path}:{e.line}: {e.message}", err=True)
-            typer.echo(
+                dim(f"  {e.path}:{e.line}: {e.message}")
+            dim(
                 "  hint: identical errors across chunks usually mean a provider "
-                "config issue (model/api_base/api_key). Run 'lorekeep doctor'.",
-                err=True,
+                "config issue (model/api_base/api_key). Run 'lorekeep doctor'."
             )
         else:
-            typer.echo(
+            warn(
                 f"compile: {len(errs)} chunk(s) failed (partial — "
-                f"{manifest.node_count} nodes still produced). See manifest.json.",
-                err=True,
+                f"{manifest.node_count} nodes still produced). See manifest.json."
             )
+
+
+def _progress_ctx(raw_root, chunk_lines):
+    """Context manager for a compile progress bar.
+
+    tty + not quiet → a Rich Progress bar (total pre-counted via ingest, a pure
+    file-slicer). Else → a nullcontext whose handle is None, so compile_graph
+    runs silent (current behavior under CliRunner / the daemon's agent.log).
+    """
+    from contextlib import nullcontext
+    from lorekeep.compile.ingest import ingest as _ingest
+    from lorekeep.output import is_quiet, is_terminal, progress
+    if not is_quiet() and is_terminal():
+        total = len(_ingest(raw_root, chunk_lines=chunk_lines))
+        return progress(f"Compiling {total} chunk(s)", total=total)
+    return nullcontext(None)
+
+
+def _progress_cb(handle):
+    """Build an on_progress callback from a progress handle (None → None)."""
+    if not handle:
+        return None
+    return lambda i, total, chunk: handle.advance()
 
 
 @app.command()
 def compile() -> None:
     """Compile raw/ → facts.jsonl + merge pending + generate wiki (all-in-one)."""
+    from lorekeep.output import ok
     p = resolve_paths()
     schema = load_schema(p["schema"])
     config = load_config(p["config"])
     provider = _make_provider(config)
 
-    manifest = compile_graph(
-        raw_root=p["raw"], out_dir=p["out"], schema=schema,
-        provider=provider, cache_path=p["cache"], chunk_lines=config.compile.chunk_lines,
-    )
-    typer.echo(f"compiled: {manifest.node_count} nodes, {manifest.edge_count} edges, "
-               f"run_id={manifest.run_id}, facts_hash={manifest.facts_hash}")
+    with _progress_ctx(p["raw"], config.compile.chunk_lines) as handle:
+        manifest = compile_graph(
+            raw_root=p["raw"], out_dir=p["out"], schema=schema,
+            provider=provider, cache_path=p["cache"], chunk_lines=config.compile.chunk_lines,
+            on_progress=_progress_cb(handle),
+        )
+
+    ok(f"compiled: {manifest.node_count} nodes, {manifest.edge_count} edges, "
+       f"run_id={manifest.run_id}, facts_hash={manifest.facts_hash}")
 
     _report_compile_errors(manifest)
 
@@ -203,16 +233,43 @@ def compile() -> None:
         _auto_generate_wiki(p["out"], p["wiki"])
 
 
+def _open_in_obsidian(path: Path) -> None:
+    """Open *path* as an Obsidian vault via the ``obsidian://`` URL scheme.
+
+    Non-fatal: if Obsidian (or the platform opener) is missing, warn with the
+    raw path so the user can open it manually. The wiki is already generated.
+    """
+    import subprocess
+    import sys
+    import urllib.parse
+    from lorekeep.output import warn
+    url = "obsidian://open?path=" + urllib.parse.quote(str(path.resolve()), safe="")
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["open", url], check=False)
+        elif sys.platform.startswith("win"):
+            subprocess.run(["cmd", "/c", "start", "", url], check=False)
+        else:
+            subprocess.run(["xdg-open", url], check=False)
+    except (FileNotFoundError, OSError):
+        warn(f"could not launch Obsidian; open this folder as a vault manually: {path}")
+
+
 @app.command()
-def wiki() -> None:
+def wiki(
+    open: bool = typer.Option(False, "--open", help="Open the wiki in Obsidian after generating."),
+) -> None:
     """Generate Obsidian-compatible wiki from facts.jsonl."""
-    p = resolve_paths()
+    from lorekeep.output import error, ok
     from lorekeep.wiki import generate_wiki
+    p = resolve_paths()
     result = generate_wiki(p["out"], p["wiki"])
     if "error" in result:
-        typer.echo(f"wiki: {result['error']}")
+        error(f"wiki: {result['error']}")
         raise typer.Exit(code=1)
-    typer.echo(f"wiki: {result['pages']} pages written to {p['wiki']}")
+    ok(f"wiki: {result['pages']} pages written to {p['wiki']}")
+    if open:
+        _open_in_obsidian(p["wiki"])
 
 
 @app.command(name="eval", hidden=True)
@@ -294,9 +351,11 @@ def check() -> None:
     from lorekeep.eval.construction import structure_report
     struct = structure_report(p["out"])
     if struct["dangling_edge_rate"] > 0:
-        typer.echo(f"check: FAIL — {struct['dangling_edge_rate']} dangling edges")
+        from lorekeep.output import error
+        error(f"check: FAIL — {struct['dangling_edge_rate']} dangling edges")
         raise typer.Exit(code=1)
-    typer.echo(f"check: ok — {struct['node_count']} nodes, {struct['edge_count']} edges, 0 dangling")
+    from lorekeep.output import ok
+    ok(f"check: ok — {struct['node_count']} nodes, {struct['edge_count']} edges, 0 dangling")
 
 
 @app.command()
@@ -512,17 +571,18 @@ def doctor() -> None:
     p = resolve_paths()
     problems = []
     notes = []
+    from lorekeep.output import error as _err, info as _info, ok as _ok
 
     facts_path = p["out"] / "facts.jsonl"
     if not facts_path.exists():
-        typer.echo(f"FAIL: facts.jsonl not found at {facts_path}")
+        _err(f"FAIL: facts.jsonl not found at {facts_path}")
         raise typer.Exit(code=1)
 
     try:
         from lorekeep.store.graph import GraphStore
         store = GraphStore.from_jsonl(facts_path)
     except Exception as exc:
-        typer.echo(f"FAIL: cannot load graph: {exc}")
+        _err(f"FAIL: cannot load graph: {exc}")
         raise typer.Exit(code=1)
 
     if not p["schema"].exists():
@@ -537,7 +597,7 @@ def doctor() -> None:
     try:
         config = load_config(p["config"])
     except ValueError as exc:
-        typer.echo(f"FAIL: provider config: {exc}")
+        _err(f"FAIL: provider config: {exc}")
         raise typer.Exit(code=1)
 
     raw_ns = os.environ.get("LOREKEEP_NS")
@@ -585,15 +645,15 @@ def doctor() -> None:
                 problems.append(f"provider: FAILED — {exc}")
 
     if problems:
-        typer.echo("FAIL: " + "; ".join(problems))
+        _err("FAIL: " + "; ".join(problems))
         raise typer.Exit(code=1)
 
-    typer.echo(
+    _ok(
         f"all checks passed: {len(store.node_ids())} nodes, "
         f"{len(store.all_edges())} edges, namespaces={ns}"
     )
     for note in notes:
-        typer.echo(note)
+        _info(note)
 
 
 def _is_interactive() -> bool:
@@ -643,8 +703,9 @@ def init(
     p["out"].mkdir(parents=True, exist_ok=True)
     p["pending"].mkdir(parents=True, exist_ok=True)
 
-    typer.echo(f"home ready: config={p['config']}")
-    typer.echo(f"  schema={p['schema']}  raw={p['raw']}  graph={p['out']}")
+    from lorekeep.output import info, ok
+    ok(f"home ready: config={p['config']}")
+    info(f"  schema={p['schema']}  raw={p['raw']}  graph={p['out']}")
     if created:
         typer.echo(f"  wrote defaults: {created}")
     else:
@@ -952,11 +1013,13 @@ def _auto_import_and_compile(p: dict) -> None:
 
     try:
         provider = _make_provider(config)
-        manifest = compile_graph(
-            raw_root=p["raw"], out_dir=p["out"], schema=schema,
-            provider=provider, cache_path=p["cache"],
-            chunk_lines=config.compile.chunk_lines,
-        )
+        with _progress_ctx(p["raw"], config.compile.chunk_lines) as handle:
+            manifest = compile_graph(
+                raw_root=p["raw"], out_dir=p["out"], schema=schema,
+                provider=provider, cache_path=p["cache"],
+                chunk_lines=config.compile.chunk_lines,
+                on_progress=_progress_cb(handle),
+            )
         _report_compile_errors(manifest, exit_on_total_failure=False)
         pending_dir = p.get("pending")
         resolved = False
@@ -1011,20 +1074,21 @@ def backup(
 ) -> None:
     """Commit + push the data home to your private backup repo."""
     from lorekeep.backup import BackupError, backup as backup_home, init_backup
+    from lorekeep.output import dim, error, info, ok
 
     home = resolve_paths()["home"]
     try:
         if init_remote:
             init_backup(home, init_remote)
-            typer.echo(f"backup: repo ready at {home} -> {init_remote}")
+            info(f"backup: repo ready at {home} -> {init_remote}")
         else:
             pushed = backup_home(home)
             if pushed:
-                typer.echo(f"backup: pushed to remote from {home}")
+                ok(f"backup: pushed to remote from {home}")
             else:
-                typer.echo(f"backup: up to date (no changes at {home})")
+                dim(f"backup: up to date (no changes at {home})")
     except BackupError as exc:
-        typer.echo(f"backup failed: {exc}")
+        error(f"backup failed: {exc}")
         raise typer.Exit(code=1)
 
 
@@ -1064,6 +1128,7 @@ def import_cmd(
                 --quick copies memories/*.md only; default (deep) summarizes.
       opencode  opencode sessions (SQLite DB). Deep-only — no memory dir.
     """
+    from lorekeep.output import ok
     if from_source not in ("claude", "cursor", "codex", "opencode"):
         typer.echo(f"unknown source: {from_source} (claude | cursor | codex | opencode)")
         raise typer.Exit(code=1)
@@ -1097,8 +1162,8 @@ def import_cmd(
         if dry_run:
             typer.echo(f"dry-run: would import {mem_count} memories, {ses_count} session files")
         else:
-            typer.echo(f"imported: {mem_count} memories -> raw/{memory_ns}/, "
-                       f"{ses_count} session files -> raw/{session_ns or 'codex-session'}/")
+            ok(f"imported: {mem_count} memories -> raw/{memory_ns}/, "
+               f"{ses_count} session files -> raw/{session_ns or 'codex-session'}/")
         return
 
     # --- opencode: SQLite DB, deep-only ------------------------------------
@@ -1127,7 +1192,7 @@ def import_cmd(
         if dry_run:
             typer.echo(f"dry-run: would import {ses_count} opencode session files")
         else:
-            typer.echo(f"imported: {ses_count} session files -> raw/{ns}/")
+            ok(f"imported: {ses_count} session files -> raw/{ns}/")
             typer.echo("next: lorekeep compile")
         return
 
@@ -1161,7 +1226,7 @@ def import_cmd(
         if dry_run:
             typer.echo(f"dry-run: would import {ses_count} cursor session files")
         else:
-            typer.echo(f"imported: {ses_count} session files -> raw/{ns}/")
+            ok(f"imported: {ses_count} session files -> raw/{ns}/")
             typer.echo("next: lorekeep compile")
         return
 
@@ -1198,8 +1263,8 @@ def import_cmd(
         typer.echo(f"dry-run: would import {mem_count} memories, "
                    f"{ses_count} session files")
     else:
-        typer.echo(f"imported: {mem_count} memories -> raw/{memory_ns}/, "
-                   f"{ses_count} session files -> raw/{session_ns}/")
+        ok(f"imported: {mem_count} memories -> raw/{memory_ns}/, "
+           f"{ses_count} session files -> raw/{session_ns}/")
         if not quick:
             typer.echo("next: lorekeep compile")
 
@@ -1293,19 +1358,34 @@ def ingest(
 
     provider = _make_provider(config)
 
+    from contextlib import nullcontext
     from lorekeep.agent import ingest_source
+    from lorekeep.output import is_quiet, is_terminal, progress
 
-    try:
-        result = ingest_source(
-            source_path=source_path,
-            raw_root=raw_root,
-            provider=provider,
-            schema=schema,
-            chunk_lines=config.compile.chunk_lines,
-        )
-    except Exception as exc:
-        typer.echo(f"ingest: extraction failed: {exc}")
-        raise typer.Exit(code=1)
+    if not is_quiet() and is_terminal():
+        cm = progress(f"Extracting {source_path.name}", total=None)
+    else:
+        cm = nullcontext(None)
+    with cm as handle:
+        on_progress = None
+        if handle:
+            def _cb(i, total, chunk, _h=handle):
+                if total:
+                    _h.update(total=total)
+                _h.advance()
+            on_progress = _cb
+        try:
+            result = ingest_source(
+                source_path=source_path,
+                raw_root=raw_root,
+                provider=provider,
+                schema=schema,
+                chunk_lines=config.compile.chunk_lines,
+                on_progress=on_progress,
+            )
+        except Exception as exc:
+            typer.echo(f"ingest: extraction failed: {exc}")
+            raise typer.Exit(code=1)
 
     if not result.nodes and not result.edges:
         typer.echo("ingest: no facts extracted from source")
@@ -1639,11 +1719,13 @@ def watch(
                     schema = load_schema(p["schema"])
                     config = load_config(p["config"])
                     provider = _make_provider(config)
-                    dm = compile_graph(
-                        raw_root=raw_dir, out_dir=p["out"], schema=schema,
-                        provider=provider, cache_path=p["cache"],
-                        chunk_lines=config.compile.chunk_lines,
-                    )
+                    with _progress_ctx(raw_dir, config.compile.chunk_lines) as handle:
+                        dm = compile_graph(
+                            raw_root=raw_dir, out_dir=p["out"], schema=schema,
+                            provider=provider, cache_path=p["cache"],
+                            chunk_lines=config.compile.chunk_lines,
+                            on_progress=_progress_cb(handle),
+                        )
                     _report_compile_errors(dm, exit_on_total_failure=False)
                     typer.echo("agent: compile done")
                     compiled = True
