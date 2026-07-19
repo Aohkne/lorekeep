@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.2](https://github.com/manhhailua/lorekeep/compare/v0.12.1...v0.12.2) (2026-07-19)
+
+
+### Documentation
+
+* **agents:** mandate merge-commit, never squash ([4f3f881](https://github.com/manhhailua/lorekeep/commit/4f3f8812ba2943c44b614feb5b2f8d2fa413a47b))
+* **agents:** mandate merge-commit, never squash (release-please per-commit changelog) ([f2295b8](https://github.com/manhhailua/lorekeep/commit/f2295b834f26e4758a8bacec26a40344b3aa826d))
+
 ## [0.12.1](https://github.com/manhhailua/lorekeep/compare/v0.12.0...v0.12.1) (2026-07-19)
 
 
