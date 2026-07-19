@@ -99,7 +99,7 @@ jobs:
             --base main \
             --head chore/sync-uv-lock-${{ needs.release-please.outputs.tag_name }}
           sleep 3
-          gh pr merge --squash --auto --delete-branch \
+          gh pr merge --merge --auto --delete-branch \
             chore/sync-uv-lock-${{ needs.release-please.outputs.tag_name }}
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
