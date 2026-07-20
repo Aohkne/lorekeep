@@ -2,29 +2,46 @@
 from __future__ import annotations
 
 DEFAULT_SCHEMA = {
-    "version": 2,
+    # Ontology v2 (schema_version 3): work-context types bridging personal (me)
+    # and team namespaces. Catch-all types (concept/tool/command/note) removed —
+    # tokens that used to become those nodes are now attributes (see the altitude
+    # rule in compile/extract.py). Validation is type-name only; from/to below are
+    # guidance for the extractor, not a hard gate.
+    "version": 3,
     "node_types": {
-        "service": {"props": {"name": "string", "lang": "string"}},
-        "team": {"props": {"name": "string"}},
-        "decision": {"props": {"title": "string"}},
-        "project": {"props": {"name": "string", "status": "string"}},
-        "person": {"props": {"name": "string", "role": "string"}},
-        "tool": {"props": {"name": "string", "category": "string"}},
-        "command": {"props": {"name": "string", "platform": "string"}},
-        "concept": {"props": {"name": "string", "domain": "string"}},
-        "note": {"props": {"title": "string", "topic": "string"}},
+        # people / subject
+        "person": {"props": {"name": "string", "handle": "string", "role": "string", "org": "string"}},
+        "role": {"props": {"name": "string", "domain": "string"}},
+        "skill": {"props": {"name": "string", "domain": "string", "level": "string"}},
+        # knowledge
+        "domain": {"props": {"name": "string", "description": "string"}},
+        "preference": {"props": {"name": "string", "description": "string"}},
+        "value": {"props": {"name": "string", "description": "string"}},
+        "goal": {"props": {"title": "string", "timeframe": "string", "status": "string"}},
+        # team / work
+        "service": {"props": {"name": "string", "lang": "string", "owner": "string", "status": "string"}},
+        "project": {"props": {"name": "string", "status": "string", "start_date": "string"}},
+        "decision": {"props": {"title": "string", "status": "string", "decided_on": "string"}},
+        "team": {"props": {"name": "string", "org": "string"}},
         "document": {"props": {"title": "string", "kind": "string"}},
     },
     "edge_types": {
+        # entity-centric (team)
         "depends_on": {"from": "service", "to": "service"},
-        "decided_by": {"from": "decision", "to": "team"},
-        "owns": {"from": "team", "to": "service"},
         "part_of": {"from": "service", "to": "project"},
-        "uses": {"from": "service", "to": "tool"},
-        "mentions": {"from": "note", "to": "concept"},
-        "documents": {"from": "document", "to": "concept"},
-        "describes": {"from": "note", "to": "service"},
-        "relates_to": {"from": "concept", "to": "concept"},
+        "decided_by": {"from": "decision", "to": "person"},
+        # cross-ns bridge (subject -> team)
+        "owns": {"from": "person", "to": "service"},
+        "contributes_to": {"from": "person", "to": "project"},
+        "works_on": {"from": "person", "to": "project"},
+        # subject knowledge
+        "skilled_in": {"from": "person", "to": "domain"},
+        "is_a": {"from": "service", "to": "domain"},
+        "collaborates_with": {"from": "person", "to": "person"},
+        "prefers": {"from": "person", "to": "preference"},
+        # generic / doc
+        "relates_to": {"from": "service", "to": "service"},
+        "documents": {"from": "document", "to": "service"},
     },
 }
 
