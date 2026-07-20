@@ -222,3 +222,30 @@ def test_init_no_agents_detected_message(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
     assert "no coding agents detected" in result.stdout.lower()
+
+
+def test_init_writes_profile_template(tmp_path: Path, monkeypatch):
+    """First init writes raw/<ns>/profile.md scaffold for the personal namespace."""
+    home = tmp_path / "home"
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    from lorekeep.cli import app
+    result = runner.invoke(app, ["init", "--yes"])
+    assert result.exit_code == 0, result.stdout
+    # default ns is 'public' in --yes mode; profile written there too
+    profile = home / "raw" / "public" / "profile.md"
+    assert profile.exists()
+    content = profile.read_text()
+    assert "## Role" in content
+    assert "## Domains" in content
+    assert "## Skills" in content
+    assert "## Goals" in content
+
+
+def test_profile_command_shows_source(tmp_path: Path, monkeypatch):
+    home = tmp_path / "home"
+    (home / "raw" / "public").mkdir(parents=True)
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    result = runner.invoke(app, ["profile"])
+    assert result.exit_code == 0, result.stdout
+    assert "profile source" in result.stdout
+    assert "raw" in result.stdout

@@ -272,6 +272,28 @@ def wiki(
         _open_in_obsidian(p["wiki"])
 
 
+@app.command()
+def profile(
+    open: bool = typer.Option(False, "--open", help="Open your raw profile dir in Obsidian/Tolaria."),
+) -> None:
+    """Show / open your personal profile source (raw/<ns>/).
+
+    The wiki is a derived view; the editable source is raw/<ns>/about.md +
+    profile.md. Edit those (in Obsidian/Tolaria), then `lorekeep compile`.
+    """
+    from lorekeep.output import info
+    p = resolve_paths()
+    try:
+        ns = (load_config(p["config"]).ns.default or ["me"])[0]
+    except Exception:
+        ns = "me"
+    ns_dir = p["raw"] / ns
+    info(f"profile source: {ns_dir}")
+    info("edit about.md / profile.md here, then `lorekeep compile` — the wiki reflects you")
+    if open:
+        _open_in_obsidian(ns_dir)
+
+
 @app.command(name="eval", hidden=True)
 def eval_cmd() -> None:
     """Run Tier-1 construction-quality evaluation vs the gold corpus."""
@@ -724,6 +746,19 @@ def init(
             )
             about_path.write_text(about_md)
             typer.echo(f"  wrote: {about_path}")
+
+            # Optional profile scaffold — the editable source for the personal
+            # (subject-centric) namespace. User fills it via Obsidian/Tolaria;
+            # the wiki is a derived view.
+            profile_path = ns_dir / "profile.md"
+            if not profile_path.exists():
+                from lorekeep.defaults import DEFAULT_PROFILE_TEMPLATE
+                profile_path.write_text(DEFAULT_PROFILE_TEMPLATE)
+                typer.echo(f"  wrote: {profile_path}")
+                typer.echo(
+                    "  hint: edit profile.md (role/domains/skills/goals) in "
+                    "Obsidian/Tolaria, then `lorekeep compile` — the wiki reflects you."
+                )
 
     # --- One-click chain: wire → import → compile → daemon -----------------
     if not config_existed:

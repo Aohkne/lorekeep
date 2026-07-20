@@ -45,6 +45,41 @@ DEFAULT_SCHEMA = {
     },
 }
 
+# Optional profile scaffold written to raw/<ns>/profile.md on first init.
+# The user fills it in by hand (in Obsidian/Tolaria) — it is the editable
+# source; the wiki is a derived view. The 'me' namespace is subject-centric,
+# so this anchors extraction on the user and links their skills/domains/goals
+# to team entities via cross-namespace edges.
+DEFAULT_PROFILE_TEMPLATE = """\
+# Profile
+
+<!-- Personal context — fill in to anchor your knowledge graph. The 'me'
+namespace is subject-centric: extraction anchors on you and links your
+skills/domains/goals to team entities. Edit this file (Obsidian/Tolaria),
+then `lorekeep compile` — the wiki reflects you. This raw/ file is the
+source of truth; the wiki is a regenerable view. Delete any section you
+leave blank. -->
+
+## Role
+<!-- e.g. AI/LLM Engineer, evaluation & guardrail -->
+
+## Domains
+<!-- knowledge areas you're strong in, one per line:
+RAG evaluation, GCP IAM, Confluence platform, ... -->
+
+## Skills
+<!-- one per line: name (level: beginner | practitioner | expert) -->
+
+## Goals
+<!-- current objectives / OKRs -->
+
+## Preferences
+<!-- working style, e.g. terse comms, confirm before destructive ops -->
+
+## Values
+<!-- principles that shape your decisions -->
+"""
+
 DEFAULT_CONFIG_YAML = """\
 provider:
   model: openai/gpt-4o-mini
