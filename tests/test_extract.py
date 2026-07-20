@@ -25,6 +25,27 @@ def test_system_prompt_contains_schema():
     assert "knowledge-graph extractor" in s
 
 
+def test_system_prompt_has_altitude_rule():
+    s = build_system_prompt(SCHEMA)
+    assert "Altitude rule" in s
+    # low-altitude tokens must not become nodes
+    assert "must NOT become nodes" in s
+
+
+def test_me_namespace_adds_subject_prompt():
+    s_me = build_system_prompt(SCHEMA, ns="me")
+    s_team = build_system_prompt(SCHEMA, ns="backend")
+    assert "personal profile" in s_me           # subject-centric guidance
+    assert "ONE canonical person" in s_me
+    assert "personal profile" not in s_team     # team ns stays entity-centric
+
+
+def test_team_namespace_omits_subject_prompt():
+    s = build_system_prompt(SCHEMA, ns="teams/backend")
+    assert "personal profile" not in s
+    assert "Altitude rule" in s                 # altitude applies everywhere
+
+
 def test_user_prompt_is_chunk_text_only():
     c = make_chunk("The payments-api is a Go service.")
     p = build_prompt(c, SCHEMA)
