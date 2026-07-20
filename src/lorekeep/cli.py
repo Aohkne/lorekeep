@@ -294,6 +294,54 @@ def profile(
         _open_in_obsidian(ns_dir)
 
 
+@app.command()
+def contribution() -> None:
+    """Suggest team-knowledge gaps: nodes in your personal namespace not yet shared.
+
+    Scans the compiled graph for nodes of shareable types (service, project,
+    decision, domain, skill) that live only in your personal namespace — i.e.
+    things you know but the team graph doesn't. Move the source doc to a team
+    namespace (raw/<team>/) and re-compile to share. Read-only.
+    """
+    from collections import defaultdict
+    from lorekeep.compile.resolve import _normalize_id
+    from lorekeep.output import dim, info, ok, warn
+    from lorekeep.store.graph import GraphStore
+    p = resolve_paths()
+    facts = p["out"] / "facts.jsonl"
+    if not facts.exists():
+        warn(f"no compiled graph at {facts} — run `lorekeep compile` first")
+        raise typer.Exit(code=1)
+    try:
+        personal_ns = (load_config(p["config"]).ns.default or ["me"])[0]
+    except Exception:
+        personal_ns = "me"
+    SHARE_TYPES = {"service", "project", "decision", "domain", "skill"}
+
+    store = GraphStore.from_jsonl(facts)
+    where: dict[str, set[str]] = defaultdict(set)
+    for n in store.all_nodes():
+        where[_normalize_id(n.id)].update(n.ns)
+
+    gaps = [
+        n for n in store.all_nodes()
+        if personal_ns in n.ns
+        and n.type in SHARE_TYPES
+        and not (where[_normalize_id(n.id)] - {personal_ns, "public"})
+    ]
+    gaps.sort(key=lambda n: (n.type, n.id))
+
+    if not gaps:
+        ok(f"no contribution gaps — your '{personal_ns}' knowledge is already shared")
+        return
+    info(f"{len(gaps)} node(s) in '{personal_ns}' not in any team namespace:")
+    for n in gaps:
+        dim(f"  {n.id} ({n.type}) — consider moving its source doc to raw/<team>/")
+
+
+
+
+
 @app.command(name="eval", hidden=True)
 def eval_cmd() -> None:
     """Run Tier-1 construction-quality evaluation vs the gold corpus."""
