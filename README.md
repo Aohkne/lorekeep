@@ -51,6 +51,10 @@ just single-user.
 - **Obsidian + Tolaria wiki** — auto-generated after every compile/resolve: flat
   markdown pages with `[[wikilinks]]`, YAML frontmatter (incl. relationship
   fields), tags. The same `wiki/` folder opens in both Obsidian and Tolaria.
+- **Subject-aware ontology** — work-context node types (person, role, skill,
+  domain, goal, …) + cross-namespace edges (owns, contributes_to, skilled_in)
+  weave your personal knowledge into the team graph. The `me` namespace is
+  subject-centric (altitude rule: tokens → attributes, not nodes).
 - **Lazy-reload** — graph updates visible on next query. Connect once, use forever.
 - **Provider-pluggable extraction** — litellm (OpenAI / Anthropic /
   DashScope/Qwen / Ollama). Strict-privacy → Ollama, fully local.
@@ -121,6 +125,13 @@ The full journey from install to continuous use — see the
 | 7. Keep current | `lorekeep agent watch &` | Daemon: auto-compile, auto-resolve, delta-import sessions |
 | 8. Back up | `lorekeep backup` | Push data home to private git repo (raw/ + schema.json) |
 | 9. Persist daemon | `lorekeep agent daemon install` | Survive restart (systemd/launchd/startup) |
+
+Personal knowledge + team sharing:
+
+| Command | Purpose |
+|---|---|
+| `lorekeep profile [--open]` | Show / open your personal profile source (`raw/<ns>/about.md` + `profile.md`) — edit in Obsidian/Tolaria, then `compile`. |
+| `lorekeep contribution` | Suggest team-knowledge gaps: nodes in your personal ns not yet shared with a team ns. |
 
 Steps 1–6 are one-time setup. Step 7 runs in the background for continuous
 updates. Step 8 syncs across machines.
