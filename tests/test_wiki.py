@@ -599,3 +599,10 @@ class TestCompileSingleRegen:
 
         log = (home / "wiki" / "log.md").read_text()
         assert log.count("## [") == 1, f"expected 1 log entry, got {log.count('## [')}"
+
+
+def test_slug_preserves_vietnamese_diacritics():
+    """_slug must keep diacritics (only : / -> -); stripping loses meaning."""
+    from lorekeep.wiki import _slug
+    assert _slug("person:nguyễn") == "person-nguyễn"
+    assert _slug("domain:ẩm-thực") == "domain-ẩm-thực"

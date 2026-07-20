@@ -22,6 +22,17 @@ class ResolveResult:
     quarantined: list[tuple[dict, str]] = field(default_factory=list)
 
 
+def _normalize_id(node_id: str) -> str:
+    """Canonical form for duplicate detection.
+
+    Lowercase, ``_`` and space -> ``-``. Diacritics (Vietnamese etc.) are
+    PRESERVED — ``person:nguyễn`` stays distinct from ``person:nguyen``. So
+    ``concept:context_purity`` == ``concept:Context Purity`` ==
+    ``concept:context-purity`` (all merge), but diacritic differences do not.
+    """
+    return node_id.lower().replace("_", "-").replace(" ", "-")
+
+
 def _build_alias_map(
     nodes: list[Node],
     name_aliases: dict[str, list[str]] | None,
@@ -41,7 +52,14 @@ def _build_alias_map(
                     canon = name_to_canonical.setdefault(canonical_name, nd.id)
                     if nd.id != canon:
                         alias_map[nd.id] = canon
-    # 2) explicit id->id overrides win
+    # 2) auto-merge by normalized id (case/separator variants; diacritics kept).
+    #    First node per normalized key wins; don't override a name-alias decision.
+    norm_to_canonical: dict[str, str] = {}
+    for nd in nodes:
+        canon = norm_to_canonical.setdefault(_normalize_id(nd.id), nd.id)
+        if nd.id != canon and nd.id not in alias_map:
+            alias_map[nd.id] = canon
+    # 3) explicit id->id overrides win
     if explicit_map:
         alias_map.update(explicit_map)
     return alias_map

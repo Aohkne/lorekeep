@@ -64,3 +64,43 @@ def test_edge_ids_are_deterministic():
     edges = [e(frm="svc:a", to="svc:b"), e(frm="svc:b", to="svc:c")]
     r = resolve(nodes, edges)
     assert [x.id for x in r.edges] == ["e_depends_on_0001", "e_depends_on_0002"]
+
+
+# ── auto-normalize (Phase 3) ───────────────────────────────────────────────
+from lorekeep.compile.resolve import _normalize_id
+
+
+class TestNormalizeId:
+    def test_kebab_snake_space_collapse(self):
+        assert _normalize_id("concept:context_purity") == "concept:context-purity"
+        assert _normalize_id("concept:Context Purity") == "concept:context-purity"
+        assert _normalize_id("concept:context-purity") == "concept:context-purity"
+
+    def test_diacritics_preserved(self):
+        # Vietnamese diacritics MUST stay — nguyễn != nguyen
+        assert _normalize_id("person:nguyễn") == "person:nguyễn"
+        assert _normalize_id("person:Nguyễn") == "person:nguyễn"
+
+    def test_type_prefix_kept(self):
+        assert _normalize_id("svc:payments-api").startswith("svc:")
+
+
+class TestAutoMergeByNormalizedId:
+    def test_merges_case_and_separator_variants(self):
+        nodes = [
+            n("domain:context-purity"),
+            n("domain:context_purity"),
+            n("domain:Context Purity"),
+        ]
+        result = resolve(nodes, [])
+        assert len(result.nodes) == 1            # all 3 merged
+
+    def test_does_not_merge_different_diacritics(self):
+        nodes = [n("person:nguyen"), n("person:nguyễn")]
+        result = resolve(nodes, [])
+        assert len(result.nodes) == 2            # distinct, kept
+
+    def test_does_not_merge_different_types(self):
+        nodes = [n("svc:auth", type="service"), n("domain:auth", type="domain")]
+        result = resolve(nodes, [])
+        assert len(result.nodes) == 2
