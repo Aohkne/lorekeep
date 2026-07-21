@@ -2,28 +2,33 @@
 
 <p align="center"><img src="cover.jpeg" alt="Lorekeep" /></p>
 
-**A temporal knowledge graph for AI agents, over MCP — agents read at query time and propose facts at runtime through journal-based write tools.**
+**A second brain for code — a temporal knowledge graph that aggregates what you and your agents learn across devices, the services you build, and your team, over MCP. Agents read at query time and propose facts at runtime through journal-based write tools.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Lorekeep compiles a team's raw docs into a temporal knowledge graph (`facts.jsonl`),
-serves it to coding agents (Claude Code, Cursor, Codex, opencode) over MCP, and
-lets agents propose new facts at zero LLM cost. Knowledge is processed once at
-compile time, not re-RAG'd per query.
+Lorekeep is a **second brain**: every coding agent you run (Claude Code, Cursor,
+Codex, opencode) reads from and contributes to one knowledge graph; every device
+stays in sync; the software you build and operate feeds back in; and your team
+shares the parts that matter. Under the hood it compiles raw docs + agent
+contributions into a temporal knowledge graph (`facts.jsonl`) served over MCP.
+Knowledge is processed once, not re-RAG'd per query.
 
 ---
 
 ## Why
 
-| | file-based | temporal KG | compile step | team permission | MCP |
-|---|---|---|---|---|---|
-| Obsidian + MCP | ✅ | ❌ | ❌ | ❌ | ✅ |
-| mcp-knowledge-graph | ✅ | ❌ | ❌ | ❌ (local) | ✅ |
-| mem0 / cognee | ❌ (DB) | partial | ❌ | partial (DB) | ✅ |
+A second brain for code has to pull from many sources — your coding agents, your
+devices, the services you operate, your team — and stay coherent as it grows.
+Most tools cover one slice:
 
-No tool combines all five. Lorekeep does: **file-based + temporal graph +
-compile-once + namespace permission + MCP** — for team-level knowledge, not
-just single-user.
+| | file-based | temporal KG | compile step | team permission | agent + device + software sources | MCP |
+|---|---|---|---|---|---|---|
+| Obsidian + MCP | ✅ | ❌ | ❌ | ❌ | ❌ (manual) | ✅ |
+| mcp-knowledge-graph | ✅ | ❌ | ❌ | ❌ (local) | ❌ | ✅ |
+| mem0 / cognee | ❌ (DB) | partial | ❌ | partial (DB) | partial | ✅ |
+
+No tool combines all six. Lorekeep does: **file-based + temporal graph +
+compile-once + namespace permission + multi-source (agents/devices/software/team) + MCP**.
 
 ## Features
 
@@ -328,9 +333,9 @@ docs/                  README.md index, architecture/, guides/
 
 ## Status
 
-**v1 (implemented)** — compile pipeline + serve (store/permission/MCP 9 read+5 write/4-agent integrations) + import (Claude/Cursor/Codex/opencode) + session-end hooks + agent daemon (watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode + lazy-reload + backup + eval + scope awareness (`meta` tool) + **wiki** (Obsidian-compatible markdown output). Published to PyPI as `lorekeep`.
+**v1 (implemented)** — the second-brain foundation: compile pipeline + serve (store/permission/MCP 9 read+5 write/4-agent integrations) + import (Claude/Cursor/Codex/opencode) + session-end hooks + agent daemon (watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode + lazy-reload + backup + eval + scope awareness (`meta` tool) + **subject-aware ontology v2** (personal `me` ns + team ns + cross-ns edges) + **Obsidian/Tolaria wiki** + profile/contribution commands. Published to PyPI as `lorekeep`.
 
-**Phase 2 (planned)** — streamable-HTTP team server, OIDC/SSO, embeddings/hybrid search, scheduled nightly lint/suggest in daemon, schema evolve, HotpotQA/CronQuestions/LongMemEval benchmark datasets and the bespoke Tier-3 Lorekeep-Reason eval.
+**Next** — the second-brain direction is multi-faceted: multi-agent concurrency, multi-device sync, software-source connectors, a proactive agent, a team server, better retrieval. See the full **[Roadmap](docs/ROADMAP.md)**.
 
 ## Documentation
 

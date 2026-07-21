@@ -12,7 +12,7 @@ The system has two phases: **compile** (offline, curator-side) and **serve** (ru
 
 ## North star
 
-Lorekeep exists to let an agent reason about a domain **systematically and with complete information** — not to maximize memory-recall benchmark scores. Memory benchmarks (LoCoMo, LongMemEval) are parity checks, not the objective. The real measures are completeness, coherence, temporal correctness, and reasoning support (see [evaluation](evaluation.md)).
+Lorekeep is a **second brain for code**: one knowledge graph that aggregates what you and your coding agents learn across devices, the services you build and operate, and your team — and that grows itself proactively. The payoff is that an agent (and you) reasons about a domain **systematically and with complete information** — not to maximize memory-recall benchmark scores. Memory benchmarks (LoCoMo, LongMemEval) are parity checks, not the objective. The real measures are completeness, coherence, temporal correctness, and reasoning support (see [evaluation](evaluation.md)). See the [Roadmap](../ROADMAP.md) for the direction.
 
 ## Architecture
 

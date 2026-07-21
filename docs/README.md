@@ -1,9 +1,10 @@
 # Lorekeep documentation
 
-Lorekeep builds a **living temporal knowledge graph** that coding agents both **read and contribute to** — served over MCP, with per-namespace permission and zero marginal LLM cost for agent contributions.
+Lorekeep is a **second brain for code**: a living temporal knowledge graph that coding agents both **read and contribute to** — aggregating what you and your agents learn across devices, the services you build, and your team, served over MCP with per-namespace permission and zero marginal LLM cost for agent contributions.
 
 - New here? Start with the **[Getting started guide](guides/getting-started.md)** (install → compile → serve → backup in 10 minutes), or the terse **[Quickstart](../README.md#quickstart)** in the project README.
 - Want the why and how? Read **[Architecture overview](architecture/overview.md)**.
+- Where it's heading? Read the **[Roadmap](ROADMAP.md)** (second-brain direction: multi-agent, multi-device, software connectors, proactive agent, team server, retrieval).
 
 ## Architecture
 
