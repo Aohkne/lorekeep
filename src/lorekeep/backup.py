@@ -16,8 +16,8 @@ graph/facts.jsonl
 graph/manifest.json
 wiki/
 cache.json
-pending/
 fts.sqlite
+*.lock
 """
 
 
@@ -109,8 +109,13 @@ def sync_backup(home: Path) -> bool:
     if not has_remote(home):
         return False
     try:
+        before = _remote_sha(home)
+        # Commit first so tracked journal/raw changes do not block rebase.
+        _commit(home, "backup")
         _reconcile_remote(home)
-        return backup(home)
+        _git(["push"], home)
+        after = _remote_sha(home)
+        return after != before
     except BackupError:
         return False
 

@@ -6,9 +6,9 @@ from pathlib import Path
 
 
 def write_config(target_dir: Path, command: str, args: list[str], ns: str | None) -> Path:
-    entry = {"command": command, "args": args}
+    entry = {"command": command, "args": args, "env": {"LOREKEEP_AGENT": "claude"}}
     if ns:
-        entry["env"] = {"LOREKEEP_NS": ns}
+        entry["env"]["LOREKEEP_NS"] = ns
     path = Path(target_dir) / ".mcp.json"
     existing = {}
     if path.exists():

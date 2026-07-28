@@ -26,6 +26,7 @@ def test_claude_writes_mcp_json(tmp_path: Path):
     data = json.loads((tmp_path / ".mcp.json").read_text())
     assert data["mcpServers"]["lorekeep"]["command"] == "uvx"
     assert data["mcpServers"]["lorekeep"]["env"]["LOREKEEP_NS"] == "teams/backend"
+    assert data["mcpServers"]["lorekeep"]["env"]["LOREKEEP_AGENT"] == "claude"
 
 
 def test_cursor_writes_mcp_json(tmp_path: Path):
@@ -41,6 +42,7 @@ def test_codex_writes_toml(tmp_path: Path):
     assert "[mcp_servers.lorekeep]" in text
     assert 'command = "uvx"' in text
     assert 'LOREKEEP_NS = "teams/backend"' in text
+    assert 'LOREKEEP_AGENT = "codex"' in text
 
 
 def test_agent_memory_snippet_mentions_provenance():
@@ -83,7 +85,7 @@ def test_opencode_no_ns(tmp_path: Path):
     opencode.write_config(tmp_path, "uvx", ["lorekeep", "serve", "--transport", "stdio"], ns=None)
     data = json.loads((tmp_path / "opencode.json").read_text())
     entry = data["mcp"]["lorekeep"]
-    assert "environment" not in entry
+    assert entry["environment"] == {"LOREKEEP_AGENT": "opencode"}
 
 
 def test_opencode_idempotent(tmp_path: Path):

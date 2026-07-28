@@ -46,6 +46,13 @@ def test_team_namespace_omits_subject_prompt():
     assert "Altitude rule" in s                 # altitude applies everywhere
 
 
+def test_configured_private_namespace_gets_subject_prompt():
+    s_private = build_system_prompt(SCHEMA, ns="private", personal_ns="private")
+    s_me = build_system_prompt(SCHEMA, ns="me", personal_ns="private")
+    assert "personal profile" in s_private
+    assert "personal profile" not in s_me
+
+
 def test_user_prompt_is_chunk_text_only():
     c = make_chunk("The payments-api is a Go service.")
     p = build_prompt(c, SCHEMA)

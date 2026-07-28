@@ -30,7 +30,7 @@ ALTITUDE_RULE = (
     "document). Low-altitude tokens — commands, environment variables, "
     "filenames, error strings, tool names, metric names — must NOT become "
     "nodes; attach them as properties of the nearest relevant node. Prefer a "
-    "specific semantic edge (depends_on, contributes_to, skilled_in, decided_by) "
+    "specific semantic edge (depends_on, contributes_to, has_skill, decided_by) "
     "over a generic one (relates_to)."
 )
 
@@ -41,12 +41,20 @@ SUBJECT_PROMPT = (
     "subject-centric facts: anchor on ONE canonical person node for the user and "
     "capture their role, skills, domains, goals, preferences, and values. Link the "
     "subject to any team project/service mentioned via cross-namespace edges "
-    "(owns, contributes_to, works_on, skilled_in, collaborates_with). Do NOT split "
+    "(owns, contributes_to, works_on, has_skill, collaborates_with). Do NOT split "
     "the subject into multiple person nodes — emit a single canonical person id."
 )
 
 
-def build_system_prompt(schema: Schema, ns: str | None = None) -> str:
+def _endpoint_label(value: str | tuple[str, ...]) -> str:
+    return value if isinstance(value, str) else "|".join(value)
+
+
+def build_system_prompt(
+    schema: Schema,
+    ns: str | None = None,
+    personal_ns: str = "me",
+) -> str:
     """Build a constant system prompt including schema + altitude rule.
 
     ns='me' adds subject-centric guidance (personal profile); other namespaces
@@ -55,7 +63,8 @@ def build_system_prompt(schema: Schema, ns: str | None = None) -> str:
     """
     node_types = ", ".join(schema.node_types.keys())
     edge_types = ", ".join(
-        f"{k}({v.from_}->{v.to})" for k, v in schema.edge_types.items()
+        f"{k}({_endpoint_label(v.from_)}->{_endpoint_label(v.to)})"
+        for k, v in schema.edge_types.items()
     )
     parts = [
         SYSTEM_PROMPT_BASE,
@@ -63,8 +72,8 @@ def build_system_prompt(schema: Schema, ns: str | None = None) -> str:
         f"Allowed node_types: {node_types}",
         f"Allowed edge_types: {edge_types}",
     ]
-    if ns == "me":
-        parts.append(SUBJECT_PROMPT)
+    if ns == personal_ns:
+        parts.append(SUBJECT_PROMPT.replace("'me'", repr(personal_ns)))
     return "\n\n".join(parts)
 
 
@@ -170,11 +179,19 @@ class ExtractionCache:
         if self.path.exists():
             self._data = json.loads(self.path.read_text(encoding="utf-8"))
 
-    def key(self, chunk: DocChunk, schema_version: int, model: str = "") -> str:
+    def key(
+        self,
+        chunk: DocChunk,
+        schema_version: int,
+        model: str = "",
+        prompt_variant: str = "",
+    ) -> str:
         h = hashlib.sha256()
         h.update(str(schema_version).encode("utf-8"))
         h.update(b"\n")
         h.update(model.encode("utf-8"))
+        h.update(b"\n")
+        h.update(prompt_variant.encode("utf-8"))
         h.update(b"\n")
         h.update(chunk.hash.encode("utf-8"))
         return h.hexdigest()
@@ -193,13 +210,27 @@ class ExtractionCache:
 
 
 def extract_chunk(
-    chunk: DocChunk, schema: Schema, provider: LLMProvider, cache: ExtractionCache,
+    chunk: DocChunk,
+    schema: Schema,
+    provider: LLMProvider,
+    cache: ExtractionCache,
+    personal_ns: str = "me",
 ) -> tuple[list[Node], list[Edge], dict[str, list[str]]]:
     model = getattr(provider, "model", "")
-    key = cache.key(chunk, schema.version, model)
+    schema_json = json.dumps(
+        schema.model_dump(mode="json", by_alias=True),
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    schema_fingerprint = hashlib.sha256(schema_json.encode("utf-8")).hexdigest()
+    prompt_variant = (
+        f"schema={schema_fingerprint};personal={personal_ns};"
+        f"subject={chunk.namespace == personal_ns}"
+    )
+    key = cache.key(chunk, schema.version, model, prompt_variant)
     raw = cache.get(key)
     if raw is None:
-        system = build_system_prompt(schema, chunk.namespace)
+        system = build_system_prompt(schema, chunk.namespace, personal_ns)
         raw = provider.extract_json(system, chunk.text)
         cache.set(key, raw)
     return parse_response(raw, chunk, schema)

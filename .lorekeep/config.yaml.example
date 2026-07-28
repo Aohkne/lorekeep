@@ -46,5 +46,6 @@ provider:
 compile:
   chunk_lines: 60
 ns:
-  default: [public]
+  default: [me]
+  personal: me
 install_source: pypi                              # pypi (portable .mcp.json) | local | git+URL | path

@@ -7,9 +7,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Lorekeep is a **second brain**: every coding agent you run (Claude Code, Cursor,
-Codex, opencode) reads from and contributes to one knowledge graph; every device
-stays in sync; the software you build and operate feeds back in; and your team
-shares the parts that matter. Under the hood it compiles raw docs + agent
+Codex, opencode) reads from and contributes to one knowledge graph; devices
+rebuild the same graph from Git-synced raw docs, schema, and agent journals; the
+software you build and operate feeds back in; and your team shares the parts
+that matter. Under the hood it compiles raw docs + agent
 contributions into a temporal knowledge graph (`facts.jsonl`) served over MCP.
 Knowledge is processed once, not re-RAG'd per query.
 
@@ -38,8 +39,9 @@ compile-once + namespace permission + multi-source (agents/devices/software/team
 - **Agent-driven knowledge** — agents propose facts at runtime via MCP write
   tools at **zero marginal LLM cost**. Confidence-gated: high-confidence
   auto-merge, low-confidence quarantine.
-- **File-sovereign** — `facts.jsonl` (one fact per line, sorted) is the single
-  source of truth and the sync unit (git or S3). No binary store committed.
+- **File-sovereign** — raw docs + schema + append-only agent journals are the
+  durable, Git-syncable sources. `facts.jsonl` is a deterministic derived store
+  rebuilt on each device; no binary store is committed.
 - **Temporal** — every fact carries `valid_from`/`valid_to` (half-open
   `[from, to)`); query "what was true at *T*", history, diffs.
 - **Namespace permission** — facts are tagged `ns` from the directory tree
@@ -137,6 +139,7 @@ Personal knowledge + team sharing:
 |---|---|
 | `lorekeep profile [--open]` | Show / open your personal profile source (`raw/<ns>/about.md` + `profile.md`) — edit in Obsidian/Tolaria, then `compile`. |
 | `lorekeep contribution` | Suggest team-knowledge gaps: nodes in your personal ns not yet shared with a team ns. |
+| `lorekeep schema upgrade [--dry-run]` | Upgrade the stock ontology v2 schema to v3 with a backup; custom schemas require `--force`. |
 
 Steps 1–6 are one-time setup. Step 7 runs in the background for continuous
 updates. Step 8 syncs across machines.
@@ -219,7 +222,8 @@ provider:
   api_key_env: DASHSCOPE_API_KEY                       # env var name (preferred)
   api_key: null                                        # or inline (gitignored config only)
 ns:
-  default: [public]
+  default: [me]                                      # serve-time default scope
+  personal: me                                       # subject-centric extraction
 install_source: pypi                                   # pypi = portable .mcp.json
 ```
 Native providers (`openai`, `anthropic`, `deepseek`, `dashscope`, `gemini`, …)

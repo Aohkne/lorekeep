@@ -1,6 +1,8 @@
 from datetime import date
 from lorekeep.models import Node, Edge
 from lorekeep.compile.resolve import resolve, ResolveResult
+from lorekeep.defaults import DEFAULT_SCHEMA
+from lorekeep.models import Schema
 
 
 def n(id, type="service", name=None):
@@ -66,6 +68,16 @@ def test_edge_ids_are_deterministic():
     assert [x.id for x in r.edges] == ["e_depends_on_0001", "e_depends_on_0002"]
 
 
+def test_schema_quarantines_invalid_edge_endpoint_types():
+    nodes = [n("person:a", type="person"), n("goal:x", type="goal")]
+    edges = [e(type="depends_on", frm="person:a", to="goal:x")]
+
+    result = resolve(nodes, edges, schema=Schema.load(DEFAULT_SCHEMA))
+
+    assert result.edges == []
+    assert "invalid edge endpoints" in result.quarantined[0][1]
+
+
 # ── auto-normalize (Phase 3) ───────────────────────────────────────────────
 from lorekeep.compile.resolve import _normalize_id
 
@@ -81,6 +93,11 @@ class TestNormalizeId:
         assert _normalize_id("person:nguyễn") == "person:nguyễn"
         assert _normalize_id("person:Nguyễn") == "person:nguyễn"
 
+    def test_canonically_equivalent_unicode_collapses(self):
+        assert _normalize_id("person:nguyễn") == _normalize_id(
+            "person:nguye\u0302\u0303n"
+        )
+
     def test_type_prefix_kept(self):
         assert _normalize_id("svc:payments-api").startswith("svc:")
 
@@ -94,6 +111,7 @@ class TestAutoMergeByNormalizedId:
         ]
         result = resolve(nodes, [])
         assert len(result.nodes) == 1            # all 3 merged
+        assert result.nodes[0].id == "domain:context-purity"
 
     def test_does_not_merge_different_diacritics(self):
         nodes = [n("person:nguyen"), n("person:nguyễn")]

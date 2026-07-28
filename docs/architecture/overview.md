@@ -85,7 +85,7 @@ The system has three write paths feeding into a single resolve step, then a read
 | D5 | Python + FastMCP | Richest LLM/markdown/MCP ecosystem; compile-heavy logic favors Python. |
 | D6 | Mid-org target (≈5k facts, 5–15 teams) | Karpathy sweet-spot; FTS/grep sufficient, no embeddings needed yet. |
 | D7 | Temporal knowledge graph | Facts carry `valid_from`/`valid_to`; supports "what was true at T", history, diffs. |
-| D8 | `facts.jsonl` as store + sync unit | Plain text, line-based git diffs, S3-streamable; no binary store committed. |
+| D8 | Durable sources as sync unit | Git syncs raw docs, schema, and agent journals; each device deterministically rebuilds `facts.jsonl`. |
 | D9 | Query via networkx in-memory; optional local FTS cache | Store is the sync unit; no rebuild-on-sync; cache is local-only, derived. |
 | D10 | stdio-first transport | Every coding agent spawns the local server reading the repo's `facts.jsonl`; zero servers, max privacy. |
 | D11 | Extract LLM pluggable, default API, ollama option | Quality by default; data leaves only at compile time; ollama for strict privacy. |

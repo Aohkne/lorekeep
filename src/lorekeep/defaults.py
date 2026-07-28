@@ -1,6 +1,33 @@
 """Default config + schema used by `lorekeep init` to bootstrap a fresh home."""
 from __future__ import annotations
 
+DEFAULT_SCHEMA_V2 = {
+    "version": 2,
+    "node_types": {
+        "service": {"props": {"name": "string", "lang": "string"}},
+        "team": {"props": {"name": "string"}},
+        "decision": {"props": {"title": "string"}},
+        "project": {"props": {"name": "string", "status": "string"}},
+        "person": {"props": {"name": "string", "role": "string"}},
+        "tool": {"props": {"name": "string", "category": "string"}},
+        "command": {"props": {"name": "string", "platform": "string"}},
+        "concept": {"props": {"name": "string", "domain": "string"}},
+        "note": {"props": {"title": "string", "topic": "string"}},
+        "document": {"props": {"title": "string", "kind": "string"}},
+    },
+    "edge_types": {
+        "depends_on": {"from": "service", "to": "service"},
+        "decided_by": {"from": "decision", "to": "team"},
+        "owns": {"from": "team", "to": "service"},
+        "part_of": {"from": "service", "to": "project"},
+        "uses": {"from": "service", "to": "tool"},
+        "mentions": {"from": "note", "to": "concept"},
+        "documents": {"from": "document", "to": "concept"},
+        "describes": {"from": "note", "to": "service"},
+        "relates_to": {"from": "concept", "to": "concept"},
+    },
+}
+
 DEFAULT_SCHEMA = {
     # Ontology v2 (schema_version 3): work-context types bridging personal (me)
     # and team namespaces. Catch-all types (concept/tool/command/note) removed —
@@ -10,7 +37,7 @@ DEFAULT_SCHEMA = {
     "version": 3,
     "node_types": {
         # people / subject
-        "person": {"props": {"name": "string", "handle": "string", "role": "string", "org": "string"}},
+        "person": {"props": {"name": "string", "handle": "string", "org": "string"}},
         "role": {"props": {"name": "string", "domain": "string"}},
         "skill": {"props": {"name": "string", "domain": "string", "level": "string"}},
         # knowledge
@@ -19,7 +46,7 @@ DEFAULT_SCHEMA = {
         "value": {"props": {"name": "string", "description": "string"}},
         "goal": {"props": {"title": "string", "timeframe": "string", "status": "string"}},
         # team / work
-        "service": {"props": {"name": "string", "lang": "string", "owner": "string", "status": "string"}},
+        "service": {"props": {"name": "string", "lang": "string", "status": "string"}},
         "project": {"props": {"name": "string", "status": "string", "start_date": "string"}},
         "decision": {"props": {"title": "string", "status": "string", "decided_on": "string"}},
         "team": {"props": {"name": "string", "org": "string"}},
@@ -29,19 +56,30 @@ DEFAULT_SCHEMA = {
         # entity-centric (team)
         "depends_on": {"from": "service", "to": "service"},
         "part_of": {"from": "service", "to": "project"},
-        "decided_by": {"from": "decision", "to": "person"},
+        "decided_by": {"from": "decision", "to": ["person", "team"]},
         # cross-ns bridge (subject -> team)
-        "owns": {"from": "person", "to": "service"},
+        "owns": {"from": ["person", "team"], "to": "service"},
         "contributes_to": {"from": "person", "to": "project"},
         "works_on": {"from": "person", "to": "project"},
         # subject knowledge
-        "skilled_in": {"from": "person", "to": "domain"},
+        "has_role": {"from": "person", "to": "role"},
+        "has_skill": {"from": "person", "to": "skill"},
+        "in_domain": {"from": ["role", "skill"], "to": "domain"},
+        "pursues": {"from": "person", "to": "goal"},
+        "holds_value": {"from": "person", "to": "value"},
+        "member_of": {"from": "person", "to": "team"},
         "is_a": {"from": "service", "to": "domain"},
         "collaborates_with": {"from": "person", "to": "person"},
         "prefers": {"from": "person", "to": "preference"},
         # generic / doc
-        "relates_to": {"from": "service", "to": "service"},
-        "documents": {"from": "document", "to": "service"},
+        "relates_to": {
+            "from": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
+            "to": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
+        },
+        "documents": {
+            "from": "document",
+            "to": ["service", "project", "decision", "domain"],
+        },
     },
 }
 
@@ -90,7 +128,8 @@ provider:
 compile:
   chunk_lines: 60
 ns:
-  default: [public]
+  default: [me]
+  personal: me
 install_source: pypi
 """
 

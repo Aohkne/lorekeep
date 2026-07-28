@@ -9,9 +9,11 @@ the existing graph with priority: raw/ > import > agent-propose.
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass, field
 
-from lorekeep.models import Edge, JournalEntry, Node
+from lorekeep.models import Edge, JournalEntry, Node, Schema
 
 
 @dataclass
@@ -30,7 +32,8 @@ def _normalize_id(node_id: str) -> str:
     ``concept:context_purity`` == ``concept:Context Purity`` ==
     ``concept:context-purity`` (all merge), but diacritic differences do not.
     """
-    return node_id.lower().replace("_", "-").replace(" ", "-")
+    normalized = unicodedata.normalize("NFC", node_id).lower()
+    return re.sub(r"[-_\s]+", "-", normalized)
 
 
 def _build_alias_map(
@@ -38,7 +41,7 @@ def _build_alias_map(
     name_aliases: dict[str, list[str]] | None,
     explicit_map: dict[str, str] | None,
 ) -> dict[str, str]:
-    """Return alias_id -> canonical_id. Canonical = first node id seen for a name."""
+    """Return alias_id -> canonical_id with deterministic normalized ids."""
     alias_map: dict[str, str] = {}
     # 1) by name: group nodes whose props.name matches an alias group's canonical
     if name_aliases:
@@ -53,10 +56,10 @@ def _build_alias_map(
                     if nd.id != canon:
                         alias_map[nd.id] = canon
     # 2) auto-merge by normalized id (case/separator variants; diacritics kept).
-    #    First node per normalized key wins; don't override a name-alias decision.
-    norm_to_canonical: dict[str, str] = {}
+    #    The normalized key itself is canonical, so source ordering cannot change
+    #    stored ids across devices.
     for nd in nodes:
-        canon = norm_to_canonical.setdefault(_normalize_id(nd.id), nd.id)
+        canon = _normalize_id(nd.id)
         if nd.id != canon and nd.id not in alias_map:
             alias_map[nd.id] = canon
     # 3) explicit id->id overrides win
@@ -79,7 +82,21 @@ def resolve(
     edges: list[Edge],
     name_aliases: dict[str, list[str]] | None = None,
     aliases_map: dict[str, str] | None = None,
+    schema: Schema | None = None,
 ) -> ResolveResult:
+    quarantined: list[tuple[dict, str]] = []
+    if schema is not None:
+        valid_nodes = []
+        for node in nodes:
+            if schema.is_valid_node_type(node.type):
+                valid_nodes.append(node)
+            else:
+                quarantined.append((
+                    node.model_dump(mode="json", by_alias=True),
+                    f"unknown node type ({node.type})",
+                ))
+        nodes = valid_nodes
+
     alias_map = _build_alias_map(nodes, name_aliases, aliases_map)
 
     # collapse nodes
@@ -104,9 +121,8 @@ def resolve(
 
     # rewrite + validate edges
     out_edges: list[Edge] = []
-    quarantined: list[tuple[dict, str]] = []
     counter = 0
-    for ed in edges:
+    for ed in sorted(edges, key=lambda e: (e.type, e.from_, e.to, e.id)):
         f = _canonical(ed.from_, alias_map)
         t = _canonical(ed.to, alias_map)
         if f not in node_ids or t not in node_ids:
@@ -117,6 +133,16 @@ def resolve(
             quarantined.append((ed.model_dump(mode="json", by_alias=True),
                                 "self-loop"))
             continue
+        if schema is not None:
+            from_type = canon_nodes[f].type
+            to_type = canon_nodes[t].type
+            if not schema.is_valid_edge_endpoints(ed.type, from_type, to_type):
+                quarantined.append((
+                    ed.model_dump(mode="json", by_alias=True),
+                    f"invalid edge endpoints for {ed.type} "
+                    f"({from_type}->{to_type})",
+                ))
+                continue
         counter += 1
         out_edges.append(ed.model_copy(update={
             "id": f"e_{ed.type}_{counter:04d}",
@@ -157,6 +183,9 @@ def merge_journals(
     existing_nodes: list[Node],
     existing_edges: list[Edge],
     journal_entries: list[JournalEntry],
+    *,
+    replay_accepted: bool = False,
+    schema: Schema | None = None,
 ) -> JournalMergeResult:
     """Gate journal entries by confidence and add to the graph.
 
@@ -165,10 +194,20 @@ def merge_journals(
     """
     result = JournalMergeResult()
     nodes_by_id: dict[str, Node] = {n.id: n for n in existing_nodes}
-    new_edges: list[Edge] = []
+    new_edges: list[tuple[Edge, bool]] = []
 
-    for entry in journal_entries:
-        if entry.status != "pending":
+    ordered_entries = sorted(
+        journal_entries,
+        key=lambda entry: (
+            entry.fact.get("kind") == "edge",
+            entry.entry_id or entry.proposed_at,
+            entry.agent,
+            entry.fact.get("id", ""),
+        ),
+    )
+    for entry in ordered_entries:
+        replaying = replay_accepted and entry.status in {"merged", "flagged"}
+        if entry.status != "pending" and not replaying:
             continue
         confidence = entry.confidence
         fact_data = entry.fact
@@ -181,14 +220,36 @@ def merge_journals(
             result.quarantined.append((entry, "invalid fact schema"))
             continue
 
-        if confidence < 0.5:
+        if confidence < 0.5 and not replaying:
             result.quarantined.append((entry, "low confidence"))
             continue
+
+        if schema is not None and fact.kind == "node":
+            if not schema.is_valid_node_type(fact.type):
+                result.quarantined.append((entry, f"unknown node type: {fact.type}"))
+                continue
+
+        if schema is not None and fact.kind == "edge":
+            from_node = nodes_by_id.get(fact.from_)
+            to_node = nodes_by_id.get(fact.to)
+            if (
+                from_node is None
+                or to_node is None
+                or not schema.is_valid_edge_endpoints(
+                    fact.type, from_node.type, to_node.type,
+                )
+            ):
+                result.quarantined.append((entry, "invalid edge endpoints"))
+                continue
 
         if fact.kind == "node":
             if fact.id in nodes_by_id:
                 base = nodes_by_id[fact.id]
-                merged_props = {**base.props, **fact.props}
+                merged_props = (
+                    {**fact.props, **base.props}
+                    if replaying
+                    else {**base.props, **fact.props}
+                )
                 merged_src = tuple(dict.fromkeys(base.src + fact.src))
                 merged_ns = tuple(dict.fromkeys(base.ns + fact.ns))
                 nodes_by_id[fact.id] = base.model_copy(
@@ -197,8 +258,10 @@ def merge_journals(
             else:
                 nodes_by_id[fact.id] = fact
         else:
-            new_edges.append(fact)
+            new_edges.append((fact, replaying))
 
+        if replaying:
+            continue
         if confidence >= 0.8:
             result.merged.append((entry, ""))
         else:
@@ -209,12 +272,17 @@ def merge_journals(
     # Deduplicate + ID-regenerate edges (journal edges have empty id)
     edge_by_key: dict[tuple[str, str, str], Edge] = {}
     counter = 0
-    for e in existing_edges + new_edges:
+    edge_inputs = [(edge, False) for edge in existing_edges] + new_edges
+    for e, replaying in edge_inputs:
         key = (e.from_, e.to, e.type)
         if key in edge_by_key:
             # Merge props and src for duplicate edges
             existing = edge_by_key[key]
-            merged_props = {**existing.props, **e.props}
+            merged_props = (
+                {**e.props, **existing.props}
+                if replaying
+                else {**existing.props, **e.props}
+            )
             merged_src = tuple(dict.fromkeys(existing.src + e.src))
             edge_by_key[key] = existing.model_copy(
                 update={"props": merged_props, "src": merged_src}

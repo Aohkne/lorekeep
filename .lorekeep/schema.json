@@ -1,26 +1,42 @@
 {
-  "version": 2,
+  "version": 3,
   "node_types": {
-    "service": {"props": {"name": "string", "lang": "string"}},
-    "team": {"props": {"name": "string"}},
-    "decision": {"props": {"title": "string"}},
-    "project": {"props": {"name": "string", "status": "string"}},
-    "person": {"props": {"name": "string", "role": "string"}},
-    "tool": {"props": {"name": "string", "category": "string"}},
-    "command": {"props": {"name": "string", "platform": "string"}},
-    "concept": {"props": {"name": "string", "domain": "string"}},
-    "note": {"props": {"title": "string", "topic": "string"}},
+    "person": {"props": {"name": "string", "handle": "string", "org": "string"}},
+    "role": {"props": {"name": "string", "domain": "string"}},
+    "skill": {"props": {"name": "string", "domain": "string", "level": "string"}},
+    "domain": {"props": {"name": "string", "description": "string"}},
+    "preference": {"props": {"name": "string", "description": "string"}},
+    "value": {"props": {"name": "string", "description": "string"}},
+    "goal": {"props": {"title": "string", "timeframe": "string", "status": "string"}},
+    "service": {"props": {"name": "string", "lang": "string", "status": "string"}},
+    "project": {"props": {"name": "string", "status": "string", "start_date": "string"}},
+    "decision": {"props": {"title": "string", "status": "string", "decided_on": "string"}},
+    "team": {"props": {"name": "string", "org": "string"}},
     "document": {"props": {"title": "string", "kind": "string"}}
   },
   "edge_types": {
     "depends_on": {"from": "service", "to": "service"},
-    "decided_by": {"from": "decision", "to": "team"},
-    "owns": {"from": "team", "to": "service"},
     "part_of": {"from": "service", "to": "project"},
-    "uses": {"from": "service", "to": "tool"},
-    "mentions": {"from": "note", "to": "concept"},
-    "documents": {"from": "document", "to": "concept"},
-    "describes": {"from": "note", "to": "service"},
-    "relates_to": {"from": "concept", "to": "concept"}
+    "decided_by": {"from": "decision", "to": ["person", "team"]},
+    "owns": {"from": ["person", "team"], "to": "service"},
+    "contributes_to": {"from": "person", "to": "project"},
+    "works_on": {"from": "person", "to": "project"},
+    "has_role": {"from": "person", "to": "role"},
+    "has_skill": {"from": "person", "to": "skill"},
+    "in_domain": {"from": ["role", "skill"], "to": "domain"},
+    "pursues": {"from": "person", "to": "goal"},
+    "holds_value": {"from": "person", "to": "value"},
+    "member_of": {"from": "person", "to": "team"},
+    "is_a": {"from": "service", "to": "domain"},
+    "collaborates_with": {"from": "person", "to": "person"},
+    "prefers": {"from": "person", "to": "preference"},
+    "relates_to": {
+      "from": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
+      "to": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"]
+    },
+    "documents": {
+      "from": "document",
+      "to": ["service", "project", "decision", "domain"]
+    }
   }
 }

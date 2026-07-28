@@ -26,6 +26,7 @@ def compile_graph(
     cache_path: Path,
     chunk_lines: int = 60,
     on_progress: ProgressCb | None = None,
+    personal_ns: str = "me",
 ) -> Manifest:
     chunks = ingest(raw_root, chunk_lines=chunk_lines)
     cache = ExtractionCache(cache_path)
@@ -39,7 +40,9 @@ def compile_graph(
         if on_progress is not None:
             on_progress(i, total, chunk)
         try:
-            nodes, edges, aliases = extract_chunk(chunk, schema, provider, cache)
+            nodes, edges, aliases = extract_chunk(
+                chunk, schema, provider, cache, personal_ns=personal_ns,
+            )
             all_nodes.extend(nodes)
             all_edges.extend(edges)
             for ak, av in aliases.items():       # union variants, last-writer-wins drops aliases
@@ -50,7 +53,9 @@ def compile_graph(
                            "message": str(exc)})
     cache.save()
 
-    resolved = resolve(all_nodes, all_edges, name_aliases=all_aliases)
+    resolved = resolve(
+        all_nodes, all_edges, name_aliases=all_aliases, schema=schema,
+    )
 
     rid = run_id(chunks, schema.version)
     provisional = Manifest(schema_version=schema.version, chunk_count=len(chunks),

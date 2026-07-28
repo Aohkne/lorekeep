@@ -42,6 +42,12 @@ class GraphStore:
             return None
         return self._G.nodes[id]["node"]
 
+    def get_edge(self, id: str) -> Edge | None:
+        for edge in self.all_edges():
+            if edge.id == id:
+                return edge
+        return None
+
     def all_nodes(self) -> list[Node]:
         return [d["node"] for _, d in self._G.nodes(data=True)]
 

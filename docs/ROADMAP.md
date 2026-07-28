@@ -37,8 +37,9 @@ Everything below is implemented today and is what the roadmap builds on:
   → `raw/`; session-end hooks auto-trigger.
 - **Agent daemon** — `agent watch` auto-compiles on raw/ change, auto-resolves
   pending journals, delta-imports session memory.
-- **Backup + sync unit** — `lorekeep backup` commits `raw/` + schema to a private
-  git repo; `facts.jsonl` is the sync unit (git or S3).
+- **Backup + durable sources** — `lorekeep backup` commits `raw/`, schema, and
+  agent journals to a private git repo; each device rebuilds derived
+  `facts.jsonl`.
 - **Obsidian/Tolaria wiki** — flat markdown + relationship frontmatter; one vault,
   both apps.
 - **Profile + contribution** — `profile` (edit your personal source in Obsidian/
@@ -67,11 +68,11 @@ directions, not a sequence — several advance in parallel.
 - **Goal:** laptop + desktop edit the same brain simultaneously without clobbering.
 - **Why:** the second brain follows you across machines; sequential pull/push isn't
   enough when two devices edit concurrently.
-- **Scope:** conflict resolver for simultaneous `facts.jsonl` edits (field-level
-  merge, last-writer-vs-merge policy options); optional central sync server for
-  always-on reconciliation.
+- **Scope:** conflict resolver for simultaneous raw-document edits and journal
+  reconciliation; optional central sync server for always-on reconciliation.
 - **Non-goals:** replacing git as the transport (git stays the default).
-- **Builds on:** git backup (`pull --rebase` + push) + facts.jsonl as sync unit.
+- **Builds on:** git backup (`pull --rebase` + push) + deterministic rebuild
+  from durable sources.
 - **Honest gap:** today's backup is sequential — concurrent device edits can
   conflict and need manual resolve.
 

@@ -21,7 +21,15 @@ class CompileConfig(BaseModel):
 
 class NsConfig(BaseModel):
     default: list[str] = Field(default_factory=lambda: ["public"])
+    personal: str | None = None
     token_map: dict[str, list[str]] = Field(default_factory=dict)
+
+    @property
+    def personal_namespace(self) -> str:
+        """Personal/subject namespace, with a safe legacy-config fallback."""
+        if self.personal:
+            return self.personal
+        return next((ns for ns in self.default if ns != "public"), "me")
 
 
 class ObservabilityConfig(BaseModel):

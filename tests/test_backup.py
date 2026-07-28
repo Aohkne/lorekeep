@@ -94,7 +94,7 @@ def test_backup_never_tracks_secret_or_regenerable(tmp_path: Path):
     assert "cache.json" not in tracked
 
 
-def test_backup_never_tracks_pending_journals(tmp_path: Path):
+def test_backup_tracks_journals_for_cross_device_replay(tmp_path: Path):
     home = tmp_path / "home"
     remote = _bare_remote(tmp_path)
     init_backup(home, remote)
@@ -104,7 +104,7 @@ def test_backup_never_tracks_pending_journals(tmp_path: Path):
     )
     backup(home)
     tracked = _tracked(home)
-    assert "pending/public/journal.jsonl" not in tracked
+    assert "pending/public/journal.jsonl" in tracked
 
 
 def test_backup_retries_previously_rejected_push(tmp_path: Path):
@@ -231,6 +231,30 @@ def test_sync_backup_pulls_from_other_machine(tmp_path: Path):
 
     assert (home / "raw" / "shared" / "synced.md").exists()
     assert (home / "raw" / "local" / "local.md").exists()
+
+
+def test_sync_backup_commits_tracked_changes_before_rebase(tmp_path: Path):
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    tracked = home / "raw" / "shared" / "tracked.md"
+    tracked.parent.mkdir(parents=True)
+    tracked.write_text("# v1")
+    assert sync_backup(home) is True
+
+    other = tmp_path / "other-tracked"
+    subprocess.run(["git", "clone", "-q", remote, str(other)], check=True)
+    remote_only = other / "raw" / "remote" / "remote.md"
+    remote_only.parent.mkdir(parents=True)
+    remote_only.write_text("# remote")
+    _git_cmd(["add", "-A"], other)
+    _git_cmd(["commit", "-q", "-m", "remote change"], other)
+    subprocess.run(["git", "push", "-q"], cwd=other, check=True)
+
+    tracked.write_text("# v2 local")
+    assert sync_backup(home) is True
+    assert tracked.read_text() == "# v2 local"
+    assert (home / "raw" / "remote" / "remote.md").exists()
 
 
 def test_sync_backup_handles_network_error(tmp_path: Path):
