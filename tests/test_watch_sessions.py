@@ -1,5 +1,6 @@
 """Tests for agent watch session import and auto-resolve chain."""
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -140,7 +141,7 @@ def test_watch_boots_and_shuts_down_cleanly(monkeypatch, tmp_path: Path):
     import subprocess
     import os
     result = subprocess.run(
-        ["timeout", "2", "python3", "-m", "lorekeep.cli", "agent", "watch",
+        ["timeout", "2", sys.executable, "-m", "lorekeep.cli", "agent", "watch",
          "--interval", "1", "--no-watch-sessions"],
         capture_output=True, text=True,
         cwd=str(tmp_path.parent),
