@@ -115,6 +115,7 @@ class TestCompilePipeline:
     def test_compile_produces_nonempty_graph(self, tmp_path, monkeypatch, patch_make_provider):
         from lorekeep.cli import app
 
+        monkeypatch.chdir(tmp_path)
         home = tmp_path / "home"
         home.mkdir()
         (home / "raw" / "backend").mkdir(parents=True)
@@ -141,6 +142,7 @@ class TestCompilePipeline:
     def test_compile_produces_wiki(self, tmp_path, monkeypatch, patch_make_provider):
         from lorekeep.cli import app
 
+        monkeypatch.chdir(tmp_path)
         home = tmp_path / "home"
         home.mkdir()
         (home / "raw" / "backend").mkdir(parents=True)
@@ -163,6 +165,7 @@ class TestCompilePipeline:
         """Recompiling unchanged input produces byte-identical facts.jsonl."""
         from lorekeep.cli import app
 
+        monkeypatch.chdir(tmp_path)
         home = tmp_path / "home"
         home.mkdir()
         (home / "raw" / "ns").mkdir(parents=True)

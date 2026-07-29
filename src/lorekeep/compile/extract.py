@@ -16,7 +16,8 @@ SYSTEM_PROMPT_BASE = (
     'object {"nodes":[...], "edges":[...], "aliases":{...}}. '
     "Only use node_types and edge_types listed in the provided schema. "
     "For every node give id (stable slug prefixed by type, e.g. svc:payments-api), "
-    "type, name, optional props, optional valid_from/valid_to (ISO dates, null = unknown). "
+    "type, optional props using the preferred keys for that type, and optional "
+    "valid_from/valid_to (ISO dates, null = unknown). "
     "For every edge give type, from (node id), to (node id), optional valid_from/valid_to. "
     "aliases maps a canonical name to surface variants. Emit NO text outside the JSON."
 )
@@ -32,6 +33,16 @@ ALTITUDE_RULE = (
     "nodes; attach them as properties of the nearest relevant node. Prefer a "
     "specific semantic edge (depends_on, contributes_to, has_skill, decided_by) "
     "over a generic one (relates_to)."
+)
+
+TEMPORAL_RULE = (
+    "Temporal rule: valid_from/valid_to belong to the exact fact whose lifetime "
+    "the text describes. If a relationship starts or ends, set dates on that "
+    "edge only. Do NOT copy an edge's valid_to to either endpoint node unless "
+    "the text explicitly says the entity itself ceased to exist. Examples: "
+    "'service launched on D' means that service node has valid_from D; "
+    "'dependency removed on D' means that dependency edge has valid_to D while "
+    "both endpoint service nodes remain open."
 )
 
 # Subject-centric extraction for the personal namespace: anchor on the person,
@@ -61,7 +72,12 @@ def build_system_prompt(
     use the default entity-centric extraction. Keeping schema in the system
     prompt (not user message) maximizes prefix cache hits across chunks.
     """
-    node_types = ", ".join(schema.node_types.keys())
+    node_types = ", ".join(
+        f"{name}("
+        + ", ".join(f"{prop}:{kind}" for prop, kind in spec.props.items())
+        + ")"
+        for name, spec in schema.node_types.items()
+    )
     edge_types = ", ".join(
         f"{k}({_endpoint_label(v.from_)}->{_endpoint_label(v.to)})"
         for k, v in schema.edge_types.items()
@@ -69,7 +85,8 @@ def build_system_prompt(
     parts = [
         SYSTEM_PROMPT_BASE,
         ALTITUDE_RULE,
-        f"Allowed node_types: {node_types}",
+        TEMPORAL_RULE,
+        f"Allowed node_types and preferred props: {node_types}",
         f"Allowed edge_types: {edge_types}",
     ]
     if ns == personal_ns:
@@ -217,20 +234,22 @@ def extract_chunk(
     personal_ns: str = "me",
 ) -> tuple[list[Node], list[Edge], dict[str, list[str]]]:
     model = getattr(provider, "model", "")
+    system = build_system_prompt(schema, chunk.namespace, personal_ns)
     schema_json = json.dumps(
         schema.model_dump(mode="json", by_alias=True),
         sort_keys=True,
         ensure_ascii=False,
     )
     schema_fingerprint = hashlib.sha256(schema_json.encode("utf-8")).hexdigest()
+    prompt_fingerprint = hashlib.sha256(system.encode("utf-8")).hexdigest()
     prompt_variant = (
-        f"schema={schema_fingerprint};personal={personal_ns};"
+        f"schema={schema_fingerprint};prompt={prompt_fingerprint};"
+        f"personal={personal_ns};"
         f"subject={chunk.namespace == personal_ns}"
     )
     key = cache.key(chunk, schema.version, model, prompt_variant)
     raw = cache.get(key)
     if raw is None:
-        system = build_system_prompt(schema, chunk.namespace, personal_ns)
         raw = provider.extract_json(system, chunk.text)
         cache.set(key, raw)
     return parse_response(raw, chunk, schema)

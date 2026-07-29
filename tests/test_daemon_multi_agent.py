@@ -241,6 +241,7 @@ class TestInitProducesGraph:
         from lorekeep.cli import app
         from lorekeep.providers import ModelInfo
 
+        monkeypatch.chdir(tmp_path)
         home = tmp_path / "home"
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
         monkeypatch.setattr("lorekeep.cli._is_interactive", lambda: True)

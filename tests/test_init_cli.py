@@ -1,9 +1,16 @@
 from pathlib import Path
+import pytest
 from typer.testing import CliRunner
 from lorekeep.cli import app
 import yaml
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def isolate_project_cwd(tmp_path: Path, monkeypatch):
+    """Never let init wiring touch the developer's real checkout."""
+    monkeypatch.chdir(tmp_path)
 
 
 def test_init_creates_home(tmp_path: Path, monkeypatch):
