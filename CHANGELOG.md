@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.13.0](https://github.com/manhhailua/lorekeep/compare/v0.12.2...v0.13.0) (2026-07-29)
+
+
+### Features
+
+* **cli:** contribution view — suggest team-knowledge gaps ([30cd52c](https://github.com/manhhailua/lorekeep/commit/30cd52c65d68f129968a20a88ed30f6670d3ee76))
+* **extract:** ns-aware prompt + altitude rule (subject-centric for me) ([0d6489b](https://github.com/manhhailua/lorekeep/commit/0d6489b673942f5f479cd823af6e1c585bae63fe))
+* **init:** seed profile template + profile command (edit via Obsidian/Tolaria) ([2d0a306](https://github.com/manhhailua/lorekeep/commit/2d0a30686293fddf7a9c3b581f61ea78e5edc67f))
+* ontology v2 — subject-aware knowledge graph (personal + team) ([488b4af](https://github.com/manhhailua/lorekeep/commit/488b4af977fd09aebfb3e14f57aa85f4170a5a02))
+* **resolve:** auto-normalize duplicate ids, preserve diacritics ([b6b0265](https://github.com/manhhailua/lorekeep/commit/b6b026502cfc17c1164f2a2cb908475fae7a922e))
+* **schema:** ontology v2 — work-context types, drop catch-alls (v3) ([a39c39a](https://github.com/manhhailua/lorekeep/commit/a39c39a0237ac09bd0f3fab1c99a4c8bcfecd71c))
+
+
+### Bug Fixes
+
+* harden ontology v2 for agents and devices ([6025849](https://github.com/manhhailua/lorekeep/commit/6025849acbd7eaac6ab93baea8199366206b8f35))
+* stabilize tests and literal search ([23198d3](https://github.com/manhhailua/lorekeep/commit/23198d3deebbe761c80e73a9eb5191524c8986dd))
+* strengthen ontology extraction guardrails ([fe57c99](https://github.com/manhhailua/lorekeep/commit/fe57c99973c3e8ffe656848433404570476bb679))
+
+
+### Documentation
+
+* ontology v2 + profile/contribution commands in README ([0f8d5ca](https://github.com/manhhailua/lorekeep/commit/0f8d5caf37f2f0b94da4a1fbbd2251093c73da77))
+* reposition as a second brain + add ROADMAP ([c55b3fd](https://github.com/manhhailua/lorekeep/commit/c55b3fd91603b91b9da1d2f7553028d543209029))
+
 ## [0.12.2](https://github.com/manhhailua/lorekeep/compare/v0.12.1...v0.12.2) (2026-07-19)
 
 
