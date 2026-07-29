@@ -24,10 +24,14 @@ def test_scan_search_substring(tmp_path: Path):
 
 def test_fts_index_build_and_match(tmp_path: Path):
     idx = FTSIndex(tmp_path / "fts.sqlite")
-    idx.build([nd("svc:a", "payments"), nd("svc:b", "auth")])
+    idx.build([nd("svc:a", "payments-api"), nd("svc:b", "auth")])
     assert "svc:a" in idx.search("payments")
     assert idx.search("payments") == ["svc:a"]
+    assert idx.search("payments-api") == ["svc:a"]
+    assert idx.search("svc:a") == ["svc:a"]
     assert idx.search("nomatch*") == []
+    assert idx.search("-") == []
+    assert idx.search("") == []
     idx.close()
 
 

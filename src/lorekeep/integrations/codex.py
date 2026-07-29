@@ -21,8 +21,10 @@ def _lorekeep_block(command: str, args: list[str], ns: str | None) -> str:
         f'command = "{_toml_escape(command)}"',
         f"args = {_toml_quote_list(args)}",
     ]
+    env = ['LOREKEEP_AGENT = "codex"']
     if ns:
-        lines.append(f'env = {{ LOREKEEP_NS = "{_toml_escape(ns)}" }}')
+        env.append(f'LOREKEEP_NS = "{_toml_escape(ns)}"')
+    lines.append("env = { " + ", ".join(env) + " }")
     return "\n".join(lines)
 
 

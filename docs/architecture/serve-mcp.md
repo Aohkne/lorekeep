@@ -123,9 +123,15 @@ Verifies: `facts.jsonl` loads, schema is valid, ns mapping resolves, journal dir
 
 ## Sync and multi-device
 
-- **git (primary):** commit `raw/` + `graph/` + `pending/` (`facts.jsonl`, `manifest.json`, `schema.json`, journals). Each device clones/pulls and spawns its local MCP server. No binary store is committed; the FTS cache is gitignored and rebuilt locally.
+- **git (primary):** commit `raw/` + `schema.json` + `pending/` journals. Each
+  device clones/pulls, re-compiles, replays accepted journal entries, and
+  spawns its local MCP server. Derived graph/manifest/wiki/cache files remain
+  gitignored.
 - **S3 (alternative):** `aws s3 sync` the same paths to an object store; devices sync down.
-- **Write conflicts:** journals are append-only, per-namespace or per-agent. No two agents write to the same journal line. Resolve serializes all journals into a single deterministic `facts.jsonl`. Concurrent journal appends from different devices merge cleanly via git.
+- **Write conflicts:** local journal append/status updates are process-locked
+  and entries have collision-resistant IDs. Git sync is currently sequential;
+  simultaneous edits to the same raw file or namespace journal may still need
+  manual conflict resolution.
 - **Future scale (>50k facts):** partition `facts.jsonl` to Parquet on S3; query via DuckDB/Polars directly on objects.
 
 ## Error handling (serve-side)

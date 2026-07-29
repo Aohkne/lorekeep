@@ -2,41 +2,99 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date
 from typing import Any
 
 from lorekeep.models import DocChunk, Edge, Node, Schema
 
+log = logging.getLogger("lorekeep")
+
 SYSTEM_PROMPT_BASE = (
     "You are a knowledge-graph extractor. Read the document chunk and emit a JSON "
     'object {"nodes":[...], "edges":[...], "aliases":{...}}. '
     "Only use node_types and edge_types listed in the provided schema. "
     "For every node give id (stable slug prefixed by type, e.g. svc:payments-api), "
-    "type, name, optional props, optional valid_from/valid_to (ISO dates, null = unknown). "
+    "type, optional props using the preferred keys for that type, and optional "
+    "valid_from/valid_to (ISO dates, null = unknown). "
     "For every edge give type, from (node id), to (node id), optional valid_from/valid_to. "
     "aliases maps a canonical name to surface variants. Emit NO text outside the JSON."
 )
 
+# Altitude rule: decides node vs attribute. Prevents low-altitude tokens
+# (commands, env vars, filenames, errors) from becoming nodes — the root cause
+# of the "concept noise" wiki reflection (192 nodes, 98 trash concepts).
+ALTITUDE_RULE = (
+    "Altitude rule: create a node ONLY for a stable semantic entity "
+    "(person, service, project, decision, domain, skill, role, goal, team, "
+    "document). Low-altitude tokens — commands, environment variables, "
+    "filenames, error strings, tool names, metric names — must NOT become "
+    "nodes; attach them as properties of the nearest relevant node. Prefer a "
+    "specific semantic edge (depends_on, contributes_to, has_skill, decided_by) "
+    "over a generic one (relates_to)."
+)
 
-def build_system_prompt(schema: Schema) -> str:
-    """Build a constant system prompt including schema — cacheable across chunks.
+TEMPORAL_RULE = (
+    "Temporal rule: valid_from/valid_to belong to the exact fact whose lifetime "
+    "the text describes. If a relationship starts or ends, set dates on that "
+    "edge only. Do NOT copy an edge's valid_to to either endpoint node unless "
+    "the text explicitly says the entity itself ceased to exist. Examples: "
+    "'service launched on D' means that service node has valid_from D; "
+    "'dependency removed on D' means that dependency edge has valid_to D while "
+    "both endpoint service nodes remain open."
+)
 
-    Keeping schema in the system prompt (not user message) maximizes prefix
-    cache hits: the system message is identical for every chunk in a compile run.
+# Subject-centric extraction for the personal namespace: anchor on the person,
+# capture role/skill/domain/goal/preference, link to team entities cross-ns.
+SUBJECT_PROMPT = (
+    "This chunk is in the 'me' namespace — the user's personal profile. Extract "
+    "subject-centric facts: anchor on ONE canonical person node for the user and "
+    "capture their role, skills, domains, goals, preferences, and values. Link the "
+    "subject to any team project/service mentioned via cross-namespace edges "
+    "(owns, contributes_to, works_on, has_skill, collaborates_with). Do NOT split "
+    "the subject into multiple person nodes — emit a single canonical person id."
+)
+
+
+def _endpoint_label(value: str | tuple[str, ...]) -> str:
+    return value if isinstance(value, str) else "|".join(value)
+
+
+def build_system_prompt(
+    schema: Schema,
+    ns: str | None = None,
+    personal_ns: str = "me",
+) -> str:
+    """Build a constant system prompt including schema + altitude rule.
+
+    ns='me' adds subject-centric guidance (personal profile); other namespaces
+    use the default entity-centric extraction. Keeping schema in the system
+    prompt (not user message) maximizes prefix cache hits across chunks.
     """
-    node_types = ", ".join(schema.node_types.keys())
+    node_types = ", ".join(
+        f"{name}("
+        + ", ".join(f"{prop}:{kind}" for prop, kind in spec.props.items())
+        + ")"
+        for name, spec in schema.node_types.items()
+    )
     edge_types = ", ".join(
-        f"{k}({v.from_}->{v.to})" for k, v in schema.edge_types.items()
+        f"{k}({_endpoint_label(v.from_)}->{_endpoint_label(v.to)})"
+        for k, v in schema.edge_types.items()
     )
-    return (
-        f"{SYSTEM_PROMPT_BASE}\n\n"
-        f"Allowed node_types: {node_types}\n"
-        f"Allowed edge_types: {edge_types}"
-    )
+    parts = [
+        SYSTEM_PROMPT_BASE,
+        ALTITUDE_RULE,
+        TEMPORAL_RULE,
+        f"Allowed node_types and preferred props: {node_types}",
+        f"Allowed edge_types: {edge_types}",
+    ]
+    if ns == personal_ns:
+        parts.append(SUBJECT_PROMPT.replace("'me'", repr(personal_ns)))
+    return "\n\n".join(parts)
 
 
-# Backward compat
+# Backward compat: base prompt without altitude/ns additions.
 SYSTEM_PROMPT = SYSTEM_PROMPT_BASE
 
 
@@ -89,6 +147,7 @@ def parse_response(
     for n in data.get("nodes", []):
         ntype = n.get("type")
         if schema is not None and not schema.is_valid_node_type(ntype):
+            log.debug("dropping node with unknown type %r in %s", ntype, chunk.src)
             continue
         props = dict(n.get("props", {}))
         if "name" in n and "name" not in props:
@@ -106,6 +165,7 @@ def parse_response(
     for e in data.get("edges", []):
         etype = e.get("type")
         if schema is not None and not schema.is_valid_edge_type(etype):
+            log.debug("dropping edge with unknown type %r in %s", etype, chunk.src)
             continue
         edges.append(Edge(
             id="",                      # assigned deterministically in resolve
@@ -136,11 +196,19 @@ class ExtractionCache:
         if self.path.exists():
             self._data = json.loads(self.path.read_text(encoding="utf-8"))
 
-    def key(self, chunk: DocChunk, schema_version: int, model: str = "") -> str:
+    def key(
+        self,
+        chunk: DocChunk,
+        schema_version: int,
+        model: str = "",
+        prompt_variant: str = "",
+    ) -> str:
         h = hashlib.sha256()
         h.update(str(schema_version).encode("utf-8"))
         h.update(b"\n")
         h.update(model.encode("utf-8"))
+        h.update(b"\n")
+        h.update(prompt_variant.encode("utf-8"))
         h.update(b"\n")
         h.update(chunk.hash.encode("utf-8"))
         return h.hexdigest()
@@ -159,13 +227,29 @@ class ExtractionCache:
 
 
 def extract_chunk(
-    chunk: DocChunk, schema: Schema, provider: LLMProvider, cache: ExtractionCache,
+    chunk: DocChunk,
+    schema: Schema,
+    provider: LLMProvider,
+    cache: ExtractionCache,
+    personal_ns: str = "me",
 ) -> tuple[list[Node], list[Edge], dict[str, list[str]]]:
     model = getattr(provider, "model", "")
-    key = cache.key(chunk, schema.version, model)
+    system = build_system_prompt(schema, chunk.namespace, personal_ns)
+    schema_json = json.dumps(
+        schema.model_dump(mode="json", by_alias=True),
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    schema_fingerprint = hashlib.sha256(schema_json.encode("utf-8")).hexdigest()
+    prompt_fingerprint = hashlib.sha256(system.encode("utf-8")).hexdigest()
+    prompt_variant = (
+        f"schema={schema_fingerprint};prompt={prompt_fingerprint};"
+        f"personal={personal_ns};"
+        f"subject={chunk.namespace == personal_ns}"
+    )
+    key = cache.key(chunk, schema.version, model, prompt_variant)
     raw = cache.get(key)
     if raw is None:
-        system = build_system_prompt(schema)
         raw = provider.extract_json(system, chunk.text)
         cache.set(key, raw)
     return parse_response(raw, chunk, schema)

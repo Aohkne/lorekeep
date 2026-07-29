@@ -33,9 +33,18 @@ class FTSIndex:
         self.conn.commit()
 
     def search(self, query: str, limit: int = 10) -> list[str]:
+        terms = query.split()
+        if not terms:
+            return []
+        # MCP search accepts plain user text, not FTS5 query syntax.  Quote
+        # every whitespace-delimited term so punctuation in common entity IDs
+        # (for example ``payments-api`` or ``svc:payments``) stays literal.
+        literal_query = " AND ".join(
+            '"' + term.replace('"', '""') + '"' for term in terms
+        )
         cur = self.conn.execute(
             "SELECT id FROM nodes WHERE nodes MATCH ? LIMIT ?",
-            (query, limit),
+            (literal_query, limit),
         )
         return [row[0] for row in cur.fetchall()]
 

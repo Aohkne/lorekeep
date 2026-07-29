@@ -217,6 +217,7 @@ def compile() -> None:
             raw_root=p["raw"], out_dir=p["out"], schema=schema,
             provider=provider, cache_path=p["cache"], chunk_lines=config.compile.chunk_lines,
             on_progress=_progress_cb(handle),
+            personal_ns=config.ns.personal_namespace,
         )
 
     ok(f"compiled: {manifest.node_count} nodes, {manifest.edge_count} edges, "
@@ -227,7 +228,10 @@ def compile() -> None:
     pending_dir = p.get("pending")
     resolved = False
     if pending_dir and pending_dir.exists():
-        resolved = _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
+        resolved = _do_auto_resolve(
+            p["out"], pending_dir, p.get("wiki"), p.get("schema"),
+            replay_accepted=True,
+        )
 
     if not resolved:
         _auto_generate_wiki(p["out"], p["wiki"])
@@ -270,6 +274,76 @@ def wiki(
     ok(f"wiki: {result['pages']} pages written to {p['wiki']}")
     if open:
         _open_in_obsidian(p["wiki"])
+
+
+@app.command()
+def profile(
+    open: bool = typer.Option(False, "--open", help="Open your raw profile dir in Obsidian/Tolaria."),
+) -> None:
+    """Show / open your personal profile source (raw/<ns>/).
+
+    The wiki is a derived view; the editable source is raw/<ns>/about.md +
+    profile.md. Edit those (in Obsidian/Tolaria), then `lorekeep compile`.
+    """
+    from lorekeep.output import info
+    p = resolve_paths()
+    try:
+        ns = load_config(p["config"]).ns.personal_namespace
+    except Exception:
+        ns = "me"
+    ns_dir = p["raw"] / ns
+    info(f"profile source: {ns_dir}")
+    info("edit about.md / profile.md here, then `lorekeep compile` — the wiki reflects you")
+    if open:
+        _open_in_obsidian(ns_dir)
+
+
+@app.command()
+def contribution() -> None:
+    """Suggest team-knowledge gaps: nodes in your personal namespace not yet shared.
+
+    Scans the compiled graph for nodes of shareable types (service, project,
+    decision, domain, skill) that live only in your personal namespace — i.e.
+    things you know but the team graph doesn't. Move the source doc to a team
+    namespace (raw/<team>/) and re-compile to share. Read-only.
+    """
+    from collections import defaultdict
+    from lorekeep.compile.resolve import _normalize_id
+    from lorekeep.output import dim, info, ok, warn
+    from lorekeep.store.graph import GraphStore
+    p = resolve_paths()
+    facts = p["out"] / "facts.jsonl"
+    if not facts.exists():
+        warn(f"no compiled graph at {facts} — run `lorekeep compile` first")
+        raise typer.Exit(code=1)
+    try:
+        personal_ns = load_config(p["config"]).ns.personal_namespace
+    except Exception:
+        personal_ns = "me"
+    SHARE_TYPES = {"service", "project", "decision", "domain", "skill"}
+
+    store = GraphStore.from_jsonl(facts)
+    where: dict[str, set[str]] = defaultdict(set)
+    for n in store.all_nodes():
+        where[_normalize_id(n.id)].update(n.ns)
+
+    gaps = [
+        n for n in store.all_nodes()
+        if personal_ns in n.ns
+        and n.type in SHARE_TYPES
+        and not (where[_normalize_id(n.id)] - {personal_ns, "public"})
+    ]
+    gaps.sort(key=lambda n: (n.type, n.id))
+
+    if not gaps:
+        ok(f"no contribution gaps — your '{personal_ns}' knowledge is already shared")
+        return
+    info(f"{len(gaps)} node(s) in '{personal_ns}' not in any team namespace:")
+    for n in gaps:
+        dim(f"  {n.id} ({n.type}) — consider moving its source doc to raw/<team>/")
+
+
+
 
 
 @app.command(name="eval", hidden=True)
@@ -318,6 +392,7 @@ def eval_locomo_cmd(
             raw_root=p["raw"], out_dir=p["out"], schema=schema,
             provider=provider, cache_path=p["cache"],
             chunk_lines=config.compile.chunk_lines,
+            personal_ns=config.ns.personal_namespace,
         )
         typer.echo(f"eval-locomo: compiled {manifest.node_count} nodes, {manifest.edge_count} edges")
 
@@ -358,7 +433,24 @@ def check() -> None:
     ok(f"check: ok — {struct['node_count']} nodes, {struct['edge_count']} edges, 0 dangling")
 
 
+def _with_resolve_lock(func):
+    """Typer-safe decorator serializing manual resolve with daemon resolve."""
+    from functools import wraps
+
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        from lorekeep.journal import resolve_lock
+        pending = resolve_paths().get("pending")
+        if pending is None:
+            return func(*args, **kwargs)
+        with resolve_lock(pending):
+            return func(*args, **kwargs)
+
+    return wrapped
+
+
 @app.command()
+@_with_resolve_lock
 def resolve(
     archive: bool = typer.Option(
         False, "--archive",
@@ -398,15 +490,20 @@ def resolve(
             else:
                 existing_edges.append(f)
 
+    schema = load_schema(p["schema"])
     # Merge journals
-    merged = merge_journals(existing_nodes, existing_edges, pending_entries)
+    merged = merge_journals(
+        existing_nodes, existing_edges, pending_entries, schema=schema,
+    )
 
     # Run standard resolve over merged facts
-    resolved = resolve_facts(merged.nodes, merged.edges)
+    resolved = resolve_facts(
+        merged.nodes, merged.edges, schema=schema,
+    )
 
     # Build manifest
     manifest = Manifest(
-        schema_version=0,
+        schema_version=schema.version,
         chunk_count=0,
         node_count=len(resolved.nodes),
         edge_count=len(resolved.edges),
@@ -427,11 +524,17 @@ def resolve(
     ns_to_flagged: dict[str, set[str]] = {}
     ns_to_quarantined: dict[str, set[str]] = {}
     for entry, _ in merged.merged:
-        ns_to_merged.setdefault(entry.ns, set()).add(entry.proposed_at)
+        ns_to_merged.setdefault(entry.ns, set()).add(
+            entry.entry_id or entry.proposed_at
+        )
     for entry, _ in merged.flagged:
-        ns_to_flagged.setdefault(entry.ns, set()).add(entry.proposed_at)
+        ns_to_flagged.setdefault(entry.ns, set()).add(
+            entry.entry_id or entry.proposed_at
+        )
     for entry, _ in merged.quarantined:
-        ns_to_quarantined.setdefault(entry.ns, set()).add(entry.proposed_at)
+        ns_to_quarantined.setdefault(entry.ns, set()).add(
+            entry.entry_id or entry.proposed_at
+        )
 
     # Flagged entries are still merged into the graph (just flagged for review)
     for ns, timestamps in ns_to_flagged.items():
@@ -478,6 +581,35 @@ app.add_typer(mcp_app, name="mcp")
 
 config_app = typer.Typer(help="View and edit lorekeep config.")
 app.add_typer(config_app, name="config")
+schema_app = typer.Typer(help="Inspect and upgrade the graph schema.")
+app.add_typer(schema_app, name="schema")
+
+
+@schema_app.command("upgrade")
+def schema_upgrade(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show the upgrade without writing."),
+    force: bool = typer.Option(False, "--force", help="Replace a custom older schema after backing it up."),
+) -> None:
+    """Upgrade the stock v2 ontology to v3, preserving a backup."""
+    from lorekeep.output import info, ok, warn
+    from lorekeep.schema_io import upgrade_schema
+
+    p = resolve_paths()
+    result = upgrade_schema(p["schema"], dry_run=dry_run, force=force)
+    if result["custom"] and not result["changed"]:
+        warn(
+            "custom schema detected; re-run with --force only after reviewing "
+            "the v2→v3 ontology changes"
+        )
+        raise typer.Exit(code=2)
+    if not result["changed"]:
+        ok(f"schema already at version {result['to']}")
+        return
+    action = "would upgrade" if dry_run else "upgraded"
+    info(f"{action} schema v{result['from']} → v{result['to']}")
+    if not dry_run:
+        ok(f"backup: {result['backup']}")
+        info("next: run `lorekeep compile` to rebuild the derived graph")
 
 
 @config_app.command("show")
@@ -687,6 +819,7 @@ def init(
             ns, name, bio = _interactive_init(p)
         else:
             p["config"].write_text(DEFAULT_CONFIG_YAML)
+            ns = load_config(p["config"]).ns.personal_namespace
         created.append(str(p["config"]))
     elif p["config"].exists():
         try:
@@ -724,6 +857,19 @@ def init(
             )
             about_path.write_text(about_md)
             typer.echo(f"  wrote: {about_path}")
+
+            # Optional profile scaffold — the editable source for the personal
+            # (subject-centric) namespace. User fills it via Obsidian/Tolaria;
+            # the wiki is a derived view.
+            profile_path = ns_dir / "profile.md"
+            if not profile_path.exists():
+                from lorekeep.defaults import DEFAULT_PROFILE_TEMPLATE
+                profile_path.write_text(DEFAULT_PROFILE_TEMPLATE)
+                typer.echo(f"  wrote: {profile_path}")
+                typer.echo(
+                    "  hint: edit profile.md (role/domains/skills/goals) in "
+                    "Obsidian/Tolaria, then `lorekeep compile` — the wiki reflects you."
+                )
 
     # --- One-click chain: wire → import → compile → daemon -----------------
     if not config_existed:
@@ -801,7 +947,7 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
     idx = int(choice) if choice.isdigit() else 0
     if idx == len(POPULAR) + 2 or choice.lower() == "skip":
         typer.echo("  → Skipped (edit config.yaml to add a provider later)\n")
-        ns = typer.prompt("Default namespace", default="private")
+        ns = typer.prompt("Default namespace", default="me")
         name = typer.prompt("Your name", default="")
         bio = typer.prompt("Bio (one-line intro)", default="")
         _write_config(p, model="openai/gpt-4o-mini",
@@ -896,7 +1042,7 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
                 typer.echo("  → skipped (add key to config.yaml later)\n")
 
     # ── Namespace + profile ────────────────────────────────────────────
-    ns = typer.prompt("Default namespace", default="private")
+    ns = typer.prompt("Default namespace", default="me")
     name = typer.prompt("Your name", default="")
     typer.echo("  (your bio → raw/<ns>/about.md → compiled into the graph)")
     bio = typer.prompt("Bio (one-line intro)", default="")
@@ -922,7 +1068,7 @@ def _write_config(p, model, api_base, api_key_env, api_key, ns):
             "temperature": 0.0,
         },
         "compile": {"chunk_lines": 60},
-        "ns": {"default": [ns]},
+        "ns": {"default": [ns], "personal": ns},
         "install_source": install_source,
     }
     p["config"].write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
@@ -1019,12 +1165,16 @@ def _auto_import_and_compile(p: dict) -> None:
                 provider=provider, cache_path=p["cache"],
                 chunk_lines=config.compile.chunk_lines,
                 on_progress=_progress_cb(handle),
+                personal_ns=config.ns.personal_namespace,
             )
         _report_compile_errors(manifest, exit_on_total_failure=False)
         pending_dir = p.get("pending")
         resolved = False
         if pending_dir and pending_dir.exists():
-            resolved = _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
+            resolved = _do_auto_resolve(
+                p["out"], pending_dir, p.get("wiki"), p.get("schema"),
+                replay_accepted=True,
+            )
         if not resolved:
             _auto_generate_wiki(p["out"], p["wiki"])
         typer.echo(f"  compiled: {manifest.node_count} nodes, {manifest.edge_count} edges")
@@ -1382,6 +1532,7 @@ def ingest(
                 schema=schema,
                 chunk_lines=config.compile.chunk_lines,
                 on_progress=on_progress,
+                personal_ns=config.ns.personal_namespace,
             )
         except Exception as exc:
             typer.echo(f"ingest: extraction failed: {exc}")
@@ -1446,7 +1597,10 @@ def ingest(
     from lorekeep.journal import append_journal
     from lorekeep.models import JournalEntry
 
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    import socket
+    import uuid
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    device = os.environ.get("LOREKEEP_DEVICE", socket.gethostname())
     entry_count = 0
 
     for n in approved_nodes:
@@ -1456,6 +1610,8 @@ def ingest(
         entry = JournalEntry(
             fact=n,
             agent="cli-ingest",
+            device=device,
+            entry_id=uuid.uuid4().hex,
             ns=result.ns,
             confidence=1.0,           # human-approved → max confidence
             proposed_at=now,
@@ -1471,6 +1627,8 @@ def ingest(
         entry = JournalEntry(
             fact=e,
             agent="cli-ingest",
+            device=device,
+            entry_id=uuid.uuid4().hex,
             ns=result.ns,
             confidence=1.0,
             proposed_at=now,
@@ -1678,14 +1836,6 @@ def watch(
     session_state: dict[str, float] = {}
     session_import_time: dict[str, float] = {}
 
-    # One-time resolve of pending journals present at startup
-    if pending_dir and pending_dir.exists():
-        from lorekeep.journal import load_journals
-        journals = load_journals(pending_dir)
-        if any(j.status == "pending" for j in journals):
-            typer.echo("agent: resolving pending journals at startup...")
-            _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
-
     # Sync from remote at startup (pull changes from other machines)
     try:
         from lorekeep.backup import sync_backup, has_remote
@@ -1694,6 +1844,17 @@ def watch(
             sync_backup(p["home"])
     except Exception:
         pass
+
+    # Resolve/replay only after startup sync so remote journal events are visible.
+    if pending_dir and pending_dir.exists():
+        from lorekeep.journal import load_journals
+        journals = load_journals(pending_dir)
+        if any(j.status in {"pending", "merged", "flagged"} for j in journals):
+            typer.echo("agent: replaying journals at startup...")
+            _do_auto_resolve(
+                p["out"], pending_dir, p.get("wiki"), p.get("schema"),
+                replay_accepted=True,
+            )
 
     while True:
         try:
@@ -1725,6 +1886,7 @@ def watch(
                             provider=provider, cache_path=p["cache"],
                             chunk_lines=config.compile.chunk_lines,
                             on_progress=_progress_cb(handle),
+                            personal_ns=config.ns.personal_namespace,
                         )
                     _report_compile_errors(dm, exit_on_total_failure=False)
                     typer.echo("agent: compile done")
@@ -1734,9 +1896,6 @@ def watch(
             last_raw_mtime = raw_mtime
             last_raw_count = raw_count
 
-            if compiled and has_pending:
-                _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
-
             # --- auto-backup + sync after compile ---------------------------
             if compiled:
                 try:
@@ -1745,6 +1904,11 @@ def watch(
                         typer.echo("agent: backup synced")
                 except Exception:
                     pass
+                if has_pending:
+                    _do_auto_resolve(
+                        p["out"], pending_dir, p.get("wiki"), p.get("schema"),
+                        replay_accepted=True,
+                    )
 
             # --- pending/ watch → auto-resolve ------------------------------
             if has_pending:
@@ -1752,7 +1916,9 @@ def watch(
                 pending_mtime = max((f.stat().st_mtime for f in journal_files), default=0.0)
                 if pending_mtime > last_pending_mtime and last_pending_mtime > 0:
                     typer.echo("agent: pending/ changed — resolving...")
-                    _do_auto_resolve(p["out"], pending_dir, p.get("wiki"))
+                    _do_auto_resolve(
+                        p["out"], pending_dir, p.get("wiki"), p.get("schema"),
+                    )
                 last_pending_mtime = pending_mtime
 
             # --- session watch → delta quick import → raw/ ------------------
@@ -1790,7 +1956,32 @@ def watch(
     pid_file.unlink(missing_ok=True)
 
 
-def _do_auto_resolve(out_dir: Path, pending_dir: Path, wiki_dir: Path | None = None) -> bool:
+def _do_auto_resolve(
+    out_dir: Path,
+    pending_dir: Path,
+    wiki_dir: Path | None = None,
+    schema_path: Path | None = None,
+    replay_accepted: bool = False,
+) -> bool:
+    from lorekeep.journal import resolve_lock
+
+    with resolve_lock(pending_dir):
+        return _do_auto_resolve_unlocked(
+            out_dir,
+            pending_dir,
+            wiki_dir,
+            schema_path,
+            replay_accepted,
+        )
+
+
+def _do_auto_resolve_unlocked(
+    out_dir: Path,
+    pending_dir: Path,
+    wiki_dir: Path | None = None,
+    schema_path: Path | None = None,
+    replay_accepted: bool = False,
+) -> bool:
     """Merge pending journal entries into facts.jsonl.
 
     Extracted as a helper so both the pending/ watch loop and the
@@ -1816,12 +2007,23 @@ def _do_auto_resolve(out_dir: Path, pending_dir: Path, wiki_dir: Path | None = N
                     existing_edges.append(f)
 
         journals = load_journals(pending_dir)
-        pending_entries = [j for j in journals if j.status == "pending"]
-        if pending_entries:
-            merged = merge_journals(existing_nodes, existing_edges, pending_entries)
-            resolved = resolve_facts(merged.nodes, merged.edges)
+        candidate_entries = [
+            j for j in journals
+            if j.status == "pending"
+            or (replay_accepted and j.status in {"merged", "flagged"})
+        ]
+        if candidate_entries:
+            schema = load_schema(schema_path) if schema_path else None
+            merged = merge_journals(
+                existing_nodes,
+                existing_edges,
+                candidate_entries,
+                replay_accepted=replay_accepted,
+                schema=schema,
+            )
+            resolved = resolve_facts(merged.nodes, merged.edges, schema=schema)
             manifest = Manifest(
-                schema_version=0, chunk_count=0,
+                schema_version=schema.version if schema else 0, chunk_count=0,
                 node_count=len(resolved.nodes),
                 edge_count=len(resolved.edges),
                 run_id="auto-resolve", facts_hash="",
@@ -1833,13 +2035,22 @@ def _do_auto_resolve(out_dir: Path, pending_dir: Path, wiki_dir: Path | None = N
             write_graph(out_dir, resolved.nodes, resolved.edges, manifest)
 
             for ns in set(entry.ns for entry, _ in merged.merged):
-                timestamps = {e.proposed_at for e, _ in merged.merged if e.ns == ns}
-                if timestamps:
-                    update_journal_status(pending_dir, ns, timestamps, "merged")
+                entry_keys = {
+                    e.entry_id or e.proposed_at
+                    for e, _ in merged.merged if e.ns == ns
+                }
+                if entry_keys:
+                    update_journal_status(pending_dir, ns, entry_keys, "merged")
             for ns in set(entry.ns for entry, _ in merged.flagged):
-                timestamps = {e.proposed_at for e, _ in merged.flagged if e.ns == ns}
-                existing = {e.proposed_at for e, _ in merged.merged if e.ns == ns}
-                to_flag = timestamps - existing
+                entry_keys = {
+                    e.entry_id or e.proposed_at
+                    for e, _ in merged.flagged if e.ns == ns
+                }
+                existing = {
+                    e.entry_id or e.proposed_at
+                    for e, _ in merged.merged if e.ns == ns
+                }
+                to_flag = entry_keys - existing
                 if to_flag:
                     update_journal_status(pending_dir, ns, to_flag, "flagged")
 

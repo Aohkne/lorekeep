@@ -50,6 +50,14 @@ class ScopedGraph:
         node = self._g.get_node(id)
         return node if self._node_visible(node) else None
 
+    def get_edge(self, id: str) -> Edge | None:
+        edge = self._g.get_edge(id)
+        if edge is None:
+            return None
+        from_node = self._g.get_node(edge.from_)
+        to_node = self._g.get_node(edge.to)
+        return edge if is_edge_visible(edge, from_node, to_node, self._eff) else None
+
     def neighbors(self, id: str, edge_type: str | None = None, depth: int = 1) -> dict:
         start = self._g.get_node(id)
         if not self._node_visible(start):

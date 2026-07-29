@@ -111,6 +111,14 @@ def test_link_facts_rejects_unknown_edge_type(fixtures: Path):
     assert "error" in r
 
 
+def test_link_facts_rejects_invalid_endpoint_types(fixtures: Path):
+    _setup(fixtures, ["backend"])
+    result = ms.link_facts(
+        "team:backend", "svc:auth", "depends_on", confidence=0.8,
+    )
+    assert "invalid endpoints" in result["error"]
+
+
 # ── flag_contradiction ───────────────────────────────────────────────────
 
 
@@ -148,6 +156,28 @@ def test_update_fact_rejects_unknown_id(fixtures: Path):
     _setup(fixtures, ["backend"])
     r = ms.update_fact("svc:nonexistent", {"lang": "rust"}, confidence=0.8)
     assert "error" in r
+
+
+def test_update_fact_rejects_hidden_id(fixtures: Path):
+    d, pending = _setup(fixtures, ["backend"])
+    hidden = {
+        "kind": "node", "id": "svc:secret", "type": "service",
+        "ns": ["private"], "valid_from": None, "valid_to": None,
+        "props": {"name": "secret"}, "src": [],
+    }
+    with (d / "facts.jsonl").open("a") as f:
+        f.write(json.dumps(hidden) + "\n")
+    ms.configure(
+        graph_dir=d,
+        allowed_ns=["backend"],
+        schema_path=fixtures / "schema.json",
+        pending_dir=pending,
+    )
+
+    result = ms.update_fact("svc:secret", {"lang": "rust"}, confidence=0.8)
+
+    assert "error" in result
+    assert _journal_entries(pending) == []
 
 
 # ── suggest_improvement ──────────────────────────────────────────────────

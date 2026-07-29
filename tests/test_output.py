@@ -28,6 +28,7 @@ def _nontty_console(buf: StringIO) -> Console:
 
 class TestHelpersColor:
     def test_ok_emits_color_and_glyph_in_tty(self, monkeypatch):
+        monkeypatch.delenv("NO_COLOR", raising=False)
         buf = StringIO()
         monkeypatch.setattr(output, "console", _tty_console(buf))
         output.ok("done")
@@ -52,6 +53,7 @@ class TestHelpersColor:
         assert "namespaces=['me', 'public']" in _plain(buf.getvalue())
 
     def test_error_goes_to_stdout_console(self, monkeypatch):
+        monkeypatch.delenv("NO_COLOR", raising=False)
         buf = StringIO()
         monkeypatch.setattr(output, "console", _tty_console(buf))
         output.error("boom")

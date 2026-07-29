@@ -22,8 +22,9 @@ def write_config(target_dir: Path, command: str, args: list[str], ns: str | None
         "command": [command, *args],
         "enabled": True,
     }
+    entry["environment"] = {"LOREKEEP_AGENT": "opencode"}
     if ns:
-        entry["environment"] = {"LOREKEEP_NS": ns}
+        entry["environment"]["LOREKEEP_NS"] = ns
 
     mcp = existing.get("mcp", {})
     mcp["lorekeep"] = entry

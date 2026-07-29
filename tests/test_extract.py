@@ -22,7 +22,44 @@ def make_chunk(text="x"):
 def test_system_prompt_contains_schema():
     s = build_system_prompt(SCHEMA)
     assert "service" in s and "depends_on" in s
+    assert "name:string" in s and "lang:string" in s
     assert "knowledge-graph extractor" in s
+
+
+def test_system_prompt_scopes_temporal_dates_to_exact_fact():
+    s = build_system_prompt(SCHEMA)
+    assert "set dates on that edge only" in s
+    assert "entity itself ceased to exist" in s
+    assert "service launched on D" in s
+    assert "dependency removed on D" in s
+
+
+def test_system_prompt_has_altitude_rule():
+    s = build_system_prompt(SCHEMA)
+    assert "Altitude rule" in s
+    # low-altitude tokens must not become nodes
+    assert "must NOT become nodes" in s
+
+
+def test_me_namespace_adds_subject_prompt():
+    s_me = build_system_prompt(SCHEMA, ns="me")
+    s_team = build_system_prompt(SCHEMA, ns="backend")
+    assert "personal profile" in s_me           # subject-centric guidance
+    assert "ONE canonical person" in s_me
+    assert "personal profile" not in s_team     # team ns stays entity-centric
+
+
+def test_team_namespace_omits_subject_prompt():
+    s = build_system_prompt(SCHEMA, ns="teams/backend")
+    assert "personal profile" not in s
+    assert "Altitude rule" in s                 # altitude applies everywhere
+
+
+def test_configured_private_namespace_gets_subject_prompt():
+    s_private = build_system_prompt(SCHEMA, ns="private", personal_ns="private")
+    s_me = build_system_prompt(SCHEMA, ns="me", personal_ns="private")
+    assert "personal profile" in s_private
+    assert "personal profile" not in s_me
 
 
 def test_user_prompt_is_chunk_text_only():
@@ -92,6 +129,27 @@ def test_extract_chunk_caches_and_reuses(tmp_path: Path):
     n2, e2, a2 = extract_chunk(c, SCHEMA, provider, cache)
     assert len(n2) == 1
     assert len(provider.calls) == 1                    # provider called once
+
+
+def test_extract_chunk_cache_invalidates_when_system_prompt_changes(
+    tmp_path: Path, monkeypatch,
+):
+    import lorekeep.compile.extract as extract_module
+
+    cache = ExtractionCache(tmp_path / "cache.json")
+    c = make_chunk("The payments-api is a Go service.")
+    raw = json.dumps({"nodes": [], "edges": [], "aliases": {}})
+    provider = FakeProvider(responses=[raw, raw])
+
+    extract_chunk(c, SCHEMA, provider, cache)
+    monkeypatch.setattr(
+        extract_module,
+        "TEMPORAL_RULE",
+        extract_module.TEMPORAL_RULE + " Updated guidance.",
+    )
+    extract_chunk(c, SCHEMA, provider, cache)
+
+    assert len(provider.calls) == 2
 
 
 def test_cache_persists_to_disk(tmp_path: Path):

@@ -76,8 +76,18 @@ class TypeSpec(BaseModel):
 
 class EndpointSpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
-    from_: str = Field(alias="from")
-    to: str
+    from_: str | tuple[str, ...] = Field(alias="from")
+    to: str | tuple[str, ...]
+
+    @staticmethod
+    def _types(value: str | tuple[str, ...]) -> tuple[str, ...]:
+        return (value,) if isinstance(value, str) else value
+
+    def allows(self, from_type: str, to_type: str) -> bool:
+        return (
+            from_type in self._types(self.from_)
+            and to_type in self._types(self.to)
+        )
 
 
 class Schema(BaseModel):
@@ -95,6 +105,12 @@ class Schema(BaseModel):
 
     def is_valid_edge_type(self, t: str) -> bool:
         return t in self.edge_types
+
+    def is_valid_edge_endpoints(
+        self, edge_type: str, from_type: str, to_type: str,
+    ) -> bool:
+        spec = self.edge_types.get(edge_type)
+        return spec is not None and spec.allows(from_type, to_type)
 
 
 class CompileError(BaseModel):
@@ -114,6 +130,8 @@ class JournalEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     fact: dict[str, Any]
     agent: str
+    device: str = ""
+    entry_id: str = ""
     ns: str
     confidence: float
     proposed_at: str

@@ -9,6 +9,9 @@ the next resolve pass.
 """
 from __future__ import annotations
 
+import os
+import socket
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -195,10 +198,15 @@ def _write_journal(fact_dict: dict, confidence: float, agent: str = "mcp") -> di
         return {"error": "no pending directory configured"}
     ns = _primary_ns()
     fact_dict["ns"] = list(_active_ns())
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    agent = os.environ.get("LOREKEEP_AGENT", agent)
+    device = os.environ.get("LOREKEEP_DEVICE", socket.gethostname())
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    entry_id = uuid.uuid4().hex
     entry = JournalEntry(
         fact=fact_dict,
         agent=agent,
+        device=device,
+        entry_id=entry_id,
         ns=ns,
         confidence=max(0.0, min(1.0, float(confidence))),
         proposed_at=now,
@@ -211,6 +219,7 @@ def _write_journal(fact_dict: dict, confidence: float, agent: str = "mcp") -> di
         "status": "pending",
         "ns": ns,
         "proposed_at": now,
+        "entry_id": entry_id,
     }
 
 
@@ -226,6 +235,18 @@ def propose_fact(fact: dict, confidence: float) -> dict:
     elif fact["kind"] == "edge":
         if not _schema.is_valid_edge_type(fact_type):
             return {"error": f"unknown edge type: {fact_type}"}
+        scoped = _require()
+        from_node = scoped.get_node(fact.get("from", ""))
+        to_node = scoped.get_node(fact.get("to", ""))
+        if from_node is None or to_node is None:
+            return {"error": "edge endpoint not found or out of scope"}
+        if not _schema.is_valid_edge_endpoints(
+            fact_type, from_node.type, to_node.type,
+        ):
+            return {
+                "error": f"invalid endpoints for {fact_type}: "
+                f"{from_node.type}->{to_node.type}"
+            }
     else:
         return {"error": f"unknown fact kind: {fact.get('kind')}"}
     fact.pop("ns", None)
@@ -246,6 +267,15 @@ def link_facts(from_id: str, to_id: str, edge_type: str, confidence: float) -> d
         return {"error": "no schema loaded"}
     if not _schema.is_valid_edge_type(edge_type):
         return {"error": f"unknown edge type: {edge_type}"}
+    from_node = scoped.get_node(from_id)
+    to_node = scoped.get_node(to_id)
+    if not _schema.is_valid_edge_endpoints(
+        edge_type, from_node.type, to_node.type,
+    ):
+        return {
+            "error": f"invalid endpoints for {edge_type}: "
+            f"{from_node.type}->{to_node.type}"
+        }
     fact = {
         "kind": "edge",
         "id": "",
@@ -266,7 +296,7 @@ def flag_contradiction(fact_a_id: str, fact_b_id: str, description: str) -> dict
     if pending is None:
         return {"error": "no pending directory configured"}
     ns = _primary_ns()
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
     flag_fact = {
         "kind": "node",
         "id": f"contradiction:{fact_a_id}:{fact_b_id}",
@@ -280,7 +310,9 @@ def flag_contradiction(fact_a_id: str, fact_b_id: str, description: str) -> dict
     }
     entry = JournalEntry(
         fact=flag_fact,
-        agent="mcp",
+        agent=os.environ.get("LOREKEEP_AGENT", "mcp"),
+        device=os.environ.get("LOREKEEP_DEVICE", socket.gethostname()),
+        entry_id=uuid.uuid4().hex,
         ns=ns,
         confidence=0.0,
         proposed_at=now,
@@ -299,19 +331,18 @@ def flag_contradiction(fact_a_id: str, fact_b_id: str, description: str) -> dict
 def update_fact(id: str, props: dict, confidence: float) -> dict:
     """Propose updated props for an existing node or edge."""
     scoped = _require()
-    store = scoped._g
-    node = store.get_node(id)
+    node = scoped.get_node(id)
     if node is not None:
         fact = node.model_dump(mode="json", by_alias=True)
         fact["props"] = props
         fact.pop("ns", None)
         return _write_journal(fact, confidence)
-    for e in store.all_edges():
-        if e.id == id:
-            edge_dict = e.model_dump(mode="json", by_alias=True)
-            edge_dict["props"] = props
-            edge_dict.pop("ns", None)
-            return _write_journal(edge_dict, confidence)
+    edge = scoped.get_edge(id)
+    if edge is not None:
+        edge_dict = edge.model_dump(mode="json", by_alias=True)
+        edge_dict["props"] = props
+        edge_dict.pop("ns", None)
+        return _write_journal(edge_dict, confidence)
     return {"error": f"fact not found or out of scope: {id}"}
 
 
@@ -322,7 +353,7 @@ def suggest_improvement(description: str) -> dict:
     if pending is None:
         return {"error": "no pending directory configured"}
     ns = _primary_ns()
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
     suggestion_fact = {
         "kind": "node",
         "id": f"suggestion:{_primary_ns()}:{now[:19]}",
@@ -336,7 +367,9 @@ def suggest_improvement(description: str) -> dict:
     }
     entry = JournalEntry(
         fact=suggestion_fact,
-        agent="mcp",
+        agent=os.environ.get("LOREKEEP_AGENT", "mcp"),
+        device=os.environ.get("LOREKEEP_DEVICE", socket.gethostname()),
+        entry_id=uuid.uuid4().hex,
         ns=ns,
         confidence=0.0,
         proposed_at=now,

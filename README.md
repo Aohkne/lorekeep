@@ -2,28 +2,34 @@
 
 <p align="center"><img src="cover.jpeg" alt="Lorekeep" /></p>
 
-**A temporal knowledge graph for AI agents, over MCP — agents read at query time and propose facts at runtime through journal-based write tools.**
+**A second brain for code — a temporal knowledge graph that aggregates what you and your agents learn across devices, the services you build, and your team, over MCP. Agents read at query time and propose facts at runtime through journal-based write tools.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Lorekeep compiles a team's raw docs into a temporal knowledge graph (`facts.jsonl`),
-serves it to coding agents (Claude Code, Cursor, Codex, opencode) over MCP, and
-lets agents propose new facts at zero LLM cost. Knowledge is processed once at
-compile time, not re-RAG'd per query.
+Lorekeep is a **second brain**: every coding agent you run (Claude Code, Cursor,
+Codex, opencode) reads from and contributes to one knowledge graph; devices
+rebuild the same graph from Git-synced raw docs, schema, and agent journals; the
+software you build and operate feeds back in; and your team shares the parts
+that matter. Under the hood it compiles raw docs + agent
+contributions into a temporal knowledge graph (`facts.jsonl`) served over MCP.
+Knowledge is processed once, not re-RAG'd per query.
 
 ---
 
 ## Why
 
-| | file-based | temporal KG | compile step | team permission | MCP |
-|---|---|---|---|---|---|
-| Obsidian + MCP | ✅ | ❌ | ❌ | ❌ | ✅ |
-| mcp-knowledge-graph | ✅ | ❌ | ❌ | ❌ (local) | ✅ |
-| mem0 / cognee | ❌ (DB) | partial | ❌ | partial (DB) | ✅ |
+A second brain for code has to pull from many sources — your coding agents, your
+devices, the services you operate, your team — and stay coherent as it grows.
+Most tools cover one slice:
 
-No tool combines all five. Lorekeep does: **file-based + temporal graph +
-compile-once + namespace permission + MCP** — for team-level knowledge, not
-just single-user.
+| | file-based | temporal KG | compile step | team permission | agent + device + software sources | MCP |
+|---|---|---|---|---|---|---|
+| Obsidian + MCP | ✅ | ❌ | ❌ | ❌ | ❌ (manual) | ✅ |
+| mcp-knowledge-graph | ✅ | ❌ | ❌ | ❌ (local) | ❌ | ✅ |
+| mem0 / cognee | ❌ (DB) | partial | ❌ | partial (DB) | partial | ✅ |
+
+No tool combines all six. Lorekeep does: **file-based + temporal graph +
+compile-once + namespace permission + multi-source (agents/devices/software/team) + MCP**.
 
 ## Features
 
@@ -33,8 +39,9 @@ just single-user.
 - **Agent-driven knowledge** — agents propose facts at runtime via MCP write
   tools at **zero marginal LLM cost**. Confidence-gated: high-confidence
   auto-merge, low-confidence quarantine.
-- **File-sovereign** — `facts.jsonl` (one fact per line, sorted) is the single
-  source of truth and the sync unit (git or S3). No binary store committed.
+- **File-sovereign** — raw docs + schema + append-only agent journals are the
+  durable, Git-syncable sources. `facts.jsonl` is a deterministic derived store
+  rebuilt on each device; no binary store is committed.
 - **Temporal** — every fact carries `valid_from`/`valid_to` (half-open
   `[from, to)`); query "what was true at *T*", history, diffs.
 - **Namespace permission** — facts are tagged `ns` from the directory tree
@@ -51,6 +58,10 @@ just single-user.
 - **Obsidian + Tolaria wiki** — auto-generated after every compile/resolve: flat
   markdown pages with `[[wikilinks]]`, YAML frontmatter (incl. relationship
   fields), tags. The same `wiki/` folder opens in both Obsidian and Tolaria.
+- **Subject-aware ontology** — work-context node types (person, role, skill,
+  domain, goal, …) + cross-namespace edges (owns, contributes_to, skilled_in)
+  weave your personal knowledge into the team graph. The `me` namespace is
+  subject-centric (altitude rule: tokens → attributes, not nodes).
 - **Lazy-reload** — graph updates visible on next query. Connect once, use forever.
 - **Provider-pluggable extraction** — litellm (OpenAI / Anthropic /
   DashScope/Qwen / Ollama). Strict-privacy → Ollama, fully local.
@@ -121,6 +132,14 @@ The full journey from install to continuous use — see the
 | 7. Keep current | `lorekeep agent watch &` | Daemon: auto-compile, auto-resolve, delta-import sessions |
 | 8. Back up | `lorekeep backup` | Push data home to private git repo (raw/ + schema.json) |
 | 9. Persist daemon | `lorekeep agent daemon install` | Survive restart (systemd/launchd/startup) |
+
+Personal knowledge + team sharing:
+
+| Command | Purpose |
+|---|---|
+| `lorekeep profile [--open]` | Show / open your personal profile source (`raw/<ns>/about.md` + `profile.md`) — edit in Obsidian/Tolaria, then `compile`. |
+| `lorekeep contribution` | Suggest team-knowledge gaps: nodes in your personal ns not yet shared with a team ns. |
+| `lorekeep schema upgrade [--dry-run]` | Upgrade the stock ontology v2 schema to v3 with a backup; custom schemas require `--force`. |
 
 Steps 1–6 are one-time setup. Step 7 runs in the background for continuous
 updates. Step 8 syncs across machines.
@@ -203,7 +222,8 @@ provider:
   api_key_env: DASHSCOPE_API_KEY                       # env var name (preferred)
   api_key: null                                        # or inline (gitignored config only)
 ns:
-  default: [public]
+  default: [me]                                      # serve-time default scope
+  personal: me                                       # subject-centric extraction
 install_source: pypi                                   # pypi = portable .mcp.json
 ```
 Native providers (`openai`, `anthropic`, `deepseek`, `dashscope`, `gemini`, …)
@@ -317,9 +337,9 @@ docs/                  README.md index, architecture/, guides/
 
 ## Status
 
-**v1 (implemented)** — compile pipeline + serve (store/permission/MCP 9 read+5 write/4-agent integrations) + import (Claude/Cursor/Codex/opencode) + session-end hooks + agent daemon (watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode + lazy-reload + backup + eval + scope awareness (`meta` tool) + **wiki** (Obsidian-compatible markdown output). Published to PyPI as `lorekeep`.
+**v1 (implemented)** — the second-brain foundation: compile pipeline + serve (store/permission/MCP 9 read+5 write/4-agent integrations) + import (Claude/Cursor/Codex/opencode) + session-end hooks + agent daemon (watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode + lazy-reload + backup + eval + scope awareness (`meta` tool) + **subject-aware ontology v2** (personal `me` ns + team ns + cross-ns edges) + **Obsidian/Tolaria wiki** + profile/contribution commands. Published to PyPI as `lorekeep`.
 
-**Phase 2 (planned)** — streamable-HTTP team server, OIDC/SSO, embeddings/hybrid search, scheduled nightly lint/suggest in daemon, schema evolve, HotpotQA/CronQuestions/LongMemEval benchmark datasets and the bespoke Tier-3 Lorekeep-Reason eval.
+**Next** — the second-brain direction is multi-faceted: multi-agent concurrency, multi-device sync, software-source connectors, a proactive agent, a team server, better retrieval. See the full **[Roadmap](docs/ROADMAP.md)**.
 
 ## Documentation
 

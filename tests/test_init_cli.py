@@ -1,9 +1,16 @@
 from pathlib import Path
+import pytest
 from typer.testing import CliRunner
 from lorekeep.cli import app
 import yaml
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def isolate_project_cwd(tmp_path: Path, monkeypatch):
+    """Never let init wiring touch the developer's real checkout."""
+    monkeypatch.chdir(tmp_path)
 
 
 def test_init_creates_home(tmp_path: Path, monkeypatch):
@@ -17,16 +24,16 @@ def test_init_creates_home(tmp_path: Path, monkeypatch):
     assert (home / "graph").is_dir()
     import json
     schema = json.loads((home / "schema.json").read_text())
-    assert schema["version"] == 2
+    assert schema["version"] == 3
 
 
 def test_init_creates_about_template(tmp_path: Path, monkeypatch):
-    """Non-TTY mode: uses defaults + writes about.md (profile template) under raw/public/."""
+    """Non-TTY mode writes the personal profile under raw/me/, never public."""
     home = tmp_path / "home"
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0, result.stdout
-    about = home / "raw" / "public" / "about.md"
+    about = home / "raw" / "me" / "about.md"
     assert about.exists()
     assert "(your name)" in about.read_text()
 
@@ -38,7 +45,8 @@ def test_init_yes_flag_skips_prompts(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.stdout
     assert (home / "config.yaml").exists()
     cfg = yaml.safe_load((home / "config.yaml").read_text())
-    assert cfg["ns"]["default"] == ["public"]
+    assert cfg["ns"]["default"] == ["me"]
+    assert cfg["ns"]["personal"] == "me"
     assert cfg["provider"]["model"] == "openai/gpt-4o-mini"
 
 
@@ -140,8 +148,8 @@ def test_init_writes_about_even_with_existing_raw_files(tmp_path: Path, monkeypa
     (home / "raw" / "existing" / "doc.md").write_text("# existing")
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0, result.stdout
-    # about.md written to default ns (public) alongside existing files
-    assert (home / "raw" / "public" / "about.md").exists()
+    # about.md written to the personal namespace alongside existing files
+    assert (home / "raw" / "me" / "about.md").exists()
 
 
 def test_init_no_about_on_second_run(tmp_path: Path, monkeypatch):
@@ -150,7 +158,7 @@ def test_init_no_about_on_second_run(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0
-    about = home / "raw" / "public" / "about.md"
+    about = home / "raw" / "me" / "about.md"
     assert about.exists()
     about.write_text("# Custom Bio\n\nDon't overwrite me.\n")
 
@@ -222,3 +230,30 @@ def test_init_no_agents_detected_message(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
     assert "no coding agents detected" in result.stdout.lower()
+
+
+def test_init_writes_profile_template(tmp_path: Path, monkeypatch):
+    """First init writes raw/<ns>/profile.md scaffold for the personal namespace."""
+    home = tmp_path / "home"
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    from lorekeep.cli import app
+    result = runner.invoke(app, ["init", "--yes"])
+    assert result.exit_code == 0, result.stdout
+    # Non-interactive init must never put a personal profile in public.
+    profile = home / "raw" / "me" / "profile.md"
+    assert profile.exists()
+    content = profile.read_text()
+    assert "## Role" in content
+    assert "## Domains" in content
+    assert "## Skills" in content
+    assert "## Goals" in content
+
+
+def test_profile_command_shows_source(tmp_path: Path, monkeypatch):
+    home = tmp_path / "home"
+    (home / "raw" / "public").mkdir(parents=True)
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    result = runner.invoke(app, ["profile"])
+    assert result.exit_code == 0, result.stdout
+    assert "profile source" in result.stdout
+    assert "raw" in result.stdout

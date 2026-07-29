@@ -166,9 +166,10 @@ Per-agent write caps prevent journal flooding:
 
 ### Journal storage
 
-`pending/` journals are committed to git for sync, but quarantined entries (confidence < 0.5) have their `fact` content redacted to only `id`, `type`, `agent`, and `proposed_at`. The full fact payload is written to a gitignored `pending/.quarantine/` directory. This prevents quarantined fact content from leaking to anyone with repository access while preserving the audit trail.
-
-Alternatively, `pending/` can be fully gitignored and synced via a separate channel (S3, shared filesystem) — configurable per deployment.
+`pending/` journals are committed to the configured private backup repository
+so accepted agent facts can be replayed on another device. Journal payloads may
+contain sensitive context, including quarantined proposals; the backup remote
+must therefore remain private. Selective redaction/encryption is future work.
 
 ## Related
 

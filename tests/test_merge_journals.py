@@ -109,6 +109,50 @@ def test_non_pending_entries_skipped():
     assert not any(n.id == "svc:new" for n in r.nodes)
 
 
+def test_accepted_entries_can_be_replayed_after_raw_compile():
+    entry = _entry(_node_fact(), confidence=0.9, status="merged")
+    r = merge_journals([], [], [entry], replay_accepted=True)
+    assert any(n.id == "svc:new" for n in r.nodes)
+    assert r.merge_count == 0
+
+
+def test_replay_does_not_overwrite_fresh_curator_properties():
+    raw = Node(
+        id="svc:new", type="service", ns=("backend",),
+        props={"status": "current", "owner": "curator"},
+    )
+    entry = _entry(
+        _node_fact(
+            props={"status": "stale", "agent_note": "keep this"},
+        ),
+        confidence=0.9,
+        status="merged",
+    )
+
+    result = merge_journals([raw], [], [entry], replay_accepted=True)
+    node = next(node for node in result.nodes if node.id == "svc:new")
+    assert node.props == {
+        "status": "current",
+        "owner": "curator",
+        "agent_note": "keep this",
+    }
+
+
+def test_replay_does_not_overwrite_fresh_curator_edge_properties():
+    raw_edge = _edge()
+    raw_edge = raw_edge.model_copy(update={"props": {"status": "current"}})
+    fact = _edge_fact()
+    fact["props"] = {"status": "stale", "agent_note": "keep"}
+    entry = _entry(fact, confidence=0.9, status="merged")
+
+    result = merge_journals([], [raw_edge], [entry], replay_accepted=True)
+
+    assert result.edges[0].props == {
+        "status": "current",
+        "agent_note": "keep",
+    }
+
+
 # ── Invalid schema ────────────────────────────────────────────────────────
 
 

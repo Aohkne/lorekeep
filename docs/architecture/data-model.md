@@ -2,7 +2,9 @@
 
 > Adapted from the original design spec.
 
-The single source of truth is `facts.jsonl`: one fact per line, sorted, byte-stable. Agent-proposed facts accumulate in `pending/` journals and are merged into `facts.jsonl` by a periodic resolve pass. Everything else — `manifest.json`, `schema.json`, the FTS cache — is derived from the store.
+The durable sources of truth are raw docs, `schema.json`, and agent journals.
+`facts.jsonl` is a sorted, byte-stable derived store rebuilt by compile +
+journal replay. `manifest.json`, the wiki, and the FTS cache are also derived.
 
 ## Repository layout
 
