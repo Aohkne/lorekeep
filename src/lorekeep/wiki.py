@@ -42,13 +42,13 @@ def _yaml_scalar(value: str) -> str:
     """Quote a YAML scalar so special chars (colon, etc.) are safe."""
     if value is None:
         return "null"
-    return json.dumps(str(value))
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def _yaml_list(items: list[str]) -> str:
     if not items:
         return "[]"
-    return "[" + ", ".join(json.dumps(str(i)) for i in items) + "]"
+    return "[" + ", ".join(json.dumps(str(i), ensure_ascii=False) for i in items) + "]"
 
 
 def _fmt_date(d) -> str:
@@ -74,12 +74,33 @@ def _fmt_prop_value(val) -> str:
     if isinstance(val, str):
         s = val.replace("|", "\\|").replace("\n", " ")
     else:
-        s = json.dumps(val, ensure_ascii=False).replace("|", "\\|").replace("\n", " ")
+        s = json.dumps(val, ensure_ascii=False, sort_keys=True).replace("|", "\\|").replace("\n", " ")
     return s
+
+
+def _node_title(node: Node) -> str:
+    """Return the human label using the ontology's name/title conventions.
+
+    Most ontology node types use ``props.name``. Goals, decisions, and
+    documents use ``props.title`` instead, so treating ``name`` as the only
+    display field makes a correct v2 fact look like an opaque ID in the wiki.
+    """
+    for key in ("name", "title"):
+        value = node.props.get(key)
+        if value is not None and str(value).strip():
+            return str(value)
+    return node.id
+
+
+def _wikilink(node: Node) -> str:
+    """Return a readable Obsidian link while retaining the stable file slug."""
+    label = _node_title(node).replace("\n", " ").replace("|", "\\|")
+    return f"[[{_slug(node.id)}|{label}]]"
 
 
 def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
     lines = ["---"]
+    lines.append(f"kind: {_yaml_scalar(node.kind)}")
     lines.append(f"id: {_yaml_scalar(node.id)}")
     lines.append(f"type: {_yaml_scalar(node.type)}")
     lines.append(f"ns: {_yaml_list(list(node.ns))}")
@@ -88,11 +109,17 @@ def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
     if node.src:
         lines.append("sources:")
         for s in node.src:
-            lines.append(f"  - {json.dumps(str(s))}")
+            lines.append(f"  - {json.dumps(str(s), ensure_ascii=False)}")
     else:
         lines.append("sources: []")
     tags = [node.type] + list(node.ns) + ["entity"]
     lines.append(f"tags: {_yaml_list(tags)}")
+    title = _node_title(node)
+    if title != node.id:
+        # Obsidian resolves aliases to the same stable file, so humans can
+        # search/link by the ontology's display property without losing the
+        # canonical fact ID in the filename/frontmatter.
+        lines.append(f"aliases: {_yaml_list([title])}")
     # Out-edges as relationship frontmatter fields. Tolaria detects any
     # frontmatter field holding [[wikilink]] values as a relationship (panel +
     # neighborhood graph); Obsidian/Dataview treat them as queryable lists.
@@ -120,35 +147,66 @@ def _props_table(node: Node) -> str:
 
 
 def _relationships(
-    node: Node, out_edges: list[Edge], in_edges: list[Edge]
+    out_edges: list[Edge], in_edges: list[Edge], store: GraphStore,
 ) -> str:
+    """Render every edge touching node with its fact metadata.
+
+    A bare wikilink is enough for navigation, but it drops edge identity,
+    namespace, provenance, and arbitrary properties. Keeping those fields in
+    the generated table makes the human projection auditable against
+    facts.jsonl without sacrificing Obsidian graph links.
+    """
     sections: list[str] = []
+
+    def add_table(edges: list[Edge], *, outgoing: bool) -> None:
+        sections.extend([
+            "| Entity | Label | Fact ID | Namespaces | Validity | Sources | Properties |",
+            "|---|---|---|---|---|---|---|",
+        ])
+        for edge in edges:
+            other_id = edge.to if outgoing else edge.from_
+            other = store.get_node(other_id)
+            entity = f"[[{_slug(other.id)}]]" if other is not None else _fmt_prop_value(other_id)
+            label = _node_title(other) if other is not None else other_id
+            sections.append(
+                "| " + " | ".join([
+                    entity,
+                    _fmt_prop_value(label),
+                    f"<code>{_fmt_prop_value(edge.id)}</code>",
+                    _fmt_prop_value(list(edge.ns)),
+                    _fmt_validity(edge.valid_from, edge.valid_to),
+                    _fmt_prop_value(list(edge.src)),
+                    _fmt_prop_value(edge.props),
+                ]) + " |"
+            )
 
     if out_edges:
         sections.extend(["", "## Relationships", ""])
         by_type: dict[str, list[Edge]] = {}
-        for e in out_edges:
-            by_type.setdefault(e.type, []).append(e)
+        for edge in out_edges:
+            by_type.setdefault(edge.type, []).append(edge)
         for etype in sorted(by_type):
             sections.append(f"### {etype} \u2192")
             sections.append("")
-            for e in sorted(by_type[etype], key=lambda e: e.to):
-                validity = _fmt_validity(e.valid_from, e.valid_to)
-                sections.append(f"- [[{_slug(e.to)}]] ({validity})")
+            add_table(
+                sorted(by_type[etype], key=lambda edge: (edge.to, edge.id)),
+                outgoing=True,
+            )
             sections.append("")
 
     if in_edges:
         if not out_edges:
             sections.extend(["", "## Relationships", ""])
         by_type = {}
-        for e in in_edges:
-            by_type.setdefault(e.type, []).append(e)
+        for edge in in_edges:
+            by_type.setdefault(edge.type, []).append(edge)
         for etype in sorted(by_type):
             sections.append(f"### \u2190 {etype}")
             sections.append("")
-            for e in sorted(by_type[etype], key=lambda e: e.from_):
-                validity = _fmt_validity(e.valid_from, e.valid_to)
-                sections.append(f"- [[{_slug(e.from_)}]] ({validity})")
+            add_table(
+                sorted(by_type[etype], key=lambda edge: (edge.from_, edge.id)),
+                outgoing=False,
+            )
             sections.append("")
 
     return "\n".join(sections)
@@ -166,7 +224,7 @@ def _timeline(node: Node) -> str:
 
 
 def _entity_page(node: Node, store: GraphStore) -> str:
-    title = node.props.get("name", node.id)
+    title = _node_title(node)
     out_e = store.out_edges(node.id)
     in_e = store.in_edges(node.id)
 
@@ -178,7 +236,7 @@ def _entity_page(node: Node, store: GraphStore) -> str:
         f"> ID: `{node.id}`",
     ]
     parts.append(_props_table(node))
-    parts.append(_relationships(node, out_e, in_e))
+    parts.append(_relationships(out_e, in_e, store))
     parts.append(_timeline(node))
     parts.append("")
     return "\n".join(parts)
@@ -208,14 +266,13 @@ def _index_page(store: GraphStore) -> str:
         lines.append(f"## {ntype.title()}s")
         lines.append("")
         for n in sorted(by_type[ntype], key=lambda n: n.id):
-            title = n.props.get("name", n.id)
-            slug = _slug(n.id)
+            title = _node_title(n)
             summary_parts = [title]
             if n.props.get("lang"):
                 summary_parts.append(f"({n.props['lang']})")
             if n.valid_from:
                 summary_parts.append(f"\u2014 since {_fmt_date(n.valid_from)}")
-            lines.append(f"- [[{slug}]] \u2014 {' '.join(summary_parts)}")
+            lines.append(f"- {_wikilink(n)} \u2014 {' '.join(summary_parts)}")
         lines.append("")
 
     return "\n".join(lines)
@@ -390,5 +447,7 @@ def generate_wiki(
     return {
         "nodes": len(nodes),
         "edges": len(edges),
-        "pages": len(nodes) + 2,
+        # One page per node plus the three generated vault pages:
+        # index.md, overview.md, and the append-only log.md.
+        "pages": len(nodes) + 3,
     }

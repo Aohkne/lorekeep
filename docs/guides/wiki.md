@@ -60,6 +60,7 @@ queryable lists):
 
 ```yaml
 ---
+kind: "node"
 id: "svc:payments-api"
 type: "service"
 ns: ["backend"]
@@ -68,13 +69,19 @@ valid_to: ""                 # empty ⇒ currently valid
 sources:
   - "raw/backend/payments.md:3"
 tags: ["service", "backend", "entity"]
+aliases: ["payments-api"]  # human-readable name; canonical ID stays above
 depends_on:                  # ← relationship field (out-edges)
   - "[[svc-auth]]"
 ---
 ```
 
 The body shows a Properties table, explicit **Relationships** (`depends_on →`,
-`← decided_by`, with validity windows as `from → to`), and a Timeline.
+`← decided_by`), and a Timeline. Each relationship row retains the source edge
+fact's ID, namespaces, validity window, provenance, and properties, so a page
+can be checked directly against `facts.jsonl`. The index uses readable
+`name`/`title` link aliases; relationship tables retain a canonical link plus
+a readable Label column. The filename and frontmatter `id` remain the
+canonical ontology ID.
 
 ## 4. Graph view
 
@@ -84,11 +91,11 @@ directly. Tips:
 
 - **Start focused** — open a single entity, then run *Command → Open local
   graph*. The full graph of a large vault is a hairball.
-- **Filter** — in graph settings, set *Files to exclude* or filter by
-  `path:entities/` to drop `index`/`overview`/`log`.
-- **Color groups** — add color groups by `path:entities/service/`,
-  `path:entities/team/`, etc., or by tag (`#backend`, `#frontend`) to color by
-  namespace.
+- **Filter** — exclude `index.md`, `overview.md`, and `log.md` in graph
+  settings, or color/filter by the `#entity` tag. Entity notes use a flat
+  layout, so there is no `entities/` path to filter.
+- **Color groups** — use type tags (`#service`, `#team`) or namespace tags
+  (`#backend`, `#frontend`) to color by ontology type or namespace.
 - **Backlinks** — the panel at the bottom of each page is Obsidian's
   auto-generated inbound-reference list (incoming edges); the Relationships
   section in the body is the explicit version.

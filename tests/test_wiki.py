@@ -53,6 +53,7 @@ def sample_edges() -> list[Edge]:
             id="e_dep_1", type="depends_on",
             from_="svc:payments-api", to="svc:auth",
             ns=("backend",), valid_from=date(2024, 1, 15), valid_to=date(2025, 3, 1),
+            props={"reason": "internal auth"},
             src=("raw/backend/payments.md:6",),
         ),
         Edge(
@@ -106,6 +107,7 @@ class TestGenerateWiki:
         assert (wiki_dir / "index.md").exists()
         assert result["nodes"] == 4
         assert result["edges"] == 2
+        assert result["pages"] == 7  # 4 entity pages + index + overview + log
 
     def test_generates_overview(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
@@ -126,6 +128,7 @@ class TestGenerateWiki:
         generate_wiki(graph_dir, wiki_dir)
         page = (wiki_dir / "svc-payments-api.md").read_text()
         assert page.startswith("---")
+        assert 'kind: "node"' in page
         assert 'id: "svc:payments-api"' in page
         assert 'type: "service"' in page
         assert 'ns: ["backend"]' in page
@@ -133,6 +136,7 @@ class TestGenerateWiki:
         assert "sources:" in page
         assert "raw/backend/payments.md:3" in page
         assert "tags:" in page
+        assert 'aliases: ["payments-api"]' in page
 
     def test_entity_title_from_props(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
@@ -159,6 +163,44 @@ class TestGenerateWiki:
         page = (wiki_dir / "svc-auth.md").read_text()
         assert "[[svc-payments-api]]" in page
 
+    def test_relationship_rows_preserve_edge_fact_metadata(self, graph_dir, wiki_dir):
+        """A human can audit a rendered relationship back to its edge fact."""
+        generate_wiki(graph_dir, wiki_dir)
+        source_page = (wiki_dir / "svc-payments-api.md").read_text()
+        target_page = (wiki_dir / "svc-auth.md").read_text()
+        assert "| [[svc-auth]] | auth |" in source_page
+        assert "| [[svc-payments-api]] | payments-api |" in target_page
+        for page in (source_page, target_page):
+            assert "| Entity | Label | Fact ID | Namespaces | Validity | Sources | Properties |" in page
+            assert "<code>e_dep_1</code>" in page
+            assert '["backend"]' in page
+            assert "raw/backend/payments.md:6" in page
+            assert "internal auth" in page
+
+    def test_title_property_is_used_for_ontology_title_nodes(self, tmp_path):
+        """goal/decision/document use title, not name, in ontology v2."""
+        nodes = [
+            Node(id="goal:ship", type="goal", ns=("team",), props={"title": "Ship v2"}),
+            Node(id="dec:adr-1", type="decision", ns=("team",), props={"title": "Adopt v2"}),
+            Node(id="doc:brief", type="document", ns=("team",), props={"title": "Design brief"}),
+        ]
+        graph = tmp_path / "graph"
+        from lorekeep.compile.writer import write_graph
+        write_graph(graph, nodes, [], Manifest(
+            schema_version=3, chunk_count=0, node_count=3, edge_count=0,
+            run_id="x", facts_hash="y",
+        ))
+        wiki = tmp_path / "wiki"
+        generate_wiki(graph, wiki)
+
+        assert "# Ship v2" in (wiki / "goal-ship.md").read_text()
+        assert "# Adopt v2" in (wiki / "dec-adr-1.md").read_text()
+        assert "# Design brief" in (wiki / "doc-brief.md").read_text()
+        index = (wiki / "index.md").read_text()
+        assert "[[goal-ship|Ship v2]]" in index
+        assert "[[dec-adr-1|Adopt v2]]" in index
+        assert "[[doc-brief|Design brief]]" in index
+
     def test_entity_timeline(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
         page = (wiki_dir / "svc-payments-api.md").read_text()
@@ -171,8 +213,8 @@ class TestGenerateWiki:
         assert "## Services" in index
         assert "## Teams" in index
         assert "## Decisions" in index
-        assert "[[svc-payments-api]]" in index
-        assert "[[team-backend]]" in index
+        assert "[[svc-payments-api|payments-api]]" in index
+        assert "[[team-backend|team-backend]]" in index
 
     def test_log_appended(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
@@ -237,8 +279,8 @@ class TestDeterminism:
         """Entity pages and index entries are sorted for deterministic output."""
         generate_wiki(graph_dir, wiki_dir)
         index = (wiki_dir / "index.md").read_text()
-        svc_pos = index.find("[[svc-auth]]")
-        svc2_pos = index.find("[[svc-payments-api]]")
+        svc_pos = index.find("[[svc-auth|auth]]")
+        svc2_pos = index.find("[[svc-payments-api|payments-api]]")
         assert svc_pos < svc2_pos  # auth before payments-api (alphabetical)
 
 
@@ -355,12 +397,10 @@ class TestWikiCLI:
 
 
 class TestSyncInvariant:
-    """Every node → entity page, every edge → wikilink on both endpoints."""
+    """Every fact has a corresponding, auditable wiki projection."""
 
     def test_every_node_has_entity_page(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
-        from lorekeep.facts_io import read_facts
-        from lorekeep.models import Node as NodeT
         for line in (graph_dir / "facts.jsonl").read_text().splitlines():
             d = json.loads(line)
             if d["kind"] != "node":
@@ -368,6 +408,24 @@ class TestSyncInvariant:
             slug = _slug(d["id"])
             page = wiki_dir / f"{slug}.md"
             assert page.exists(), f"missing entity page for {d['id']}"
+
+    def test_every_node_frontmatter_matches_its_fact(self, graph_dir, wiki_dir):
+        generate_wiki(graph_dir, wiki_dir)
+        import yaml
+
+        for line in (graph_dir / "facts.jsonl").read_text().splitlines():
+            fact = json.loads(line)
+            if fact["kind"] != "node":
+                continue
+            page = (wiki_dir / f"{_slug(fact['id'])}.md").read_text()
+            frontmatter = yaml.safe_load(page.split("---")[1])
+            assert frontmatter["kind"] == fact["kind"]
+            assert frontmatter["id"] == fact["id"]
+            assert frontmatter["type"] == fact["type"]
+            assert frontmatter["ns"] == fact["ns"]
+            assert frontmatter["valid_from"] == (fact["valid_from"] or "")
+            assert frontmatter["valid_to"] == (fact["valid_to"] or "")
+            assert frontmatter["sources"] == fact["src"]
 
     def test_every_edge_has_wikilinks(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
@@ -388,6 +446,26 @@ class TestSyncInvariant:
             assert f"[[{from_slug}]]" in to_pg.read_text(), \
                 f"edge {d['id']}: [[{from_slug}]] missing on target page"
 
+    def test_every_edge_metadata_is_visible_on_both_endpoints(self, graph_dir, wiki_dir):
+        generate_wiki(graph_dir, wiki_dir)
+        for line in (graph_dir / "facts.jsonl").read_text().splitlines():
+            fact = json.loads(line)
+            if fact["kind"] != "edge":
+                continue
+            pages = [
+                wiki_dir / f"{_slug(fact['from'])}.md",
+                wiki_dir / f"{_slug(fact['to'])}.md",
+            ]
+            for page in pages:
+                text = page.read_text()
+                assert f"<code>{fact['id']}</code>" in text
+                assert json.dumps(fact["ns"]) in text
+                for source in fact["src"]:
+                    assert source in text
+                for key, value in fact["props"].items():
+                    assert key in text
+                    assert str(value) in text
+
 
 class TestYAMLFrontmatter:
     def test_frontmatter_parses_as_yaml(self, graph_dir, wiki_dir):
@@ -396,6 +474,7 @@ class TestYAMLFrontmatter:
         page = (wiki_dir / "svc-payments-api.md").read_text()
         fm_block = page.split("---")[1]
         data = yaml.safe_load(fm_block)
+        assert data["kind"] == "node"
         assert data["id"] == "svc:payments-api"
         assert data["type"] == "service"
         assert data["ns"] == ["backend"]
@@ -410,6 +489,24 @@ class TestYAMLFrontmatter:
         fm_block = page.split("---")[1]
         data = yaml.safe_load(fm_block)
         assert data["valid_from"] == ""
+
+    def test_frontmatter_preserves_unicode_for_obsidian_readability(self, tmp_path):
+        node = Node(
+            id="person:nguyễn", type="person", ns=("cá-nhân",),
+            props={"name": "Mạnh"}, src=("cá-nhân/about.md:1",),
+        )
+        graph = tmp_path / "graph"
+        from lorekeep.compile.writer import write_graph
+        write_graph(graph, [node], [], Manifest(
+            schema_version=3, chunk_count=0, node_count=1, edge_count=0,
+            run_id="x", facts_hash="y",
+        ))
+        wiki = tmp_path / "wiki"
+        generate_wiki(graph, wiki)
+        page = (wiki / "person-nguyễn.md").read_text()
+        assert 'id: "person:nguyễn"' in page
+        assert 'ns: ["cá-nhân"]' in page
+        assert 'aliases: ["Mạnh"]' in page
 
     def test_frontmatter_relationship_fields(self, graph_dir, wiki_dir):
         """Out-edges are emitted as frontmatter fields holding [[wikilinks]] —
