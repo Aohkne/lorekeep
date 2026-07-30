@@ -14,6 +14,29 @@ from lorekeep.wiki import _slug, generate_wiki
 runner = CliRunner()
 
 
+def _build_wiki(
+    tmp_path: Path,
+    nodes: list[Node],
+    edges: list[Edge] | None = None,
+) -> Path:
+    """Write a small graph and return its generated wiki directory."""
+    from lorekeep.compile.writer import write_graph
+
+    edge_facts = edges or []
+    graph = tmp_path / "graph"
+    write_graph(graph, nodes, edge_facts, Manifest(
+        schema_version=3,
+        chunk_count=0,
+        node_count=len(nodes),
+        edge_count=len(edge_facts),
+        run_id="test-run",
+        facts_hash="test-hash",
+    ))
+    wiki = tmp_path / "wiki"
+    generate_wiki(graph, wiki)
+    return wiki
+
+
 # ── Fixtures ───────────────────────────────────────────────────────────────
 
 @pytest.fixture
@@ -200,6 +223,37 @@ class TestGenerateWiki:
         assert "[[goal-ship|Ship v2]]" in index
         assert "[[dec-adr-1|Adopt v2]]" in index
         assert "[[doc-brief|Design brief]]" in index
+        import yaml
+        frontmatter = yaml.safe_load(
+            (wiki / "goal-ship.md").read_text().split("---")[1]
+        )
+        assert frontmatter["title"] == "Ship v2"
+        assert frontmatter["props"]["title"] == "Ship v2"
+        assert frontmatter["aliases"] == ["Ship v2"]
+
+    def test_name_precedes_title_and_id_is_the_fallback(self, tmp_path):
+        nodes = [
+            Node(
+                id="doc:both", type="document", ns=("team",),
+                props={"name": "Human name", "title": "Document title"},
+            ),
+            Node(id="domain:opaque", type="domain", ns=("team",), props={}),
+        ]
+        wiki = _build_wiki(tmp_path, nodes)
+
+        import yaml
+        both_page = (wiki / "doc-both.md").read_text()
+        both_fm = yaml.safe_load(both_page.split("---")[1])
+        assert "# Human name" in both_page
+        assert both_fm["aliases"] == ["Human name", "Document title"]
+        assert both_fm["name"] == "Human name"
+        assert both_fm["title"] == "Document title"
+
+        fallback_page = (wiki / "domain-opaque.md").read_text()
+        fallback_fm = yaml.safe_load(fallback_page.split("---")[1])
+        assert "# domain:opaque" in fallback_page
+        assert "aliases" not in fallback_fm
+        assert fallback_fm["props"] == {}
 
     def test_entity_timeline(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
@@ -258,6 +312,191 @@ class TestGenerateWiki:
         assert (wiki_dir / "svc-payments-api.md").exists()
 
 
+class TestRichEntityProjection:
+    def test_description_is_readable_and_preserves_paragraphs(self, tmp_path):
+        description = (
+            "Tóm tắt miền AI.\n\n"
+            "Giữ **Markdown**, Unicode và dấu | trong nội dung."
+        )
+        node = Node(
+            id="domain:ai",
+            type="domain",
+            ns=("private",),
+            props={"name": "AI", "description": description},
+        )
+        wiki = _build_wiki(tmp_path, [node])
+        page = (wiki / "domain-ai.md").read_text()
+
+        assert f"## Description\n\n{description}" in page
+        assert "| description |" not in page
+
+        import yaml
+        frontmatter = yaml.safe_load(page.split("---")[1])
+        assert frontmatter["name"] == "AI"
+        assert frontmatter["description"] == description
+        assert frontmatter["props"] == node.props
+
+        index = (wiki / "index.md").read_text()
+        assert (
+            "[[domain-ai|AI]] — Tóm tắt miền AI. "
+            "Giữ **Markdown**, Unicode và dấu | trong nội dung."
+        ) in index
+
+    def test_empty_description_has_no_section_but_remains_lossless(self, tmp_path):
+        node = Node(
+            id="value:empty",
+            type="value",
+            ns=("private",),
+            props={"name": "Empty description", "description": " \n "},
+        )
+        wiki = _build_wiki(tmp_path, [node])
+        page = (wiki / "value-empty.md").read_text()
+
+        assert "## Description" not in page
+        assert "| description |" not in page
+
+        import yaml
+        frontmatter = yaml.safe_load(page.split("---")[1])
+        assert frontmatter["description"] == " \n "
+        assert frontmatter["props"] == node.props
+
+    def test_typed_props_round_trip_and_safe_keys_are_queryable(self, tmp_path):
+        props = {
+            "name": "typed",
+            "enabled": True,
+            "port": 8080,
+            "ratio": 0.5,
+            "owners": ["Mạnh", "backend"],
+            "config": {"z": 1, "a": 2},
+            "none": None,
+            "yes": "quoted YAML key",
+            "needs:quote": "safe",
+        }
+        node = Node(
+            id="svc:typed", type="service", ns=("test",), props=props,
+        )
+        wiki = _build_wiki(tmp_path, [node])
+        page = (wiki / "svc-typed.md").read_text()
+
+        import yaml
+        frontmatter = yaml.safe_load(page.split("---")[1])
+        assert frontmatter["props"] == props
+        for key, value in props.items():
+            assert frontmatter[key] == value
+        assert 'config: {"a": 2, "z": 1}' in page
+
+    def test_reserved_props_and_relationship_fields_do_not_overwrite_metadata(
+        self, tmp_path,
+    ):
+        props = {
+            "title": "Collision document",
+            "kind": "runbook",
+            "id": "shadow-id",
+            "type": "shadow-type",
+            "ns": ["shadow-ns"],
+            "valid_from": "1999-01-01",
+            "valid_to": "2000-01-01",
+            "sources": ["shadow.md:1"],
+            "tags": ["shadow"],
+            "aliases": ["Shadow alias"],
+            "props": {"nested": True},
+            "relation_kind": "occupied",
+        }
+        source = Node(
+            id="doc:collision",
+            type="document",
+            ns=("team",),
+            props=props,
+            src=("team/doc.md:1",),
+        )
+        target = Node(
+            id="domain:target",
+            type="domain",
+            ns=("team",),
+            props={"name": "Target"},
+        )
+        edges = [
+            Edge(
+                id="e-kind", type="kind",
+                from_=source.id, to=target.id, ns=("team",),
+            ),
+            Edge(
+                id="e-title", type="title",
+                from_=source.id, to=target.id, ns=("team",),
+            ),
+        ]
+        wiki = _build_wiki(tmp_path, [source, target], edges)
+
+        import yaml
+        page = (wiki / "doc-collision.md").read_text()
+        frontmatter = yaml.safe_load(page.split("---")[1])
+        assert frontmatter["kind"] == "node"
+        assert frontmatter["id"] == source.id
+        assert frontmatter["type"] == "document"
+        assert frontmatter["ns"] == ["team"]
+        assert frontmatter["valid_from"] == ""
+        assert frontmatter["valid_to"] == ""
+        assert frontmatter["sources"] == ["team/doc.md:1"]
+        assert frontmatter["tags"] == ["document", "team", "entity"]
+        assert frontmatter["aliases"] == ["Collision document"]
+        assert frontmatter["props"] == props
+        assert frontmatter["relation_kind"] == "occupied"
+        assert frontmatter["relation_kind_2"] == ["[[domain-target]]"]
+        assert frontmatter["relation_title"] == ["[[domain-target]]"]
+
+
+class TestRichRelationships:
+    def test_title_labels_and_parallel_edge_facts_are_preserved(self, tmp_path):
+        source = Node(
+            id="svc:source", type="service", ns=("team",),
+            props={"name": "Source service"},
+        )
+        target = Node(
+            id="dec:target", type="decision", ns=("team",),
+            props={"title": "Target decision"},
+        )
+        edges = [
+            Edge(
+                id="edge-a",
+                type="relates_to",
+                from_=source.id,
+                to=target.id,
+                ns=("team",),
+                valid_from=date(2025, 1, 1),
+                props={"reason": "first"},
+                src=("team/a.md:1",),
+            ),
+            Edge(
+                id="edge-b",
+                type="relates_to",
+                from_=source.id,
+                to=target.id,
+                ns=("team",),
+                valid_from=date(2026, 1, 1),
+                props={"reason": "second"},
+                src=("team/b.md:2",),
+            ),
+        ]
+        wiki = _build_wiki(tmp_path, [source, target], edges)
+        source_page = (wiki / "svc-source.md").read_text()
+        target_page = (wiki / "dec-target.md").read_text()
+
+        assert "| [[dec-target]] | Target decision |" in source_page
+        assert "| [[svc-source]] | Source service |" in target_page
+        for edge in edges:
+            marker = f"<code>{edge.id}</code>"
+            assert source_page.count(marker) == 1
+            assert target_page.count(marker) == 1
+            assert edge.src[0] in source_page
+            assert edge.src[0] in target_page
+            assert edge.props["reason"] in source_page
+            assert edge.props["reason"] in target_page
+
+        import yaml
+        frontmatter = yaml.safe_load(source_page.split("---")[1])
+        assert frontmatter["relates_to"] == ["[[dec-target]]"]
+
+
 class TestDeterminism:
     def test_entity_pages_byte_identical(self, graph_dir, wiki_dir, tmp_path):
         """Re-generating unchanged facts yields identical pages (except log)."""
@@ -282,6 +521,23 @@ class TestDeterminism:
         svc_pos = index.find("[[svc-auth|auth]]")
         svc2_pos = index.find("[[svc-payments-api|payments-api]]")
         assert svc_pos < svc2_pos  # auth before payments-api (alphabetical)
+
+    def test_nested_props_have_stable_key_order(self, tmp_path):
+        node = Node(
+            id="svc:nested",
+            type="service",
+            ns=("test",),
+            props={
+                "name": "nested",
+                "config": {"z": 1, "a": {"last": 2, "first": 1}},
+            },
+        )
+        wiki = _build_wiki(tmp_path, [node])
+        page = (wiki / "svc-nested.md").read_text()
+
+        expected = '{"a": {"first": 1, "last": 2}, "z": 1}'
+        assert f"  config: {expected}" in page
+        assert f"config: {expected}" in page
 
 
 # ── CLI tests ──────────────────────────────────────────────────────────────
@@ -426,6 +682,7 @@ class TestSyncInvariant:
             assert frontmatter["valid_from"] == (fact["valid_from"] or "")
             assert frontmatter["valid_to"] == (fact["valid_to"] or "")
             assert frontmatter["sources"] == fact["src"]
+            assert frontmatter["props"] == fact["props"]
 
     def test_every_edge_has_wikilinks(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
@@ -481,6 +738,9 @@ class TestYAMLFrontmatter:
         assert data["valid_from"] == "2024-01-15"
         assert data["sources"] == ["raw/backend/payments.md:3"]
         assert "entity" in data["tags"]
+        assert data["props"] == {"name": "payments-api", "lang": "go"}
+        assert data["name"] == "payments-api"
+        assert data["lang"] == "go"
 
     def test_frontmatter_null_dates(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
@@ -507,6 +767,7 @@ class TestYAMLFrontmatter:
         assert 'id: "person:nguyễn"' in page
         assert 'ns: ["cá-nhân"]' in page
         assert 'aliases: ["Mạnh"]' in page
+        assert 'name: "Mạnh"' in page
 
     def test_frontmatter_relationship_fields(self, graph_dir, wiki_dir):
         """Out-edges are emitted as frontmatter fields holding [[wikilinks]] —

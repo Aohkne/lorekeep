@@ -23,10 +23,25 @@ import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from lorekeep.compile.writer import _atomic_write
 from lorekeep.models import Edge, Manifest, Node
 from lorekeep.store.graph import GraphStore
+
+
+_RESERVED_FRONTMATTER_KEYS = frozenset({
+    "kind",
+    "id",
+    "type",
+    "ns",
+    "valid_from",
+    "valid_to",
+    "sources",
+    "tags",
+    "aliases",
+    "props",
+})
 
 
 def _slug(node_id: str) -> str:
@@ -49,6 +64,28 @@ def _yaml_list(items: list[str]) -> str:
     if not items:
         return "[]"
     return "[" + ", ".join(json.dumps(str(i), ensure_ascii=False) for i in items) + "]"
+
+
+def _yaml_value(value: Any) -> str:
+    """Render JSON-compatible data as deterministic, YAML-compatible syntax."""
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _yaml_key(value: str) -> str:
+    """Keep ordinary ontology keys readable and quote YAML-ambiguous keys."""
+    key = str(value)
+    ambiguous = {"null", "true", "false", "yes", "no", "on", "off"}
+    if (
+        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", key)
+        and key.lower() not in ambiguous
+    ):
+        return key
+    return _yaml_scalar(key)
 
 
 def _fmt_date(d) -> str:
@@ -87,18 +124,34 @@ def _node_title(node: Node) -> str:
     """
     for key in ("name", "title"):
         value = node.props.get(key)
-        if value is not None and str(value).strip():
-            return str(value)
+        if value is not None:
+            label = str(value).strip()
+            if label:
+                return label
     return node.id
+
+
+def _node_aliases(node: Node) -> list[str]:
+    """Return all distinct human labels carried by the ontology fact."""
+    aliases: list[str] = []
+    for key in ("name", "title"):
+        value = node.props.get(key)
+        if value is None:
+            continue
+        alias = str(value).strip()
+        if alias and alias != node.id and alias not in aliases:
+            aliases.append(alias)
+    return aliases
 
 
 def _wikilink(node: Node) -> str:
     """Return a readable Obsidian link while retaining the stable file slug."""
-    label = _node_title(node).replace("\n", " ").replace("|", "\\|")
+    label = " ".join(_node_title(node).split()).replace("|", "\\|")
     return f"[[{_slug(node.id)}|{label}]]"
 
 
 def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
+    out_edges = out_edges or []
     lines = ["---"]
     lines.append(f"kind: {_yaml_scalar(node.kind)}")
     lines.append(f"id: {_yaml_scalar(node.id)}")
@@ -114,12 +167,33 @@ def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
         lines.append("sources: []")
     tags = [node.type] + list(node.ns) + ["entity"]
     lines.append(f"tags: {_yaml_list(tags)}")
-    title = _node_title(node)
-    if title != node.id:
+    aliases = _node_aliases(node)
+    if aliases:
         # Obsidian resolves aliases to the same stable file, so humans can
         # search/link by the ontology's display property without losing the
         # canonical fact ID in the filename/frontmatter.
-        lines.append(f"aliases: {_yaml_list([title])}")
+        lines.append(f"aliases: {_yaml_list(aliases)}")
+
+    # ``props`` is the canonical, lossless projection of the node properties.
+    # Safe keys are mirrored at the top level for ergonomic Obsidian/Dataview
+    # queries. Reserved metadata remains authoritative; a custom prop with the
+    # same name is still available under ``props``.
+    if node.props:
+        lines.append("props:")
+        for key in sorted(node.props):
+            lines.append(
+                f"  {_yaml_key(key)}: {_yaml_value(node.props[key])}"
+            )
+    else:
+        lines.append("props: {}")
+
+    mirrored_prop_keys: set[str] = set()
+    for key in sorted(node.props):
+        if key in _RESERVED_FRONTMATTER_KEYS:
+            continue
+        lines.append(f"{_yaml_key(key)}: {_yaml_value(node.props[key])}")
+        mirrored_prop_keys.add(key)
+
     # Out-edges as relationship frontmatter fields. Tolaria detects any
     # frontmatter field holding [[wikilink]] values as a relationship (panel +
     # neighborhood graph); Obsidian/Dataview treat them as queryable lists.
@@ -128,22 +202,54 @@ def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
         by_type: dict[str, list[str]] = {}
         for e in out_edges:
             by_type.setdefault(e.type, []).append(_slug(e.to))
+        used_keys = set(_RESERVED_FRONTMATTER_KEYS) | mirrored_prop_keys
         for etype in sorted(by_type):
+            field = etype
+            if field in used_keys:
+                base = f"relation_{etype}"
+                field = base
+                suffix = 2
+                while field in used_keys:
+                    field = f"{base}_{suffix}"
+                    suffix += 1
+            used_keys.add(field)
             targets = sorted(set(by_type[etype]))
-            lines.append(f"{etype}:")
+            lines.append(f"{_yaml_key(field)}:")
             for t in targets:
                 lines.append(f'  - "[[{t}]]"')
     lines.append("---")
     return "\n".join(lines)
 
 
+def _description(node: Node) -> str:
+    """Render the semantic description as readable Markdown, not a table cell."""
+    value = node.props.get("description")
+    if value is None:
+        return ""
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    return "\n".join(["", "## Description", "", text])
+
+
 def _props_table(node: Node) -> str:
-    if not node.props:
+    keys = [key for key in sorted(node.props) if key != "description"]
+    if not keys:
         return ""
     lines = ["", "## Properties", "", "| Key | Value |", "|---|---|"]
-    for key in sorted(node.props):
+    for key in keys:
         lines.append(f"| {_fmt_prop_value(key)} | {_fmt_prop_value(node.props[key])} |")
     return "\n".join(lines)
+
+
+def _description_summary(node: Node, *, limit: int = 160) -> str:
+    value = node.props.get("description")
+    if value is None:
+        return ""
+    summary = " ".join(str(value).split())
+    if len(summary) <= limit:
+        return summary
+    return summary[:limit - 1].rstrip() + "\u2026"
 
 
 def _relationships(
@@ -235,6 +341,7 @@ def _entity_page(node: Node, store: GraphStore) -> str:
         "",
         f"> ID: `{node.id}`",
     ]
+    parts.append(_description(node))
     parts.append(_props_table(node))
     parts.append(_relationships(out_e, in_e, store))
     parts.append(_timeline(node))
@@ -266,13 +373,18 @@ def _index_page(store: GraphStore) -> str:
         lines.append(f"## {ntype.title()}s")
         lines.append("")
         for n in sorted(by_type[ntype], key=lambda n: n.id):
-            title = _node_title(n)
-            summary_parts = [title]
+            summary_parts: list[str] = []
+            description = _description_summary(n)
+            if description:
+                summary_parts.append(description)
             if n.props.get("lang"):
-                summary_parts.append(f"({n.props['lang']})")
+                summary_parts.append(f"lang: {n.props['lang']}")
             if n.valid_from:
-                summary_parts.append(f"\u2014 since {_fmt_date(n.valid_from)}")
-            lines.append(f"- {_wikilink(n)} \u2014 {' '.join(summary_parts)}")
+                summary_parts.append(f"since {_fmt_date(n.valid_from)}")
+            line = f"- {_wikilink(n)}"
+            if summary_parts:
+                line += " \u2014 " + " \u00b7 ".join(summary_parts)
+            lines.append(line)
         lines.append("")
 
     return "\n".join(lines)
