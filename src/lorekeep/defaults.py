@@ -125,6 +125,8 @@ provider:
   api_key_env: OPENAI_API_KEY
   api_key: null
   temperature: 0.0
+  timeout_seconds: 120
+  max_retries: 2
 compile:
   chunk_lines: 60
 ns:

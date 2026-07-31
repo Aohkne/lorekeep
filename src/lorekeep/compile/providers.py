@@ -41,7 +41,8 @@ class LiteLLMProvider:
     """Real provider backed by litellm. Supports openai/anthropic/ollama."""
 
     def __init__(self, model: str, api_base: str | None = None,
-                 temperature: float = 0.0, api_key: str | None = None) -> None:
+                 temperature: float = 0.0, api_key: str | None = None,
+                 timeout_seconds: float = 120.0, max_retries: int = 2) -> None:
         import logging
         import litellm
         import os
@@ -58,6 +59,8 @@ class LiteLLMProvider:
         self.api_base = api_base
         self.temperature = temperature
         self.api_key = api_key
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
 
     def extract_json(self, system: str, user: str) -> str:
         import litellm
@@ -66,6 +69,8 @@ class LiteLLMProvider:
             api_base=self.api_base,
             api_key=self.api_key,
             temperature=self.temperature,
+            timeout=self.timeout_seconds,
+            num_retries=self.max_retries,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -85,6 +90,8 @@ class LiteLLMProvider:
             api_base=self.api_base,
             api_key=self.api_key,
             temperature=self.temperature,
+            timeout=self.timeout_seconds,
+            num_retries=self.max_retries,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

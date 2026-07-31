@@ -294,28 +294,32 @@ def _overview_page(store: GraphStore, manifest: Manifest | None) -> str:
     return "\n".join(lines)
 
 
-def _atomic_dir_swap(wiki_dir: Path, build_dir: Path) -> None:
-    """Atomically swap build_dir into wiki_dir.
+def _publish_build(wiki_dir: Path, build_dir: Path) -> None:
+    """Publish staged pages while keeping the vault directory stable.
 
-    On POSIX: rename old wiki to .old, rename new to wiki, rmtree old.
-    Never leaves wiki_dir partially populated.
+    Obsidian watches the vault root. Replacing that directory breaks its file
+    watcher and removes its ``.obsidian`` settings, leaving notes visible in
+    the sidebar but blank when opened. Build all pages first, then atomically
+    replace each markdown file inside the existing vault and remove stale
+    generated pages. Non-markdown content (including ``.obsidian``) is left
+    untouched.
     """
-    parent = wiki_dir.parent
-    parent.mkdir(parents=True, exist_ok=True)
+    import shutil
 
-    old_backup: Path | None = None
-    if wiki_dir.exists():
-        old_backup = wiki_dir.with_suffix(".wiki-old.tmp")
-        if old_backup.exists():
-            import shutil
-            shutil.rmtree(old_backup)
-        os.rename(wiki_dir, old_backup)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    staged_pages = {path.name for path in build_dir.glob("*.md")}
+    stale_pages = {
+        path.name for path in wiki_dir.glob("*.md")
+        if path.name not in staged_pages
+    }
 
-    os.rename(build_dir, wiki_dir)
-
-    if old_backup is not None and old_backup.exists():
-        import shutil
-        shutil.rmtree(old_backup)
+    try:
+        for name in sorted(staged_pages):
+            os.replace(build_dir / name, wiki_dir / name)
+        for name in sorted(stale_pages):
+            (wiki_dir / name).unlink()
+    finally:
+        shutil.rmtree(build_dir, ignore_errors=True)
 
 
 def generate_wiki(
@@ -325,7 +329,8 @@ def generate_wiki(
 ) -> dict:
     """Generate Obsidian-compatible wiki pages from facts.jsonl.
 
-    Builds into a temp sibling directory, then atomically swaps into place.
+    Builds into a temp sibling directory, then atomically replaces each page
+    without replacing the vault root.
     Appends to log.md (the only non-deterministic file, preserved across regen).
 
     Returns a summary dict with counts.
@@ -385,7 +390,7 @@ def generate_wiki(
         existing_log = "# Lorekeep Wiki \u2014 Log\n\n"
     _atomic_write(build_dir / "log.md", existing_log + entry)
 
-    _atomic_dir_swap(wiki_dir, build_dir)
+    _publish_build(wiki_dir, build_dir)
 
     return {
         "nodes": len(nodes),

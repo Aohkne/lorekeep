@@ -102,6 +102,8 @@ provider:
   api_base: null                           # native deepseek provider — no api_base needed
   api_key: sk-...                          # inline; config.yaml is gitignored
   temperature: 0.0
+  timeout_seconds: 120
+  max_retries: 2
 ```
 
 The model string must be `{provider}/{model}` (e.g. `openai/gpt-4o-mini`,

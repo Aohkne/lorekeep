@@ -215,6 +215,42 @@ class TestGenerateWiki:
         assert not stale.exists()
         assert (wiki_dir / "svc-payments-api.md").exists()
 
+    def test_regeneration_keeps_vault_root_and_obsidian_settings(
+        self, graph_dir, wiki_dir,
+    ):
+        """Obsidian's watcher and private vault settings survive regeneration."""
+        generate_wiki(graph_dir, wiki_dir)
+        vault_inode = wiki_dir.stat().st_ino
+        settings = wiki_dir / ".obsidian" / "app.json"
+        settings.parent.mkdir()
+        settings.write_text('{"showInlineTitle": false}')
+
+        generate_wiki(graph_dir, wiki_dir)
+
+        assert wiki_dir.stat().st_ino == vault_inode
+        assert settings.read_text() == '{"showInlineTitle": false}'
+        assert (wiki_dir / "svc-payments-api.md").exists()
+
+    def test_failed_build_leaves_existing_vault_untouched(
+        self, graph_dir, wiki_dir, monkeypatch,
+    ):
+        generate_wiki(graph_dir, wiki_dir)
+        old_index = (wiki_dir / "index.md").read_text()
+        settings = wiki_dir / ".obsidian" / "app.json"
+        settings.parent.mkdir()
+        settings.write_text("{}")
+
+        monkeypatch.setattr(
+            "lorekeep.wiki._entity_page",
+            lambda *args: (_ for _ in ()).throw(RuntimeError("render failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="render failed"):
+            generate_wiki(graph_dir, wiki_dir)
+
+        assert (wiki_dir / "index.md").read_text() == old_index
+        assert settings.read_text() == "{}"
+
 
 class TestDeterminism:
     def test_entity_pages_byte_identical(self, graph_dir, wiki_dir, tmp_path):

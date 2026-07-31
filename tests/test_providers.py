@@ -1,6 +1,7 @@
 """Tests for provider/model enumeration."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -17,6 +18,48 @@ from lorekeep.providers import (
     validate_model_prefix,
     DYNAMIC_PROVIDERS,
 )
+
+
+class TestLiteLLMProviderResilience:
+    @staticmethod
+    def _response(content: str):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+        )
+
+    @patch("litellm.completion")
+    def test_extract_json_passes_timeout_and_retries(self, completion):
+        from lorekeep.compile.providers import LiteLLMProvider
+
+        completion.return_value = self._response('{"nodes":[],"edges":[]}')
+        provider = LiteLLMProvider(
+            "deepseek/deepseek-chat",
+            timeout_seconds=120,
+            max_retries=2,
+        )
+
+        provider.extract_json("system", "user")
+
+        kwargs = completion.call_args.kwargs
+        assert kwargs["timeout"] == 120
+        assert kwargs["num_retries"] == 2
+
+    @patch("litellm.completion")
+    def test_complete_passes_timeout_and_retries(self, completion):
+        from lorekeep.compile.providers import LiteLLMProvider
+
+        completion.return_value = self._response("OK")
+        provider = LiteLLMProvider(
+            "deepseek/deepseek-chat",
+            timeout_seconds=45,
+            max_retries=1,
+        )
+
+        assert provider.complete("system", "user") == "OK"
+
+        kwargs = completion.call_args.kwargs
+        assert kwargs["timeout"] == 45
+        assert kwargs["num_retries"] == 1
 
 
 class TestFormatCost:
