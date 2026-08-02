@@ -61,6 +61,46 @@ class TestLiteLLMProviderResilience:
         assert kwargs["timeout"] == 45
         assert kwargs["num_retries"] == 1
 
+    def test_retry_runtime_recovers_after_transient_failure(self):
+        """Exercise LiteLLM's real retry helper, including its tenacity import."""
+        import litellm
+
+        attempts = 0
+
+        def flaky_completion(**kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise TimeoutError("transient timeout")
+            return self._response("OK")
+
+        response = litellm.completion_with_retries(
+            original_function=flaky_completion,
+            num_retries=2,
+        )
+
+        assert response.choices[0].message.content == "OK"
+        assert attempts == 2
+
+    def test_retry_runtime_raises_after_retries_are_exhausted(self):
+        """The final provider error is preserved after every retry fails."""
+        import litellm
+
+        attempts = 0
+
+        def failing_completion(**kwargs):
+            nonlocal attempts
+            attempts += 1
+            raise TimeoutError("provider stayed unavailable")
+
+        with pytest.raises(TimeoutError, match="provider stayed unavailable"):
+            litellm.completion_with_retries(
+                original_function=failing_completion,
+                num_retries=2,
+            )
+
+        assert attempts == 2
+
 
 class TestFormatCost:
     def test_free(self):
