@@ -60,6 +60,7 @@ queryable lists):
 
 ```yaml
 ---
+kind: "node"
 id: "svc:payments-api"
 type: "service"
 ns: ["backend"]
@@ -68,13 +69,36 @@ valid_to: ""                 # empty ⇒ currently valid
 sources:
   - "raw/backend/payments.md:3"
 tags: ["service", "backend", "entity"]
+aliases: ["payments-api"]  # human-readable name; canonical ID stays above
+props:                     # complete, lossless copy of the node fact's props
+  lang: "go"
+  name: "payments-api"
+lang: "go"                 # safe props are mirrored for Obsidian/Dataview
+name: "payments-api"
 depends_on:                  # ← relationship field (out-edges)
   - "[[svc-auth]]"
 ---
 ```
 
-The body shows a Properties table, explicit **Relationships** (`depends_on →`,
-`← decided_by`, with validity windows as `from → to`), and a Timeline.
+The body shows a first-class **Description** section when the ontology fact has
+`props.description`, a Properties table for the remaining props, explicit
+**Relationships** (`depends_on →`, `← decided_by`), and a Timeline. Description
+paragraphs and Markdown are preserved instead of being flattened into a table
+cell.
+
+Every node prop is retained under the frontmatter `props` object. Safe keys are
+also mirrored at the top level so queries such as `TABLE lang` remain concise.
+Reserved keys (`id`, `kind`, `tags`, and so on) cannot overwrite generated
+metadata; their original fact values remain available through `props.<key>`.
+Likewise, a custom edge type that collides with metadata or a mirrored prop is
+emitted as `relation_<edge-type>`.
+
+Each relationship row retains the source edge fact's ID, namespaces, validity
+window, provenance, and properties, so a page can be checked directly against
+`facts.jsonl`. Parallel or temporal edge facts remain separate rows. The index
+uses readable `name`/`title` link aliases and a short description when present;
+relationship tables retain a canonical link plus a readable Label column. The
+filename and frontmatter `id` remain the canonical ontology ID.
 
 ## 4. Graph view
 
@@ -84,11 +108,11 @@ directly. Tips:
 
 - **Start focused** — open a single entity, then run *Command → Open local
   graph*. The full graph of a large vault is a hairball.
-- **Filter** — in graph settings, set *Files to exclude* or filter by
-  `path:entities/` to drop `index`/`overview`/`log`.
-- **Color groups** — add color groups by `path:entities/service/`,
-  `path:entities/team/`, etc., or by tag (`#backend`, `#frontend`) to color by
-  namespace.
+- **Filter** — exclude `index.md`, `overview.md`, and `log.md` in graph
+  settings, or color/filter by the `#entity` tag. Entity notes use a flat
+  layout, so there is no `entities/` path to filter.
+- **Color groups** — use type tags (`#service`, `#team`) or namespace tags
+  (`#backend`, `#frontend`) to color by ontology type or namespace.
 - **Backlinks** — the panel at the bottom of each page is Obsidian's
   auto-generated inbound-reference list (incoming edges); the Relationships
   section in the body is the explicit version.
@@ -101,8 +125,8 @@ Every entity page is tagged `[<type>, <ns>..., entity]` (e.g.
 
 - **Tag pane** (right sidebar) — click a tag to filter the file list.
 - **Graph coloring** — color groups can key off tags (`#service`, `#backend`).
-- **Search** — `tag:service lang:go` finds Go services via Obsidian's query
-  syntax.
+- **Search** — `tag:#service [lang:go]` finds Go services using Obsidian's
+  property-search syntax.
 
 ## 6. Dataview queries (community plugin)
 
@@ -115,6 +139,10 @@ All services with their stack and start date:
 TABLE lang, valid_from
 FROM #service
 ```
+
+The complete fact props are also queryable as nested Dataview fields, for
+example `TABLE props.lang, props.status`. Top-level mirrors are provided for
+ordinary, non-reserved prop keys; `props.<key>` is the canonical fallback.
 
 Currently-valid entities (no end date — `valid_to` is the empty string for
 "present"):

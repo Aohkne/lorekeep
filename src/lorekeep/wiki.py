@@ -24,10 +24,25 @@ import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from lorekeep.compile.writer import _atomic_write
 from lorekeep.models import Edge, Manifest, Node
 from lorekeep.store.graph import GraphStore
+
+
+_RESERVED_FRONTMATTER_KEYS = frozenset({
+    "kind",
+    "id",
+    "type",
+    "ns",
+    "valid_from",
+    "valid_to",
+    "sources",
+    "tags",
+    "aliases",
+    "props",
+})
 
 
 def _slug(node_id: str) -> str:
@@ -43,13 +58,35 @@ def _yaml_scalar(value: str) -> str:
     """Quote a YAML scalar so special chars (colon, etc.) are safe."""
     if value is None:
         return "null"
-    return json.dumps(str(value))
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def _yaml_list(items: list[str]) -> str:
     if not items:
         return "[]"
-    return "[" + ", ".join(json.dumps(str(i)) for i in items) + "]"
+    return "[" + ", ".join(json.dumps(str(i), ensure_ascii=False) for i in items) + "]"
+
+
+def _yaml_value(value: Any) -> str:
+    """Render JSON-compatible data as deterministic, YAML-compatible syntax."""
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _yaml_key(value: str) -> str:
+    """Keep ordinary ontology keys readable and quote YAML-ambiguous keys."""
+    key = str(value)
+    ambiguous = {"null", "true", "false", "yes", "no", "on", "off"}
+    if (
+        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", key)
+        and key.lower() not in ambiguous
+    ):
+        return key
+    return _yaml_scalar(key)
 
 
 def _fmt_date(d) -> str:
@@ -75,12 +112,49 @@ def _fmt_prop_value(val) -> str:
     if isinstance(val, str):
         s = val.replace("|", "\\|").replace("\n", " ")
     else:
-        s = json.dumps(val, ensure_ascii=False).replace("|", "\\|").replace("\n", " ")
+        s = json.dumps(val, ensure_ascii=False, sort_keys=True).replace("|", "\\|").replace("\n", " ")
     return s
 
 
+def _node_title(node: Node) -> str:
+    """Return the human label using the ontology's name/title conventions.
+
+    Most ontology node types use ``props.name``. Goals, decisions, and
+    documents use ``props.title`` instead, so treating ``name`` as the only
+    display field makes a correct v2 fact look like an opaque ID in the wiki.
+    """
+    for key in ("name", "title"):
+        value = node.props.get(key)
+        if value is not None:
+            label = str(value).strip()
+            if label:
+                return label
+    return node.id
+
+
+def _node_aliases(node: Node) -> list[str]:
+    """Return all distinct human labels carried by the ontology fact."""
+    aliases: list[str] = []
+    for key in ("name", "title"):
+        value = node.props.get(key)
+        if value is None:
+            continue
+        alias = str(value).strip()
+        if alias and alias != node.id and alias not in aliases:
+            aliases.append(alias)
+    return aliases
+
+
+def _wikilink(node: Node) -> str:
+    """Return a readable Obsidian link while retaining the stable file slug."""
+    label = " ".join(_node_title(node).split()).replace("|", "\\|")
+    return f"[[{_slug(node.id)}|{label}]]"
+
+
 def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
+    out_edges = out_edges or []
     lines = ["---"]
+    lines.append(f"kind: {_yaml_scalar(node.kind)}")
     lines.append(f"id: {_yaml_scalar(node.id)}")
     lines.append(f"type: {_yaml_scalar(node.type)}")
     lines.append(f"ns: {_yaml_list(list(node.ns))}")
@@ -89,11 +163,38 @@ def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
     if node.src:
         lines.append("sources:")
         for s in node.src:
-            lines.append(f"  - {json.dumps(str(s))}")
+            lines.append(f"  - {json.dumps(str(s), ensure_ascii=False)}")
     else:
         lines.append("sources: []")
     tags = [node.type] + list(node.ns) + ["entity"]
     lines.append(f"tags: {_yaml_list(tags)}")
+    aliases = _node_aliases(node)
+    if aliases:
+        # Obsidian resolves aliases to the same stable file, so humans can
+        # search/link by the ontology's display property without losing the
+        # canonical fact ID in the filename/frontmatter.
+        lines.append(f"aliases: {_yaml_list(aliases)}")
+
+    # ``props`` is the canonical, lossless projection of the node properties.
+    # Safe keys are mirrored at the top level for ergonomic Obsidian/Dataview
+    # queries. Reserved metadata remains authoritative; a custom prop with the
+    # same name is still available under ``props``.
+    if node.props:
+        lines.append("props:")
+        for key in sorted(node.props):
+            lines.append(
+                f"  {_yaml_key(key)}: {_yaml_value(node.props[key])}"
+            )
+    else:
+        lines.append("props: {}")
+
+    mirrored_prop_keys: set[str] = set()
+    for key in sorted(node.props):
+        if key in _RESERVED_FRONTMATTER_KEYS:
+            continue
+        lines.append(f"{_yaml_key(key)}: {_yaml_value(node.props[key])}")
+        mirrored_prop_keys.add(key)
+
     # Out-edges as relationship frontmatter fields. Tolaria detects any
     # frontmatter field holding [[wikilink]] values as a relationship (panel +
     # neighborhood graph); Obsidian/Dataview treat them as queryable lists.
@@ -102,54 +203,117 @@ def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
         by_type: dict[str, list[str]] = {}
         for e in out_edges:
             by_type.setdefault(e.type, []).append(_slug(e.to))
+        used_keys = set(_RESERVED_FRONTMATTER_KEYS) | mirrored_prop_keys
         for etype in sorted(by_type):
+            field = etype
+            if field in used_keys:
+                base = f"relation_{etype}"
+                field = base
+                suffix = 2
+                while field in used_keys:
+                    field = f"{base}_{suffix}"
+                    suffix += 1
+            used_keys.add(field)
             targets = sorted(set(by_type[etype]))
-            lines.append(f"{etype}:")
+            lines.append(f"{_yaml_key(field)}:")
             for t in targets:
                 lines.append(f'  - "[[{t}]]"')
     lines.append("---")
     return "\n".join(lines)
 
 
+def _description(node: Node) -> str:
+    """Render the semantic description as readable Markdown, not a table cell."""
+    value = node.props.get("description")
+    if value is None:
+        return ""
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    return "\n".join(["", "## Description", "", text])
+
+
 def _props_table(node: Node) -> str:
-    if not node.props:
+    keys = [key for key in sorted(node.props) if key != "description"]
+    if not keys:
         return ""
     lines = ["", "## Properties", "", "| Key | Value |", "|---|---|"]
-    for key in sorted(node.props):
+    for key in keys:
         lines.append(f"| {_fmt_prop_value(key)} | {_fmt_prop_value(node.props[key])} |")
     return "\n".join(lines)
 
 
+def _description_summary(node: Node, *, limit: int = 160) -> str:
+    value = node.props.get("description")
+    if value is None:
+        return ""
+    summary = " ".join(str(value).split())
+    if len(summary) <= limit:
+        return summary
+    return summary[:limit - 1].rstrip() + "\u2026"
+
+
 def _relationships(
-    node: Node, out_edges: list[Edge], in_edges: list[Edge]
+    out_edges: list[Edge], in_edges: list[Edge], store: GraphStore,
 ) -> str:
+    """Render every edge touching node with its fact metadata.
+
+    A bare wikilink is enough for navigation, but it drops edge identity,
+    namespace, provenance, and arbitrary properties. Keeping those fields in
+    the generated table makes the human projection auditable against
+    facts.jsonl without sacrificing Obsidian graph links.
+    """
     sections: list[str] = []
+
+    def add_table(edges: list[Edge], *, outgoing: bool) -> None:
+        sections.extend([
+            "| Entity | Label | Fact ID | Namespaces | Validity | Sources | Properties |",
+            "|---|---|---|---|---|---|---|",
+        ])
+        for edge in edges:
+            other_id = edge.to if outgoing else edge.from_
+            other = store.get_node(other_id)
+            entity = f"[[{_slug(other.id)}]]" if other is not None else _fmt_prop_value(other_id)
+            label = _node_title(other) if other is not None else other_id
+            sections.append(
+                "| " + " | ".join([
+                    entity,
+                    _fmt_prop_value(label),
+                    f"<code>{_fmt_prop_value(edge.id)}</code>",
+                    _fmt_prop_value(list(edge.ns)),
+                    _fmt_validity(edge.valid_from, edge.valid_to),
+                    _fmt_prop_value(list(edge.src)),
+                    _fmt_prop_value(edge.props),
+                ]) + " |"
+            )
 
     if out_edges:
         sections.extend(["", "## Relationships", ""])
         by_type: dict[str, list[Edge]] = {}
-        for e in out_edges:
-            by_type.setdefault(e.type, []).append(e)
+        for edge in out_edges:
+            by_type.setdefault(edge.type, []).append(edge)
         for etype in sorted(by_type):
             sections.append(f"### {etype} \u2192")
             sections.append("")
-            for e in sorted(by_type[etype], key=lambda e: e.to):
-                validity = _fmt_validity(e.valid_from, e.valid_to)
-                sections.append(f"- [[{_slug(e.to)}]] ({validity})")
+            add_table(
+                sorted(by_type[etype], key=lambda edge: (edge.to, edge.id)),
+                outgoing=True,
+            )
             sections.append("")
 
     if in_edges:
         if not out_edges:
             sections.extend(["", "## Relationships", ""])
         by_type = {}
-        for e in in_edges:
-            by_type.setdefault(e.type, []).append(e)
+        for edge in in_edges:
+            by_type.setdefault(edge.type, []).append(edge)
         for etype in sorted(by_type):
             sections.append(f"### \u2190 {etype}")
             sections.append("")
-            for e in sorted(by_type[etype], key=lambda e: e.from_):
-                validity = _fmt_validity(e.valid_from, e.valid_to)
-                sections.append(f"- [[{_slug(e.from_)}]] ({validity})")
+            add_table(
+                sorted(by_type[etype], key=lambda edge: (edge.from_, edge.id)),
+                outgoing=False,
+            )
             sections.append("")
 
     return "\n".join(sections)
@@ -167,7 +331,7 @@ def _timeline(node: Node) -> str:
 
 
 def _entity_page(node: Node, store: GraphStore) -> str:
-    title = node.props.get("name", node.id)
+    title = _node_title(node)
     out_e = store.out_edges(node.id)
     in_e = store.in_edges(node.id)
 
@@ -178,8 +342,9 @@ def _entity_page(node: Node, store: GraphStore) -> str:
         "",
         f"> ID: `{node.id}`",
     ]
+    parts.append(_description(node))
     parts.append(_props_table(node))
-    parts.append(_relationships(node, out_e, in_e))
+    parts.append(_relationships(out_e, in_e, store))
     parts.append(_timeline(node))
     parts.append("")
     return "\n".join(parts)
@@ -209,14 +374,18 @@ def _index_page(store: GraphStore) -> str:
         lines.append(f"## {ntype.title()}s")
         lines.append("")
         for n in sorted(by_type[ntype], key=lambda n: n.id):
-            title = n.props.get("name", n.id)
-            slug = _slug(n.id)
-            summary_parts = [title]
+            summary_parts: list[str] = []
+            description = _description_summary(n)
+            if description:
+                summary_parts.append(description)
             if n.props.get("lang"):
-                summary_parts.append(f"({n.props['lang']})")
+                summary_parts.append(f"lang: {n.props['lang']}")
             if n.valid_from:
-                summary_parts.append(f"\u2014 since {_fmt_date(n.valid_from)}")
-            lines.append(f"- [[{slug}]] \u2014 {' '.join(summary_parts)}")
+                summary_parts.append(f"since {_fmt_date(n.valid_from)}")
+            line = f"- {_wikilink(n)}"
+            if summary_parts:
+                line += " \u2014 " + " \u00b7 ".join(summary_parts)
+            lines.append(line)
         lines.append("")
 
     return "\n".join(lines)
@@ -472,5 +641,7 @@ def generate_wiki(
     return {
         "nodes": len(nodes),
         "edges": len(edges),
-        "pages": len(nodes) + 2,
+        # One page per node plus the three generated vault pages:
+        # index.md, overview.md, and the append-only log.md.
+        "pages": len(nodes) + 3,
     }

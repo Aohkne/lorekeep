@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.1](https://github.com/manhhailua/lorekeep/compare/v0.13.0...v0.13.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* enrich wiki entity context ([cccfb1e](https://github.com/manhhailua/lorekeep/commit/cccfb1e422a956fd04a30f5fd32a412c4a1e402e))
+* preserve facts in wiki projection ([3a0a3fa](https://github.com/manhhailua/lorekeep/commit/3a0a3facd5260dd495f3c9d3a79328639edb7c5c))
+* preserve facts in wiki projection ([7b1cf75](https://github.com/manhhailua/lorekeep/commit/7b1cf752edba732c3614e62ec5bb1500615f9db7))
+
 ## [0.13.0](https://github.com/manhhailua/lorekeep/compare/v0.12.2...v0.13.0) (2026-07-29)
 
 
