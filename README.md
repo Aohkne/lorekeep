@@ -221,6 +221,8 @@ provider:
   model: dashscope/qwen-plus                           # {provider}/{model} — litellm routes by prefix
   api_key_env: DASHSCOPE_API_KEY                       # env var name (preferred)
   api_key: null                                        # or inline (gitignored config only)
+  timeout_seconds: 120                                 # per LLM request
+  max_retries: 2                                       # retries after the first attempt
 ns:
   default: [me]                                      # serve-time default scope
   personal: me                                       # subject-centric extraction

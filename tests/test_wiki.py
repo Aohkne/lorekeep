@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -310,6 +311,150 @@ class TestGenerateWiki:
         generate_wiki(graph_dir, wiki_dir)
         assert not stale.exists()
         assert (wiki_dir / "svc-payments-api.md").exists()
+
+    def test_regeneration_keeps_vault_root_and_obsidian_settings(
+        self, graph_dir, wiki_dir,
+    ):
+        """Obsidian's watcher and private vault settings survive regeneration."""
+        generate_wiki(graph_dir, wiki_dir)
+        vault_inode = wiki_dir.stat().st_ino
+        settings = wiki_dir / ".obsidian" / "app.json"
+        settings.parent.mkdir()
+        settings.write_text('{"showInlineTitle": false}')
+
+        generate_wiki(graph_dir, wiki_dir)
+
+        assert wiki_dir.stat().st_ino == vault_inode
+        assert settings.read_text() == '{"showInlineTitle": false}'
+        assert (wiki_dir / "svc-payments-api.md").exists()
+
+    def test_failed_build_leaves_existing_vault_untouched(
+        self, graph_dir, wiki_dir, monkeypatch,
+    ):
+        generate_wiki(graph_dir, wiki_dir)
+        old_index = (wiki_dir / "index.md").read_text()
+        settings = wiki_dir / ".obsidian" / "app.json"
+        settings.parent.mkdir()
+        settings.write_text("{}")
+
+        monkeypatch.setattr(
+            "lorekeep.wiki._entity_page",
+            lambda *args: (_ for _ in ()).throw(RuntimeError("render failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="render failed"):
+            generate_wiki(graph_dir, wiki_dir)
+
+        assert (wiki_dir / "index.md").read_text() == old_index
+        assert settings.read_text() == "{}"
+
+    def test_publish_replace_failure_rolls_back_all_markdown(
+        self, graph_dir, wiki_dir, monkeypatch,
+    ):
+        generate_wiki(graph_dir, wiki_dir)
+        for path in wiki_dir.glob("*.md"):
+            path.write_text(f"# original {path.name}\n")
+        settings = wiki_dir / ".obsidian" / "app.json"
+        settings.parent.mkdir()
+        settings.write_text("{}")
+        before = {path.name: path.read_bytes() for path in wiki_dir.glob("*.md")}
+
+        build_dir = wiki_dir.parent / ".wiki-build.tmp"
+        real_replace = os.replace
+        publish_attempts = 0
+
+        def flaky_replace(src, dst):
+            nonlocal publish_attempts
+            src_path = Path(src)
+            dst_path = Path(dst)
+            if src_path.parent == build_dir and dst_path.parent == wiki_dir:
+                publish_attempts += 1
+                if publish_attempts == 2:
+                    raise OSError("replace failed during publish")
+            return real_replace(src, dst)
+
+        monkeypatch.setattr("lorekeep.wiki.os.replace", flaky_replace)
+
+        with pytest.raises(OSError, match="replace failed during publish"):
+            generate_wiki(graph_dir, wiki_dir)
+
+        after = {path.name: path.read_bytes() for path in wiki_dir.glob("*.md")}
+        assert after == before
+        assert settings.read_text() == "{}"
+        assert not build_dir.exists()
+        assert not (wiki_dir.parent / ".wiki-rollback.tmp").exists()
+
+    def test_publish_unlink_failure_rolls_back_all_markdown(
+        self, graph_dir, wiki_dir, monkeypatch,
+    ):
+        generate_wiki(graph_dir, wiki_dir)
+        for path in wiki_dir.glob("*.md"):
+            path.write_text(f"# original {path.name}\n")
+        stale_names = {"a-stale.md", "b-stale.md"}
+        for name in stale_names:
+            (wiki_dir / name).write_text(f"# {name}\n")
+        before = {path.name: path.read_bytes() for path in wiki_dir.glob("*.md")}
+
+        real_unlink = Path.unlink
+        stale_attempts = 0
+
+        def flaky_unlink(path, *args, **kwargs):
+            nonlocal stale_attempts
+            if path.parent == wiki_dir and path.name in stale_names:
+                stale_attempts += 1
+                if stale_attempts == 2:
+                    raise OSError("unlink failed during publish")
+            return real_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", flaky_unlink)
+
+        with pytest.raises(OSError, match="unlink failed during publish"):
+            generate_wiki(graph_dir, wiki_dir)
+
+        after = {path.name: path.read_bytes() for path in wiki_dir.glob("*.md")}
+        assert after == before
+        assert not (wiki_dir.parent / ".wiki-build.tmp").exists()
+        assert not (wiki_dir.parent / ".wiki-rollback.tmp").exists()
+
+    def test_rollback_failure_preserves_recovery_snapshot(
+        self, graph_dir, wiki_dir, monkeypatch,
+    ):
+        generate_wiki(graph_dir, wiki_dir)
+        for path in wiki_dir.glob("*.md"):
+            path.write_text(f"# original {path.name}\n")
+        before = {path.name: path.read_bytes() for path in wiki_dir.glob("*.md")}
+
+        build_dir = wiki_dir.parent / ".wiki-build.tmp"
+        backup_dir = wiki_dir.parent / ".wiki-rollback.tmp"
+        real_replace = os.replace
+        publish_attempts = 0
+
+        def fail_publish_and_restore(src, dst):
+            nonlocal publish_attempts
+            src_path = Path(src)
+            dst_path = Path(dst)
+            if src_path.parent == build_dir and dst_path.parent == wiki_dir:
+                publish_attempts += 1
+                if publish_attempts == 2:
+                    raise OSError("publish failed")
+            if (
+                src_path.parent == wiki_dir
+                and src_path.name.startswith(".lorekeep-rollback-")
+                and dst_path.parent == wiki_dir
+            ):
+                raise OSError("rollback failed")
+            return real_replace(src, dst)
+
+        monkeypatch.setattr("lorekeep.wiki.os.replace", fail_publish_and_restore)
+
+        with pytest.raises(RuntimeError, match="snapshot is preserved"):
+            generate_wiki(graph_dir, wiki_dir)
+
+        snapshot = {
+            path.name: path.read_bytes() for path in backup_dir.glob("*.md")
+        }
+        assert snapshot == before
+        assert not build_dir.exists()
 
 
 class TestRichEntityProjection:

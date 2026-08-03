@@ -16,6 +16,8 @@ provider:
   model: dashscope/qwen-plus                        # qwen-max | qwen-plus | qwen-turbo
   api_key_env: DASHSCOPE_API_KEY                   # export DASHSCOPE_API_KEY=...
   temperature: 0.0
+  timeout_seconds: 120                             # per request
+  max_retries: 2                                   # retries after the first attempt
 #
 # Option B: OpenAI (native — no api_base)
 # provider:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from lorekeep.models import DocChunk, Edge, Node, Schema
@@ -111,7 +111,17 @@ def build_prompt(chunk: DocChunk, schema: Schema) -> str:
 def _parse_date(v: Any) -> date | None:
     if not v:
         return None
-    return date.fromisoformat(v)
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    try:
+        return date.fromisoformat(v)
+    except ValueError:
+        # Some providers return a full ISO-8601 timestamp even though the graph
+        # contract stores day precision. Preserve the calendar date expressed
+        # by the model; do not shift it through UTC before truncating.
+        return datetime.fromisoformat(v).date()
 
 
 def _extract_json(raw: str, chunk: DocChunk) -> str:

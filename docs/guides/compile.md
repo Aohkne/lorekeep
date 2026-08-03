@@ -25,6 +25,8 @@ For strict privacy, use a local model:
 ```yaml
 provider:
   model: ollama/llama3                      # default http://localhost:11434; set api_base only for a non-default host
+  timeout_seconds: 120
+  max_retries: 2
 ```
 
 ## 3. Compile
@@ -34,11 +36,16 @@ uv run lorekeep compile
 ```
 
 Produces `graph/facts.jsonl` + `graph/manifest.json` + auto-generates `wiki/`
-(Obsidian-compatible markdown, regenerated atomically). If `pending/`
+(Obsidian-compatible markdown, with each page replaced atomically). If `pending/`
 journals exist, compile also merges them via `_do_auto_resolve` — in that
 case wiki regenerates once from the resolved facts (never double).
 Re-running is idempotent: unchanged input yields byte-identical files
 (extraction is cached under `.lorekeep/cache.json`).
+
+Each LLM request defaults to a 120-second timeout and two retries. Override
+`provider.timeout_seconds` or `provider.max_retries` when the configured
+endpoint needs a different policy. If every attempt fails, Lorekeep records
+that chunk in `manifest.json` and continues producing a partial graph.
 
 **What compile does not do:** compile processes only `raw/`. Agent-proposed
 facts in `pending/` journals are merged by `resolve` (see step 5).

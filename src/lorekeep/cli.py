@@ -62,6 +62,8 @@ def _build_provider(config: Config) -> LiteLLMProvider:
         api_base=config.provider.api_base,
         temperature=config.provider.temperature,
         api_key=api_key,
+        timeout_seconds=config.provider.timeout_seconds,
+        max_retries=config.provider.max_retries,
     )
 
 
@@ -1066,6 +1068,8 @@ def _write_config(p, model, api_base, api_key_env, api_key, ns):
             "api_key_env": api_key_env,
             "api_key": api_key,
             "temperature": 0.0,
+            "timeout_seconds": 120,
+            "max_retries": 2,
         },
         "compile": {"chunk_lines": 60},
         "ns": {"default": [ns], "personal": ns},

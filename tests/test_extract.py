@@ -1,5 +1,6 @@
 from datetime import date
 import json
+import pytest
 from lorekeep.models import DocChunk, Schema
 from lorekeep.compile.extract import build_prompt, build_system_prompt, parse_response, SYSTEM_PROMPT_BASE
 
@@ -94,6 +95,47 @@ def test_parse_response_maps_nodes_and_edges():
     assert aliases == {"payments-api": ["payments-api"]}
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2026-07-24T02:01:12+00:00", date(2026, 7, 24)),
+        ("2026-07-24T23:59:59-05:00", date(2026, 7, 24)),
+        ("2026-07-24T02:01:12Z", date(2026, 7, 24)),
+    ],
+)
+def test_parse_response_accepts_iso_datetime_dates(value, expected):
+    c = make_chunk()
+    raw = json.dumps({
+        "nodes": [{
+            "id": "svc:payments-api",
+            "type": "service",
+            "name": "payments-api",
+            "valid_from": value,
+        }],
+        "edges": [],
+    })
+
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+
+    assert nodes[0].valid_from == expected
+
+
+def test_parse_response_rejects_invalid_iso_datetime():
+    c = make_chunk()
+    raw = json.dumps({
+        "nodes": [{
+            "id": "svc:payments-api",
+            "type": "service",
+            "name": "payments-api",
+            "valid_from": "2026-07-24Tnot-a-time",
+        }],
+        "edges": [],
+    })
+
+    with pytest.raises(ValueError, match="Invalid isoformat string"):
+        parse_response(raw, c, schema=SCHEMA)
+
+
 def test_parse_response_skips_invalid_node_type():
     c = make_chunk()
     raw = json.dumps({"nodes": [{"id": "x", "type": "bogus", "name": "x"}], "edges": []})
@@ -181,7 +223,6 @@ def test_parse_response_tolerates_prose_wrapped_json():
 
 
 def test_parse_response_raises_on_non_json():
-    import pytest
     c = make_chunk()
     with pytest.raises(ValueError):
         parse_response("no JSON here at all", c, schema=SCHEMA)

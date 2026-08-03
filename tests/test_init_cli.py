@@ -48,6 +48,8 @@ def test_init_yes_flag_skips_prompts(tmp_path: Path, monkeypatch):
     assert cfg["ns"]["default"] == ["me"]
     assert cfg["ns"]["personal"] == "me"
     assert cfg["provider"]["model"] == "openai/gpt-4o-mini"
+    assert cfg["provider"]["timeout_seconds"] == 120
+    assert cfg["provider"]["max_retries"] == 2
 
 
 def test_init_interactive(tmp_path: Path, monkeypatch):

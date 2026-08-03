@@ -172,11 +172,14 @@ WHERE contains(ns, "backend")
 
 ## 7. Refresh after compile
 
-Wiki regeneration is **atomic** — pages build in a temp sibling dir, then
-`os.rename` swaps into place. Obsidian always sees either the old or the new
-version, never a mix, so it's safe to leave the vault open while `compile` or
-the daemon regenerates. Obsidian picks up file changes live; if a page looks
-stale, switch notes or re-open the vault.
+Wiki regeneration builds every page in a temp sibling directory, then
+atomically replaces each `.md` file inside the existing vault. The vault root
+is never replaced, so Obsidian's watcher and `.obsidian/` settings remain
+intact while `compile` or the daemon regenerates. Each individual note is
+always either its complete old or complete new version. Before publishing,
+Lorekeep snapshots the existing markdown pages; if a replacement or stale-page
+deletion fails, every attempted change is rolled back. If rollback itself
+cannot complete, the snapshot is retained in `.wiki-rollback.tmp` for recovery.
 
 You rarely need `lorekeep wiki` manually — it auto-regenerates after every
 `facts.jsonl` mutation (`compile`, a real `resolve`, daemon auto-resolve on

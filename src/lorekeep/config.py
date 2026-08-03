@@ -13,6 +13,8 @@ class ProviderConfig(BaseModel):
     api_key_env: str | None = None   # env var holding the api key (else litellm default)
     api_key: str | None = None       # inline key (gitignored config only; env is safer)
     temperature: float = 0.0
+    timeout_seconds: float = Field(default=120.0, gt=0)
+    max_retries: int = Field(default=2, ge=0)
 
 
 class CompileConfig(BaseModel):

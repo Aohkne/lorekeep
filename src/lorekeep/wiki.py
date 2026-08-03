@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -463,28 +464,109 @@ def _overview_page(store: GraphStore, manifest: Manifest | None) -> str:
     return "\n".join(lines)
 
 
-def _atomic_dir_swap(wiki_dir: Path, build_dir: Path) -> None:
-    """Atomically swap build_dir into wiki_dir.
+def _rollback_publish(
+    wiki_dir: Path,
+    backup_dir: Path,
+    original_pages: set[str],
+    attempted_pages: set[str],
+) -> None:
+    """Restore every page touched by a failed publish from its snapshot."""
+    errors: list[Exception] = []
 
-    On POSIX: rename old wiki to .old, rename new to wiki, rmtree old.
-    Never leaves wiki_dir partially populated.
+    for name in sorted(attempted_pages - original_pages):
+        destination = wiki_dir / name
+        try:
+            if destination.exists():
+                destination.unlink()
+        except Exception as exc:
+            errors.append(exc)
+
+    for name in sorted(attempted_pages & original_pages):
+        backup = backup_dir / name
+        destination = wiki_dir / name
+        restore_tmp: Path | None = None
+        try:
+            fd, tmp_name = tempfile.mkstemp(
+                dir=wiki_dir,
+                prefix=".lorekeep-rollback-",
+                suffix=".tmp",
+            )
+            os.close(fd)
+            restore_tmp = Path(tmp_name)
+            shutil.copy2(backup, restore_tmp)
+            os.replace(restore_tmp, destination)
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            if restore_tmp is not None and restore_tmp.exists():
+                try:
+                    restore_tmp.unlink()
+                except Exception as exc:
+                    errors.append(exc)
+
+    if errors:
+        raise ExceptionGroup("wiki rollback failed", errors)
+
+
+def _publish_build(wiki_dir: Path, build_dir: Path) -> None:
+    """Publish staged pages while keeping the vault directory stable.
+
+    Obsidian watches the vault root. Replacing that directory breaks its file
+    watcher and removes its ``.obsidian`` settings, leaving notes visible in
+    the sidebar but blank when opened. Snapshot all current markdown pages,
+    then replace each staged page and remove stale pages. A failure during
+    either phase rolls every attempted change back to the snapshot.
+    Non-markdown content (including ``.obsidian``) is left untouched.
     """
-    parent = wiki_dir.parent
-    parent.mkdir(parents=True, exist_ok=True)
+    backup_dir = wiki_dir.parent / ".wiki-rollback.tmp"
+    backup_created = False
+    preserve_backup = False
+    try:
+        wiki_dir.mkdir(parents=True, exist_ok=True)
+        if backup_dir.exists():
+            raise RuntimeError(
+                f"wiki recovery snapshot already exists at {backup_dir}; "
+                "inspect or remove it before regenerating"
+            )
 
-    old_backup: Path | None = None
-    if wiki_dir.exists():
-        old_backup = wiki_dir.with_suffix(".wiki-old.tmp")
-        if old_backup.exists():
-            import shutil
-            shutil.rmtree(old_backup)
-        os.rename(wiki_dir, old_backup)
+        staged_pages = {path.name for path in build_dir.glob("*.md")}
+        original_pages = {path.name for path in wiki_dir.glob("*.md")}
+        stale_pages = original_pages - staged_pages
 
-    os.rename(build_dir, wiki_dir)
+        backup_dir.mkdir(parents=True)
+        backup_created = True
+        for name in sorted(original_pages):
+            shutil.copy2(wiki_dir / name, backup_dir / name)
 
-    if old_backup is not None and old_backup.exists():
-        import shutil
-        shutil.rmtree(old_backup)
+        attempted_pages: set[str] = set()
+        try:
+            for name in sorted(staged_pages):
+                attempted_pages.add(name)
+                os.replace(build_dir / name, wiki_dir / name)
+            for name in sorted(stale_pages):
+                attempted_pages.add(name)
+                (wiki_dir / name).unlink()
+        except Exception as publish_error:
+            try:
+                _rollback_publish(
+                    wiki_dir,
+                    backup_dir,
+                    original_pages,
+                    attempted_pages,
+                )
+            except Exception as rollback_error:
+                preserve_backup = True
+                raise RuntimeError(
+                    "wiki publish and rollback both failed; the original "
+                    f"markdown snapshot is preserved at {backup_dir}. "
+                    f"Publish error: {publish_error!r}; "
+                    f"rollback error: {rollback_error!r}"
+                ) from rollback_error
+            raise
+    finally:
+        shutil.rmtree(build_dir, ignore_errors=True)
+        if backup_created and not preserve_backup:
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def generate_wiki(
@@ -494,7 +576,8 @@ def generate_wiki(
 ) -> dict:
     """Generate Obsidian-compatible wiki pages from facts.jsonl.
 
-    Builds into a temp sibling directory, then atomically swaps into place.
+    Builds into a temp sibling directory, then atomically replaces each page
+    without replacing the vault root.
     Appends to log.md (the only non-deterministic file, preserved across regen).
 
     Returns a summary dict with counts.
@@ -518,7 +601,6 @@ def generate_wiki(
 
     build_dir = wiki_dir.parent / ".wiki-build.tmp"
     if build_dir.exists():
-        import shutil
         shutil.rmtree(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
 
@@ -554,7 +636,7 @@ def generate_wiki(
         existing_log = "# Lorekeep Wiki \u2014 Log\n\n"
     _atomic_write(build_dir / "log.md", existing_log + entry)
 
-    _atomic_dir_swap(wiki_dir, build_dir)
+    _publish_build(wiki_dir, build_dir)
 
     return {
         "nodes": len(nodes),
