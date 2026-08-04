@@ -354,6 +354,7 @@ The [`docs/`](docs/README.md) index is the entry point.
 - [Serving the graph to coding agents](docs/guides/serve.md)
 - [Browsing the wiki](docs/guides/wiki.md)
 - [Data home & path resolution](docs/guides/data-home.md)
+- [Runtime logging & bug reports](docs/guides/runtime-logging.md)
 - [Backing up the data home](docs/guides/backup.md)
 
 **Architecture**

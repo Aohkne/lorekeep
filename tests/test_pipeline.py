@@ -10,7 +10,8 @@ def copy_fixture(src: Path, dst: Path) -> None:
     dst.write_text(src.read_text())
 
 
-def test_compile_pipeline_produces_facts(tmp_path: Path, fixtures: Path):
+def test_compile_pipeline_produces_facts(tmp_path: Path, fixtures: Path, caplog):
+    import logging as _logging
     raw = tmp_path / "raw"
     copy_fixture(fixtures / "raw/backend/payments.md",
                  raw / "teams/backend/payments.md")
@@ -36,13 +37,16 @@ def test_compile_pipeline_produces_facts(tmp_path: Path, fixtures: Path):
     })
     provider = FakeProvider([canned])
 
-    manifest = compile_graph(raw_root=raw, out_dir=out, schema=schema,
-                             provider=provider, cache_path=cache, chunk_lines=60)
+    with caplog.at_level(_logging.INFO, logger="lorekeep"):
+        manifest = compile_graph(raw_root=raw, out_dir=out, schema=schema,
+                                 provider=provider, cache_path=cache, chunk_lines=60)
     facts = (out / "facts.jsonl").read_text().splitlines()
     assert len(facts) == 6                       # 4 nodes + 2 edges
     assert (out / "manifest.json").exists()
     assert manifest.node_count == 4
     assert manifest.edge_count == 2
+    assert any(getattr(r, "event", "") == "compile.start" for r in caplog.records)
+    assert any(getattr(r, "event", "") == "compile.complete" for r in caplog.records)
 
 
 def test_pipeline_per_chunk_failure_logs_exception(tmp_path: Path, fixtures: Path, caplog):

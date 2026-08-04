@@ -94,6 +94,11 @@ class TestLaunchdPlist:
         assert f"LOREKEEP_HOME" in plist
         assert str(tmp_path) in plist
 
+    def test_plist_uses_bootstrap_logs_under_data_home(self, tmp_path):
+        plist = _launchd_plist(tmp_path)
+        assert f"{tmp_path}/logs/daemon-bootstrap.log" in plist
+        assert f"{tmp_path}/logs/daemon-bootstrap.err.log" in plist
+
     def test_plist_path_in_library(self):
         path = _launchd_plist_path()
         assert "Library/LaunchAgents" in str(path)
@@ -107,6 +112,9 @@ class TestLaunchdPlist:
             from lorekeep.daemon_service import install_launchd
             plist_path = install_launchd(tmp_path / "data")
         assert plist_path.exists()
+        if sys.platform != "win32":
+            assert (tmp_path / "data/logs/daemon-bootstrap.log").stat().st_mode & 0o777 == 0o600
+            assert (tmp_path / "data/logs/daemon-bootstrap.err.log").stat().st_mode & 0o777 == 0o600
 
 
 class TestWindowsScript:

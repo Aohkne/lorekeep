@@ -157,7 +157,10 @@ def parse_response(
     for n in data.get("nodes", []):
         ntype = n.get("type")
         if schema is not None and not schema.is_valid_node_type(ntype):
-            log.debug("dropping node with unknown type %r in %s", ntype, chunk.src)
+            log.debug(
+                "dropping node with unknown type=%r", ntype,
+                extra={"event": "extract.unknown_node_type"},
+            )
             continue
         props = dict(n.get("props", {}))
         if "name" in n and "name" not in props:
@@ -175,7 +178,10 @@ def parse_response(
     for e in data.get("edges", []):
         etype = e.get("type")
         if schema is not None and not schema.is_valid_edge_type(etype):
-            log.debug("dropping edge with unknown type %r in %s", etype, chunk.src)
+            log.debug(
+                "dropping edge with unknown type=%r", etype,
+                extra={"event": "extract.unknown_edge_type"},
+            )
             continue
         edges.append(Edge(
             id="",                      # assigned deterministically in resolve

@@ -31,6 +31,10 @@ def compile_graph(
     chunks = ingest(raw_root, chunk_lines=chunk_lines)
     cache = ExtractionCache(cache_path)
     total = len(chunks)
+    log.info(
+        "compile started chunk_count=%s", total,
+        extra={"event": "compile.start"},
+    )
 
     all_nodes: list[Node] = []
     all_edges: list[Edge] = []
@@ -48,7 +52,11 @@ def compile_graph(
             for ak, av in aliases.items():       # union variants, last-writer-wins drops aliases
                 all_aliases[ak] = list(dict.fromkeys(all_aliases.get(ak, []) + av))
         except Exception as exc:               # skip-and-log; partial compile is valid
-            log.exception("compile: chunk failed path=%s line=%s", chunk.path, chunk.start_line)
+            log.exception(
+                "compile: chunk failed line=%s error_type=%s",
+                chunk.start_line, type(exc).__name__,
+                extra={"event": "compile.chunk_failed"},
+            )
             errors.append({"path": chunk.path, "line": chunk.start_line,
                            "message": str(exc)})
     cache.save()
@@ -82,4 +90,9 @@ def compile_graph(
         quarantine=[{"fact": q[0], "reason": q[1]} for q in resolved.quarantined],
     )
     write_graph(out_dir, resolved.nodes, resolved.edges, manifest)
+    log.info(
+        "compile completed chunk_count=%s node_count=%s edge_count=%s error_count=%s",
+        len(chunks), len(resolved.nodes), len(resolved.edges), len(errors),
+        extra={"event": "compile.complete"},
+    )
     return manifest

@@ -109,17 +109,27 @@ def hook() -> None:
         if session_dir and (session_dir / "memory").is_dir():
             written = import_claude_mem(session_dir, p["raw"], "claude-memory")
             total += len(written)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning(
+            "Claude hook import failed error_type=%s", type(exc).__name__,
+            extra={"event": "hook.claude_failed"},
+        )
 
     try:
         from lorekeep.importer.codex import import_memories as import_codex_mem
         written = import_codex_mem(p["raw"], "codex-memory")
         total += len(written)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning(
+            "Codex hook import failed error_type=%s", type(exc).__name__,
+            extra={"event": "hook.codex_failed"},
+        )
 
     if total:
+        log.info(
+            "memory hook completed file_count=%s", total,
+            extra={"event": "hook.complete"},
+        )
         typer.echo(f"lorekeep: imported {total} memory file(s)")
 
 
@@ -144,7 +154,10 @@ def _report_compile_errors(manifest, *, exit_on_total_failure: bool = True) -> N
     if not errs:
         return
     for e in errs:
-        log.error("compile error %s:%s: %s", e.path, e.line, e.message)
+        log.error(
+            "compile error line=%s", e.line,
+            extra={"event": "compile.manifest_error"},
+        )
     from lorekeep.output import dim, error, warn
     total_fail = manifest.node_count == 0 and manifest.chunk_count > 0
     if total_fail:
@@ -575,7 +588,18 @@ def serve(
         allowed = load_config(p["config"]).ns.default
     from lorekeep.mcp_server import configure, mcp
     configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
-    mcp.run(transport=transport)
+    log.info(
+        "MCP server starting transport=%s namespace_count=%s", transport, len(allowed),
+        extra={"event": "mcp.start"},
+    )
+    try:
+        mcp.run(transport=transport)
+    except Exception as exc:
+        log.exception(
+            "MCP server stopped unexpectedly error_type=%s", type(exc).__name__,
+            extra={"event": "mcp.failed"},
+        )
+        raise
 
 
 mcp_app = typer.Typer(help="Coding-agent integration.")
@@ -585,6 +609,63 @@ config_app = typer.Typer(help="View and edit lorekeep config.")
 app.add_typer(config_app, name="config")
 schema_app = typer.Typer(help="Inspect and upgrade the graph schema.")
 app.add_typer(schema_app, name="schema")
+support_app = typer.Typer(
+    help="Create privacy-safe diagnostics for bug reports.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+app.add_typer(support_app, name="support")
+
+
+@support_app.callback()
+def support(
+    ctx: typer.Context,
+    output: Path | None = typer.Option(None, "--output", "-o", help="Write the ZIP to this path."),
+    report_only: bool = typer.Option(False, "--report-only", help="Print the report without creating a ZIP."),
+    no_print: bool = typer.Option(False, "--no-print", help="Create the ZIP without printing the report."),
+) -> None:
+    """Print a support report and create its redacted attachment bundle."""
+    if ctx.invoked_subcommand is not None:
+        return
+    if report_only and no_print:
+        raise typer.BadParameter("--report-only and --no-print cannot be used together")
+    if report_only and output is not None:
+        raise typer.BadParameter("--output is only used when creating a bundle")
+
+    from lorekeep.support import build_report, create_bundle
+    if not no_print:
+        typer.echo(build_report(), nl=False)
+    if report_only:
+        return
+    path, digest = create_bundle(output)
+    if not no_print:
+        typer.echo()
+    typer.echo(f"support bundle: {path}")
+    typer.echo(f"sha256: {digest}")
+
+
+@support_app.command("report", hidden=True)
+def support_report(
+    output: Path | None = typer.Option(None, "--output", "-o", help="Write Markdown to this path."),
+) -> None:
+    """Print a metadata-only report suitable for a GitHub issue."""
+    from lorekeep.support import build_report, write_report
+    if output is None:
+        typer.echo(build_report(), nl=False)
+    else:
+        write_report(output)
+        typer.echo(f"support report: {output}")
+
+
+@support_app.command("bundle", hidden=True)
+def support_bundle(
+    output: Path | None = typer.Option(None, "--output", "-o", help="Write the ZIP to this path."),
+) -> None:
+    """Create a redacted, allowlisted ZIP for attachment to a bug report."""
+    from lorekeep.support import create_bundle
+    path, digest = create_bundle(output)
+    typer.echo(f"support bundle: {path}")
+    typer.echo(f"sha256: {digest}")
 
 
 @schema_app.command("upgrade")
@@ -826,8 +907,11 @@ def init(
     elif p["config"].exists():
         try:
             ns = load_config(p["config"]).ns.default[0]
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning(
+                "existing config could not be loaded error_type=%s",
+                type(exc).__name__, extra={"event": "init.config_invalid"},
+            )
 
     p["schema"].parent.mkdir(parents=True, exist_ok=True)
     if not p["schema"].exists():
@@ -1111,6 +1195,11 @@ def _auto_wire_agents(p: dict, ns: str) -> None:
                 hook_path = writer.write_hook(target, hook_cmd, hook_args)
                 typer.echo(f"  hooked {agent_name} session-end -> {hook_path}")
         except Exception as exc:
+            log.warning(
+                "agent wiring failed agent=%s error_type=%s",
+                agent_name, type(exc).__name__,
+                extra={"event": "init.agent_wiring_failed"},
+            )
             typer.echo(f"  {agent_name}: failed ({exc})")
 
     typer.echo("\n  " + agent_memory_snippet().replace("\n", "\n  ").strip())
@@ -1141,6 +1230,10 @@ def _auto_import_and_compile(p: dict) -> None:
             if imported:
                 typer.echo(f"  imported {imported} memory file(s) from Claude session")
     except Exception as exc:
+        log.warning(
+            "automatic memory import failed error_type=%s", type(exc).__name__,
+            extra={"event": "init.import_failed"},
+        )
         if os.environ.get("LOREKEEP_DEBUG"):
             typer.echo(f"  import error: {exc}")
 
@@ -1183,6 +1276,10 @@ def _auto_import_and_compile(p: dict) -> None:
             _auto_generate_wiki(p["out"], p["wiki"])
         typer.echo(f"  compiled: {manifest.node_count} nodes, {manifest.edge_count} edges")
     except Exception as exc:
+        log.exception(
+            "initial compile failed error_type=%s", type(exc).__name__,
+            extra={"event": "init.compile_failed"},
+        )
         typer.echo(f"  compile skipped: {exc}")
 
 
@@ -1192,7 +1289,9 @@ def _start_daemon(p: dict) -> None:
     import sys
 
     pid_path = p["home"] / "agent.pid"
-    log_path = p["home"] / "agent.log"
+    log_dir = p.get("logs", p["home"] / "logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "daemon-bootstrap.log"
 
     # Check if already running
     if pid_path.exists():
@@ -1207,6 +1306,10 @@ def _start_daemon(p: dict) -> None:
     cmd = [sys.executable, "-m", "lorekeep.cli", "agent", "watch", "--interval", "60"]
     log_file = open(log_path, "a")
     try:
+        os.chmod(log_path, 0o600)
+    except OSError:
+        pass
+    try:
         proc = subprocess.Popen(
             cmd,
             stdout=log_file,
@@ -1217,6 +1320,10 @@ def _start_daemon(p: dict) -> None:
     finally:
         log_file.close()
     pid_path.write_text(str(proc.pid))
+    log.info(
+        "background daemon started pid=%s", proc.pid,
+        extra={"event": "daemon.background_started"},
+    )
     typer.echo(f"  daemon started (pid={proc.pid}, log={log_path})")
 
 
@@ -1442,9 +1549,17 @@ def daemon_install() -> None:
     p = resolve_paths()
     try:
         platform_name, config_path = svc_install(p["home"])
+        log.info(
+            "daemon service installed platform=%s", platform_name,
+            extra={"event": "daemon.service_installed"},
+        )
         typer.echo(f"daemon: installed as {platform_name} service → {config_path}")
         typer.echo(f"daemon: will auto-start on login/restart")
     except RuntimeError as exc:
+        log.error(
+            "daemon service install failed error_type=%s", type(exc).__name__,
+            extra={"event": "daemon.service_install_failed"},
+        )
         typer.echo(f"daemon: {exc}")
         raise typer.Exit(code=1)
 
@@ -1454,6 +1569,10 @@ def daemon_uninstall() -> None:
     """Remove the persistent daemon service."""
     from lorekeep.daemon_service import uninstall as svc_uninstall
     removed = svc_uninstall()
+    log.info(
+        "daemon service uninstall completed removed=%s", removed,
+        extra={"event": "daemon.service_uninstalled"},
+    )
     if removed:
         typer.echo("daemon: service removed")
     else:
@@ -1464,7 +1583,9 @@ def daemon_uninstall() -> None:
 def daemon_status() -> None:
     """Check if the persistent daemon service is installed and running."""
     from lorekeep.daemon_service import status as svc_status
-    typer.echo(svc_status())
+    state = svc_status()
+    log.info("daemon service status checked", extra={"event": "daemon.service_status"})
+    typer.echo(state)
 
 
 @agent_app.command()
@@ -1765,16 +1886,22 @@ def _discover_watchable_sessions() -> list[tuple[str, Path, Path]]:
         sd = find_claude()
         if sd and (sd / "memory").is_dir() and any((sd / "memory").glob("*.md")):
             sessions.append(("claude", sd, sd / "memory"))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning(
+            "Claude session discovery failed error_type=%s", type(exc).__name__,
+            extra={"event": "daemon.session_discovery_failed"},
+        )
 
     try:
         from lorekeep.importer.codex import _codex_home
         mem_dir = _codex_home() / "memories"
         if mem_dir.is_dir() and any(mem_dir.glob("*.md")):
             sessions.append(("codex", mem_dir.parent, mem_dir))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning(
+            "Codex session discovery failed error_type=%s", type(exc).__name__,
+            extra={"event": "daemon.session_discovery_failed"},
+        )
 
     return sessions
 
@@ -1820,6 +1947,10 @@ def watch(
     if watch_sessions:
         typer.echo("agent: session watch enabled (Claude + Codex memory dirs)")
     typer.echo("agent: MCP server lazy-reloads facts.jsonl — no reconnect needed")
+    log.info(
+        "daemon watch started interval=%s session_watch=%s",
+        interval, watch_sessions, extra={"event": "daemon.start"},
+    )
 
     pid_file = p["home"] / ".daemon.pid"
     if pid_file.exists():
@@ -1846,8 +1977,11 @@ def watch(
         if has_remote(p["home"]):
             typer.echo("agent: syncing backup from remote...")
             sync_backup(p["home"])
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning(
+            "startup backup sync failed error_type=%s", type(exc).__name__,
+            extra={"event": "daemon.backup_failed"},
+        )
 
     # Resolve/replay only after startup sync so remote journal events are visible.
     if pending_dir and pending_dir.exists():
@@ -1896,6 +2030,10 @@ def watch(
                     typer.echo("agent: compile done")
                     compiled = True
                 except Exception as exc:
+                    log.exception(
+                        "daemon compile failed error_type=%s", type(exc).__name__,
+                        extra={"event": "daemon.compile_failed"},
+                    )
                     typer.echo(f"agent: compile error: {exc}")
             last_raw_mtime = raw_mtime
             last_raw_count = raw_count
@@ -1906,8 +2044,11 @@ def watch(
                     from lorekeep.backup import sync_backup
                     if sync_backup(p["home"]):
                         typer.echo("agent: backup synced")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning(
+                        "post-compile backup sync failed error_type=%s",
+                        type(exc).__name__, extra={"event": "daemon.backup_failed"},
+                    )
                 if has_pending:
                     _do_auto_resolve(
                         p["out"], pending_dir, p.get("wiki"), p.get("schema"),
@@ -1946,14 +2087,24 @@ def watch(
                                 typer.echo(f"agent: {agent_name} import done — {count} files → raw/{agent_name}-memory/")
                                 session_import_time[agent_name] = now
                         except Exception as exc:
+                            log.exception(
+                                "session import failed agent=%s error_type=%s",
+                                agent_name, type(exc).__name__,
+                                extra={"event": "daemon.session_import_failed"},
+                            )
                             typer.echo(f"agent: {agent_name} import error: {exc}")
                     session_state[agent_name] = mem_mtime
 
             time.sleep(interval)
         except KeyboardInterrupt:
+            log.info("daemon watch stopped", extra={"event": "daemon.stop"})
             typer.echo("\nagent: shutting down")
             break
         except Exception as exc:
+            log.exception(
+                "daemon loop failed error_type=%s", type(exc).__name__,
+                extra={"event": "daemon.loop_failed"},
+            )
             typer.echo(f"agent: error: {exc}")
             time.sleep(interval)
 
@@ -2060,11 +2211,20 @@ def _do_auto_resolve_unlocked(
 
             typer.echo(f"agent: resolve done — {merged.merge_count} merged, "
                        f"{merged.flagged_count} flagged, {merged.quarantine_count} quarantined")
+            log.info(
+                "auto-resolve completed merged=%s flagged=%s quarantined=%s",
+                merged.merge_count, merged.flagged_count, merged.quarantine_count,
+                extra={"event": "resolve.complete"},
+            )
 
             if wiki_dir:
                 _auto_generate_wiki(out_dir, wiki_dir)
             return True
     except Exception as exc:
+        log.exception(
+            "auto-resolve failed error_type=%s", type(exc).__name__,
+            extra={"event": "resolve.failed"},
+        )
         typer.echo(f"agent: resolve error: {exc}")
     return False
 
@@ -2074,7 +2234,12 @@ def _auto_generate_wiki(graph_dir: Path, wiki_dir: Path) -> None:
     try:
         from lorekeep.wiki import generate_wiki
         generate_wiki(graph_dir, wiki_dir)
+        log.info("wiki generated", extra={"event": "wiki.complete"})
     except Exception as exc:
+        log.warning(
+            "wiki generation skipped error_type=%s", type(exc).__name__,
+            extra={"event": "wiki.failed"},
+        )
         typer.echo(f"wiki: auto-gen skipped: {exc}")
 
 

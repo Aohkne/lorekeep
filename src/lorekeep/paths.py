@@ -31,6 +31,7 @@ def resolve_paths() -> dict[str, Path]:
         schema = home / "schema.json"
         pending = home / "pending"
         wiki = home / "wiki"
+        logs = home / "logs"
     elif dev:
         home = cwd / ".lorekeep"
         config = home / "config.yaml"
@@ -40,6 +41,7 @@ def resolve_paths() -> dict[str, Path]:
         schema = home / "schema.json"
         pending = home / "pending"
         wiki = home / "wiki"
+        logs = home / "logs"
     else:
         from platformdirs import user_config_dir, user_data_dir
         home = Path(user_data_dir("lorekeep"))
@@ -50,6 +52,7 @@ def resolve_paths() -> dict[str, Path]:
         schema = home / "schema.json"
         pending = home / "pending"
         wiki = home / "wiki"
+        logs = home / "logs"
 
     def override(env_name: str, current: Path) -> Path:
         v = os.environ.get(env_name)
@@ -64,4 +67,5 @@ def resolve_paths() -> dict[str, Path]:
         "config": override("LOREKEEP_CONFIG", config),
         "pending": override("LOREKEEP_PENDING", pending),
         "wiki": override("LOREKEEP_WIKI", wiki),
+        "logs": override("LOREKEEP_LOGS", logs),
     }

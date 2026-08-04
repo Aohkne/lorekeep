@@ -9,6 +9,7 @@ the next resolve pass.
 """
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import uuid
@@ -23,6 +24,8 @@ from lorekeep.perm.ns import ScopedGraph
 from lorekeep.schema_io import load_schema
 from lorekeep.store.graph import GraphStore, parse_date
 from lorekeep.store.fts import FTSIndex
+
+log = logging.getLogger("lorekeep.mcp")
 
 mcp = FastMCP("lorekeep")
 
@@ -43,6 +46,10 @@ def configure(graph_dir, allowed_ns, schema_path=None, fts_path=None, pending_di
         _state["fts_path"] = Path(fts_path)
     else:
         _state["fts_path"] = _state["graph_dir"] / "fts.sqlite"
+    log.info(
+        "configuring graph namespace_count=%s", len(_state["allowed_ns"]),
+        extra={"event": "mcp.configure"},
+    )
     _rebuild()
 
 
@@ -66,9 +73,18 @@ def _rebuild() -> None:
             _fts.build(store.all_nodes())
         else:
             _fts = None
-    except Exception:
+    except Exception as exc:
+        log.warning(
+            "FTS unavailable; falling back to graph search error_type=%s",
+            type(exc).__name__, extra={"event": "mcp.fts_fallback"},
+        )
         _fts = None
     _state["facts_mtime"] = facts.stat().st_mtime if facts.exists() else 0
+    log.info(
+        "graph loaded node_count=%s edge_count=%s fts=%s",
+        len(store.node_ids()), len(store.all_edges()), _fts is not None,
+        extra={"event": "mcp.graph_loaded"},
+    )
 
 
 def _require() -> ScopedGraph:
@@ -78,6 +94,7 @@ def _require() -> ScopedGraph:
     facts = _state["graph_dir"] / "facts.jsonl"
     mtime = facts.stat().st_mtime if facts.exists() else 0
     if _scope is None or mtime != _state.get("facts_mtime"):
+        log.info("facts changed; reloading graph", extra={"event": "mcp.reload"})
         _rebuild()
     return _scope
 

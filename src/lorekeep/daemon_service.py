@@ -92,7 +92,7 @@ def status_systemd() -> str:
     """Return systemd service status string."""
     r = subprocess.run(
         ["systemctl", "--user", "is-active", "lorekeep"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=3,
     )
     return r.stdout.strip() or r.stderr.strip()
 
@@ -130,9 +130,9 @@ def _launchd_plist(home: Path) -> str:
         <string>{home}</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>{home}/daemon.log</string>
+    <string>{home}/logs/daemon-bootstrap.log</string>
     <key>StandardErrorPath</key>
-    <string>{home}/daemon.err.log</string>
+    <string>{home}/logs/daemon-bootstrap.err.log</string>
 </dict>
 </plist>
 """
@@ -140,6 +140,14 @@ def _launchd_plist(home: Path) -> str:
 
 def install_launchd(home: Path) -> Path:
     """Install launchd LaunchAgent. Returns the plist path."""
+    (home / "logs").mkdir(parents=True, exist_ok=True)
+    for name in ("daemon-bootstrap.log", "daemon-bootstrap.err.log"):
+        log_path = home / "logs" / name
+        log_path.touch(exist_ok=True)
+        try:
+            log_path.chmod(0o600)
+        except OSError:
+            pass
     plist_path = _launchd_plist_path()
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(_launchd_plist(home), encoding="utf-8")
@@ -161,7 +169,7 @@ def status_launchd() -> str:
     """Return launchd service status."""
     r = subprocess.run(
         ["launchctl", "list", _service_label()],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=3,
     )
     if r.returncode == 0:
         return "running"
