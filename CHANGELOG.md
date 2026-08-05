@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.16.0](https://github.com/manhhailua/lorekeep/compare/v0.15.0...v0.16.0) (2026-08-05)
+
+
+### Features
+
+* add token fallback chain for auto bug-report ([bfe5aa8](https://github.com/manhhailua/lorekeep/commit/bfe5aa85f81cc71624668ebd165d602b19c83a6a))
+* auto-create GitHub issues on runtime errors ([86679d8](https://github.com/manhhailua/lorekeep/commit/86679d8709ed3d64c76b96f9b04ef43765bab084))
+* auto-create GitHub issues on runtime errors ([0416ed2](https://github.com/manhhailua/lorekeep/commit/0416ed2224b0450a442c8b937bfe64f66587e2a9))
+
 ## [0.15.0](https://github.com/manhhailua/lorekeep/compare/v0.14.0...v0.15.0) (2026-08-05)
 
 
