@@ -647,6 +647,9 @@ support_app = typer.Typer(
 )
 app.add_typer(support_app, name="support")
 
+bugreport_app = typer.Typer(help="Control automatic GitHub issue reporting.")
+app.add_typer(bugreport_app, name="bugreport")
+
 
 @support_app.callback()
 def support(
@@ -697,6 +700,69 @@ def support_bundle(
     path, digest = create_bundle(output)
     typer.echo(f"support bundle: {path}")
     typer.echo(f"sha256: {digest}")
+
+
+# ── bugreport ────────────────────────────────────────────────────────────────
+
+def _set_bugreport_enabled(value: bool) -> None:
+    """Write bugreport.enabled in config.yaml."""
+    import yaml
+    from lorekeep.output import ok
+    p = resolve_paths()
+    if not p["config"].exists():
+        typer.echo("No config.yaml found — run `lorekeep init` first.")
+        raise typer.Exit(code=1)
+    data = yaml.safe_load(p["config"].read_text(encoding="utf-8")) or {}
+    br = data.setdefault("bugreport", {})
+    br["enabled"] = value
+    p["config"].write_text(
+        yaml.dump(data, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+    ok(f"auto bug-report {'enabled' if value else 'disabled'}")
+
+
+@bugreport_app.command("on")
+def bugreport_on() -> None:
+    """Enable automatic GitHub issue creation on errors."""
+    _set_bugreport_enabled(True)
+
+
+@bugreport_app.command("off")
+def bugreport_off() -> None:
+    """Disable automatic GitHub issue creation on errors."""
+    _set_bugreport_enabled(False)
+
+
+@bugreport_app.command("status")
+def bugreport_status() -> None:
+    """Show current auto bug-report configuration and dedup stats."""
+    import json
+    from lorekeep.bugreport import _dedup_path, _load_dedup
+    from lorekeep.config import load_config
+    from lorekeep.output import dim, info
+
+    p = resolve_paths()
+    cfg = load_config(p["config"])
+    br = cfg.bugreport
+
+    state = "enabled" if br.enabled else "disabled"
+    info(f"auto bug-report: {state}")
+    typer.echo(f"  repo: {br.repo}")
+    typer.echo(f"  token env: {br.token_env}")
+    has_token = bool(os.environ.get(br.token_env))
+    typer.echo(f"  token set: {'yes' if has_token else 'no'}")
+    typer.echo(f"  labels: {', '.join(br.labels)}")
+
+    dpath = _dedup_path()
+    dedup = _load_dedup(dpath)
+    reported = len(dedup)
+    total = sum(v.get("count", 1) for v in dedup.values())
+    typer.echo(f"  dedup file: {dpath}")
+    typer.echo(f"  issues created: {reported}")
+    typer.echo(f"  total occurrences: {total}")
+    if not dedup:
+        dim("  (no errors reported yet)")
 
 
 @schema_app.command("upgrade")

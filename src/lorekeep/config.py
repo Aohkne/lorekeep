@@ -42,11 +42,20 @@ class ObservabilityConfig(BaseModel):
     api_url: str | None = None       # self-hosted endpoint (langfuse)
 
 
+class BugReportConfig(BaseModel):
+    """Automatic GitHub issue creation for runtime errors."""
+    enabled: bool = True
+    repo: str = "manhhailua/lorekeep"
+    token_env: str = "LOREKEEP_GITHUB_TOKEN"  # env var name holding the GitHub PAT
+    labels: list[str] = Field(default_factory=lambda: ["auto-reported"])
+
+
 class Config(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
     ns: NsConfig = Field(default_factory=NsConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    bugreport: BugReportConfig = Field(default_factory=BugReportConfig)
     install_source: str | None = None      # pypi | local | git+URL | path
 
 
