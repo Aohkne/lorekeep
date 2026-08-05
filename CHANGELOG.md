@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/manhhailua/lorekeep/compare/v0.13.2...v0.14.0) (2026-08-05)
+
+
+### Features
+
+* add privacy-safe runtime diagnostics ([ba4077d](https://github.com/manhhailua/lorekeep/commit/ba4077d1d9165e8e5f73eaf82f4022ef96d8900d))
+* add privacy-safe runtime diagnostics ([bfc5254](https://github.com/manhhailua/lorekeep/commit/bfc52546335da509a4c341b651d704487ef0e55f))
+
 ## [0.13.2](https://github.com/manhhailua/lorekeep/compare/v0.13.1...v0.13.2) (2026-08-03)
 
 
