@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.0](https://github.com/manhhailua/lorekeep/compare/v0.14.0...v0.15.0) (2026-08-05)
+
+
+### Features
+
+* generate human-readable knowledge wiki ([cbe5b52](https://github.com/manhhailua/lorekeep/commit/cbe5b52b771e1c45ae29b221c350b272813d4206))
+* generate human-readable knowledge wiki ([21a0300](https://github.com/manhhailua/lorekeep/commit/21a03007718a4446fc19a8d44cf502581af5f62f))
+
 ## [0.14.0](https://github.com/manhhailua/lorekeep/compare/v0.13.2...v0.14.0) (2026-08-05)
 
 
