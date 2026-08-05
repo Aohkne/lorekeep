@@ -3,13 +3,11 @@ name: auto-merge-release-please
 # When release-please creates or updates a Release PR on the
 # release-please--branches--main branch, enable auto-merge so it
 # merges automatically once branch-protection checks pass.
-#
-# NOTE: uv.lock sync happens post-release in release-please.yml
-# (sync-uv-lock job), NOT here. GITHUB_TOKEN PRs don't trigger
-# pull_request workflows, so pre-merge uv lock never runs.
+# The Release PR itself contains every versioned file, including uv.lock.
 on:
   pull_request:
-    types: [opened, synchronize]
+    # release-please may add autorelease: pending immediately after opening.
+    types: [opened, synchronize, labeled]
 
 permissions:
   contents: write
@@ -17,11 +15,14 @@ permissions:
 
 jobs:
   auto-merge:
-    if: startsWith(github.head_ref, 'release-please--')
+    if: >-
+      startsWith(github.head_ref, 'release-please--') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
     runs-on: ubuntu-latest
     steps:
       - name: Enable auto-merge for Release PR
         run: |
           gh pr merge --auto --merge "${{ github.event.pull_request.html_url }}"
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
