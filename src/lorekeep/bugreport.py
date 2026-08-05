@@ -32,6 +32,45 @@ _warned_no_token = False
 
 
 # ---------------------------------------------------------------------------
+# Token resolution (fallback chain)
+# ---------------------------------------------------------------------------
+
+def _gh_cli_token() -> str:
+    """Try to read a token from the installed ``gh`` CLI, or empty string."""
+    import shutil
+    import subprocess
+    if not shutil.which("gh"):
+        return ""
+    try:
+        proc = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if proc.returncode == 0:
+            return proc.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
+def _resolve_token(token_env: str) -> str:
+    """Resolve a GitHub token via a fallback chain.
+
+    Priority:
+    1. The env var named in ``token_env`` (explicit, user-controlled)
+    2. ``GITHUB_TOKEN`` (GitHub Actions / CI standard)
+    3. ``gh auth token`` output (if the user already ran ``gh auth login``)
+    """
+    token = os.environ.get(token_env, "")
+    if token:
+        return token
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token:
+        return token
+    return _gh_cli_token()
+
+
+# ---------------------------------------------------------------------------
 # Dedup persistence
 # ---------------------------------------------------------------------------
 
@@ -192,13 +231,14 @@ class BugReportHandler(logging.Handler):
         if not br.enabled:
             return
 
-        token = os.environ.get(br.token_env, "")
+        token = _resolve_token(br.token_env)
         if not token:
             if not _warned_no_token:
                 _warned_no_token = True
                 logger.warning(
-                    "auto bug-report skipped: env %s is not set; "
-                    "set it or run `lorekeep bugreport off` to silence",
+                    "auto bug-report skipped: no GitHub token found "
+                    "(checked %s, GITHUB_TOKEN, and gh auth); "
+                    "set one or run `lorekeep bugreport off` to silence",
                     br.token_env,
                 )
             return

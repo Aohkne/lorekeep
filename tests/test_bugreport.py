@@ -173,6 +173,9 @@ class TestHandlerEmit:
         if config_yaml:
             (home / "config.yaml").write_text(config_yaml, encoding="utf-8")
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        # Mock gh CLI to return empty unless a test overrides it.
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
         # Reset the warn-once flag.
         import lorekeep.bugreport as br
         br._warned_no_token = False
@@ -233,17 +236,19 @@ class TestHandlerEmit:
     def test_warns_once_without_token(self, mock_create, tmp_path: Path, monkeypatch, caplog):
         self._setup_home(tmp_path, monkeypatch)
         monkeypatch.delenv("LOREKEEP_GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
 
         handler = BugReportHandler()
 
         with caplog.at_level(logging.WARNING, logger="lorekeep.bugreport"):
             handler.emit(_make_error_record())
-        assert any("not set" in r.message for r in caplog.records)
+        assert any("no GitHub token" in r.message for r in caplog.records)
 
         caplog.clear()
         with caplog.at_level(logging.WARNING, logger="lorekeep.bugreport"):
             handler.emit(_make_error_record())
-        assert not any("not set" in r.message for r in caplog.records)
+        assert not any("no GitHub token" in r.message for r in caplog.records)
 
         mock_create.assert_not_called()
 
@@ -297,6 +302,59 @@ class TestHandlerEmit:
         assert len(dedup) == 0  # not recorded → allows retry next run
 
 
+# ── token fallback chain ─────────────────────────────────────────────────────
+
+
+class TestTokenFallback:
+    def test_explicit_env_var_wins(self, monkeypatch):
+        from lorekeep.bugreport import _resolve_token
+        monkeypatch.setenv("LOREKEEP_GITHUB_TOKEN", "ghp_explicit")
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_ci")
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "ghp_cli")
+        assert _resolve_token("LOREKEEP_GITHUB_TOKEN") == "ghp_explicit"
+
+    def test_github_token_fallback(self, monkeypatch):
+        from lorekeep.bugreport import _resolve_token
+        monkeypatch.delenv("LOREKEEP_GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_ci")
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "ghp_cli")
+        assert _resolve_token("LOREKEEP_GITHUB_TOKEN") == "ghp_ci"
+
+    def test_gh_cli_fallback(self, monkeypatch):
+        from lorekeep.bugreport import _resolve_token
+        monkeypatch.delenv("LOREKEEP_GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "ghp_cli")
+        assert _resolve_token("LOREKEEP_GITHUB_TOKEN") == "ghp_cli"
+
+    def test_no_token_returns_empty(self, monkeypatch):
+        from lorekeep.bugreport import _resolve_token
+        monkeypatch.delenv("LOREKEEP_GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
+        assert _resolve_token("LOREKEEP_GITHUB_TOKEN") == ""
+
+    @patch("lorekeep.bugreport._create_github_issue")
+    def test_uses_github_token_when_primary_missing(self, mock_create, tmp_path: Path, monkeypatch):
+        """Handler creates issue using GITHUB_TOKEN when primary env is absent."""
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / "logs").mkdir()
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        monkeypatch.delenv("LOREKEEP_GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_ci")
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
+        import lorekeep.bugreport as br
+        br._warned_no_token = False
+
+        mock_create.return_value = 7
+        handler = BugReportHandler()
+        handler.emit(_make_error_record())
+
+        mock_create.assert_called_once()
+        assert mock_create.call_args.args[1] == "ghp_ci"
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -341,11 +399,13 @@ class TestCli:
         )
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
         monkeypatch.setenv("MY_GH_TOKEN", "ghp_x")
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
 
         result = runner.invoke(app, ["bugreport", "status"])
         assert result.exit_code == 0, result.output
         assert "myorg/myrepo" in result.output
-        assert "token set: yes" in result.output
+        assert "token source:" in result.output
         assert "no errors reported yet" in result.output
 
     def test_bugreport_status_no_token(self, tmp_path: Path, monkeypatch):
@@ -354,7 +414,9 @@ class TestCli:
         (home / "logs").mkdir()
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
         monkeypatch.delenv("LOREKEEP_GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
 
         result = runner.invoke(app, ["bugreport", "status"])
         assert result.exit_code == 0, result.output
-        assert "token set: no" in result.output
+        assert "token: not found" in result.output

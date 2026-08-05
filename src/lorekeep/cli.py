@@ -738,7 +738,7 @@ def bugreport_off() -> None:
 def bugreport_status() -> None:
     """Show current auto bug-report configuration and dedup stats."""
     import json
-    from lorekeep.bugreport import _dedup_path, _load_dedup
+    from lorekeep.bugreport import _dedup_path, _load_dedup, _resolve_token
     from lorekeep.config import load_config
     from lorekeep.output import dim, info
 
@@ -750,8 +750,19 @@ def bugreport_status() -> None:
     info(f"auto bug-report: {state}")
     typer.echo(f"  repo: {br.repo}")
     typer.echo(f"  token env: {br.token_env}")
-    has_token = bool(os.environ.get(br.token_env))
-    typer.echo(f"  token set: {'yes' if has_token else 'no'}")
+
+    # Show token resolution from all sources.
+    token = _resolve_token(br.token_env)
+    if token:
+        sources = []
+        if os.environ.get(br.token_env):
+            sources.append(br.token_env)
+        if os.environ.get("GITHUB_TOKEN"):
+            sources.append("GITHUB_TOKEN")
+        typer.echo(f"  token source: {', '.join(sources) or 'gh auth'}")
+    else:
+        typer.echo("  token: not found")
+
     typer.echo(f"  labels: {', '.join(br.labels)}")
 
     dpath = _dedup_path()
