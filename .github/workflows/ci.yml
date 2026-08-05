@@ -18,6 +18,14 @@ jobs:
         with:
           enable-cache: true
 
-      - run: uv sync
+      - name: Verify committed lockfile
+        run: uv lock --check
 
-      - run: uv run pytest -q
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Verify release metadata
+        run: uv run --locked python scripts/check-release-integrity.py
+
+      - name: Run tests
+        run: uv run --locked pytest -q
