@@ -30,6 +30,7 @@ stderr_console = Console(stderr=True)
 _quiet = False
 _logging_configured = False
 _file_handler: logging.Handler | None = None
+_bugreport_handler: logging.Handler | None = None
 _run_id = uuid.uuid4().hex[:12]
 _exception_hooks_configured = False
 
@@ -252,7 +253,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     no new INFO/DEBUG noise. ``propagate`` stays True (pytest ``caplog`` depends
     on it). Idempotent: the handler is attached once per process.
     """
-    global _quiet, _logging_configured, _file_handler
+    global _quiet, _logging_configured, _file_handler, _bugreport_handler
     _quiet = level >= logging.WARNING
     lorekeep_logger = logging.getLogger("lorekeep")
     lorekeep_logger.setLevel(level)
@@ -268,6 +269,18 @@ def configure_logging(level: int = logging.INFO) -> None:
         lorekeep_logger.addHandler(_file_handler)
     if _file_handler is not None:
         _file_handler.setLevel(level)
+
+    # Auto GitHub issue reporting (best-effort, self-gating via config/token).
+    if _bugreport_handler is None:
+        try:
+            from lorekeep.bugreport import BugReportHandler
+            _bugreport_handler = BugReportHandler()
+            lorekeep_logger.addHandler(_bugreport_handler)
+        except Exception as exc:
+            logging.getLogger(__name__).debug("bugreport handler unavailable: %s", exc)
+    elif _bugreport_handler not in lorekeep_logger.handlers:
+        lorekeep_logger.addHandler(_bugreport_handler)
+
     _install_exception_hooks()
     if _logging_configured:
         return

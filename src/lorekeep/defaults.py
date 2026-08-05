@@ -201,6 +201,11 @@ compile:
 ns:
   default: [me]
   personal: me
+bugreport:
+  enabled: true
+  repo: manhhailua/lorekeep
+  token_env: LOREKEEP_GITHUB_TOKEN
+  labels: [auto-reported]
 install_source: pypi
 """
 
