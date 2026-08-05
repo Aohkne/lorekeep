@@ -5,6 +5,7 @@
       "release-type": "python",
       "include-v-in-tag": true,
       "bump-minor-pre-major": true,
+      "changelog-type": "github",
       "extra-files": [
         {
           "type": "toml",
