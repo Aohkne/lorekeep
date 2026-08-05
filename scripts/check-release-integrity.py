@@ -20,7 +20,7 @@ SEMVER_RE = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
 )
-CHANGELOG_VERSION_RE = re.compile(r"^## \[([^]]+)]", re.MULTILINE)
+CHANGELOG_VERSION_RE = re.compile(r"^## \[?([^\s\]]+)", re.MULTILINE)
 
 
 class IntegrityError(Exception):
