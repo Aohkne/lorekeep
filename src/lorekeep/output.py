@@ -2,13 +2,20 @@
 
 Single chokepoint for all ``rich`` interaction. The module-level
 :class:`~rich.console.Console` auto-strips color in a non-tty (tests via
-CliRunner, the daemon's ``agent.log`` redirect), so plain-text contracts hold
+CliRunner, the daemon bootstrap-log redirect), so plain-text contracts hold
 and ANSI never leaks into captured output or log files.
 """
 from __future__ import annotations
 
 import logging
+import os
+import sys
+import threading
+import traceback
+import uuid
 from contextlib import contextmanager
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.console import Console
@@ -22,6 +29,105 @@ stderr_console = Console(stderr=True)
 
 _quiet = False
 _logging_configured = False
+_file_handler: logging.Handler | None = None
+_run_id = uuid.uuid4().hex[:12]
+_exception_hooks_configured = False
+
+
+class _PrivateRotatingFileHandler(RotatingFileHandler):
+    """Rotating handler that reapplies private permissions after rollover."""
+
+    def _open(self):
+        stream = super()._open()
+        try:
+            os.chmod(self.baseFilename, 0o600)
+        except OSError:
+            pass
+        return stream
+
+
+class _SafeFileFormatter(logging.Formatter):
+    """Plain UTC formatter that redacts the fully rendered traceback."""
+
+    converter = __import__("time").gmtime
+
+    def formatException(self, ei) -> str:
+        """Keep stack frames and exception type, but never exception content."""
+        exc_type, _exc_value, tb = ei
+        frames = "".join(traceback.format_tb(tb))
+        return f"{frames}{exc_type.__module__}.{exc_type.__name__}: [details redacted]"
+
+    def format(self, record: logging.LogRecord) -> str:
+        from lorekeep.redaction import redact_text
+        return redact_text(super().format(record))
+
+
+class _RuntimeContextFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.run_id = _run_id
+        return True
+
+
+def runtime_log_path() -> Path:
+    """Return the resolved unified runtime log path without creating it."""
+    from lorekeep.paths import resolve_paths
+    return resolve_paths()["logs"] / "lorekeep.log"
+
+
+def _make_file_handler(path: Path) -> logging.Handler:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
+        pass
+    handler = _PrivateRotatingFileHandler(
+        path, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8",
+    )
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    handler.setFormatter(_SafeFileFormatter(
+        "%(asctime)sZ level=%(levelname)s component=%(name)s "
+        "event=%(event)s pid=%(process)d run_id=%(run_id)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+        defaults={"event": "runtime"},
+    ))
+    handler.addFilter(_RuntimeContextFilter())
+    return handler
+
+
+def _install_exception_hooks() -> None:
+    """Record otherwise-unhandled main-thread and worker-thread failures."""
+    global _exception_hooks_configured
+    if _exception_hooks_configured:
+        return
+    previous_sys_hook = sys.excepthook
+    previous_thread_hook = threading.excepthook
+
+    def _sys_hook(exc_type, exc_value, tb) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            previous_sys_hook(exc_type, exc_value, tb)
+            return
+        logging.getLogger("lorekeep.runtime").critical(
+            "unhandled exception error_type=%s", exc_type.__name__,
+            exc_info=(exc_type, exc_value, tb), extra={"event": "runtime.unhandled"},
+        )
+
+    def _thread_hook(args: threading.ExceptHookArgs) -> None:
+        if issubclass(args.exc_type, KeyboardInterrupt):
+            previous_thread_hook(args)
+            return
+        logging.getLogger("lorekeep.runtime").critical(
+            "unhandled thread exception error_type=%s thread=%s",
+            args.exc_type.__name__, args.thread.name if args.thread else "unknown",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+            extra={"event": "runtime.thread_unhandled"},
+        )
+
+    sys.excepthook = _sys_hook
+    threading.excepthook = _thread_hook
+    _exception_hooks_configured = True
 
 
 def is_quiet() -> bool:
@@ -106,7 +212,7 @@ def progress(description: str, total: int | None = None) -> Iterator[_NullProgre
     """A Rich Progress bar in a tty; a silent no-op elsewhere.
 
     Hard-gated on ``console.is_terminal`` so progress text can never appear in
-    CliRunner capture or ``agent.log`` (belt-and-suspenders on top of Rich's
+    CliRunner capture or daemon bootstrap logs (belt-and-suspenders on top of Rich's
     own auto-disable in a non-tty).
     """
     if not console.is_terminal:
@@ -146,9 +252,23 @@ def configure_logging(level: int = logging.INFO) -> None:
     no new INFO/DEBUG noise. ``propagate`` stays True (pytest ``caplog`` depends
     on it). Idempotent: the handler is attached once per process.
     """
-    global _quiet, _logging_configured
+    global _quiet, _logging_configured, _file_handler
     _quiet = level >= logging.WARNING
-    logging.getLogger("lorekeep").setLevel(level)
+    lorekeep_logger = logging.getLogger("lorekeep")
+    lorekeep_logger.setLevel(level)
+    if _file_handler is None:
+        try:
+            _file_handler = _make_file_handler(runtime_log_path())
+            lorekeep_logger.addHandler(_file_handler)
+        except OSError as exc:
+            # Logging must never make the CLI unusable (read-only homes, full
+            # disks, and restrictive containers are all legitimate runtimes).
+            logging.getLogger(__name__).debug("file logging unavailable: %s", exc)
+    elif _file_handler not in lorekeep_logger.handlers:
+        lorekeep_logger.addHandler(_file_handler)
+    if _file_handler is not None:
+        _file_handler.setLevel(level)
+    _install_exception_hooks()
     if _logging_configured:
         return
     from rich.logging import RichHandler

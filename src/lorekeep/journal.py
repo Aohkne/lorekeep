@@ -6,12 +6,15 @@ as append-only JSONL. Facts enter facts.jsonl after the resolve pass.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
 from lorekeep.models import JournalEntry
+
+log = logging.getLogger("lorekeep.journal")
 
 
 def journal_path(pending_dir: Path, ns: str) -> Path:
@@ -63,6 +66,7 @@ def append_journal(pending_dir: Path, entry: JournalEntry, ns: str) -> JournalEn
             f.write(line)
             f.flush()
             os.fsync(f.fileno())
+    log.info("journal entry appended", extra={"event": "journal.append"})
     return entry
 
 
@@ -73,16 +77,25 @@ def load_journals(pending_dir: Path) -> list[JournalEntry]:
     for journal_file in sorted(pending_dir.rglob("journal.jsonl")):
         try:
             text = journal_file.read_text(encoding="utf-8")
-        except OSError:
+        except OSError as exc:
+            log.warning(
+                "journal file unreadable error_type=%s", type(exc).__name__,
+                extra={"event": "journal.read_failed"},
+            )
             continue
-        for line in text.splitlines():
+        for line_number, line in enumerate(text.splitlines(), start=1):
             line = line.strip()
             if not line:
                 continue
             try:
                 d = json.loads(line)
                 entries.append(JournalEntry.model_validate(d))
-            except Exception:
+            except Exception as exc:
+                log.warning(
+                    "invalid journal line line=%s error_type=%s",
+                    line_number, type(exc).__name__,
+                    extra={"event": "journal.invalid_line"},
+                )
                 continue
     return entries
 
@@ -108,7 +121,12 @@ def update_journal_status(pending_dir: Path, ns: str,
                 if key in entry_key_set and d.get("status") == "pending":
                     d["status"] = new_status
                 updated.append(json.dumps(d, sort_keys=True, ensure_ascii=False))
-            except Exception:
+            except Exception as exc:
+                log.warning(
+                    "journal status line preserved line=%s error_type=%s",
+                    len(updated) + 1, type(exc).__name__,
+                    extra={"event": "journal.status_invalid_line"},
+                )
                 updated.append(line_text)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")

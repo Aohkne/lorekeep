@@ -3,13 +3,13 @@
 Lorekeep resolves its data home with a 4-tier precedence (high → low). All commands (`compile`, `serve`, `doctor`, …) use the same resolution, in `src/lorekeep/paths.py` — pure logic, no I/O.
 
 ```
-1. explicit per-path env   LOREKEEP_RAW / LOREKEEP_OUT / LOREKEEP_CACHE / LOREKEEP_SCHEMA / LOREKEEP_CONFIG
-2. LOREKEEP_HOME            → <home>/{config.yaml, schema.json, raw/, graph/, cache.json}
+1. explicit per-path env   LOREKEEP_RAW / LOREKEEP_OUT / LOREKEEP_CACHE / LOREKEEP_SCHEMA / LOREKEEP_CONFIG / LOREKEEP_LOGS
+2. LOREKEEP_HOME            → <home>/{config.yaml, schema.json, raw/, graph/, logs/, cache.json}
 3. dev mode                 .lorekeep/ present in CWD, or LOREKEEP_DEV=1 → <cwd>/.lorekeep/{...}
 4. XDG (default)            ~/.config/lorekeep (config) + ~/.local/share/lorekeep (data)
 ```
 
-`lorekeep init` bootstraps whichever home resolves, writing default `config.yaml` + `schema.json` and creating `raw/` + `graph/` (it preserves existing config/schema).
+`lorekeep init` bootstraps whichever home resolves, writing default `config.yaml` + `schema.json` and creating `raw/` + `graph/` (it preserves existing config/schema). Runtime commands create `logs/` lazily.
 
 ## Installed use (recommended)
 

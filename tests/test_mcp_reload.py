@@ -30,3 +30,20 @@ def test_no_reload_when_unchanged(tmp_path: Path, fixtures: Path):
     m1 = ms._state.get("facts_mtime")
     ms.get_node("svc:auth")                       # query; no file change
     assert ms._state.get("facts_mtime") == m1     # no reload fired
+
+
+def test_fts_failure_is_logged_without_stopping_mcp(tmp_path, fixtures, monkeypatch, caplog):
+    d = tmp_path / "graph"
+    d.mkdir()
+    shutil.copy(fixtures / "gold/payments.facts.jsonl", d / "facts.jsonl")
+
+    class BrokenFTS:
+        def __init__(self, _path):
+            raise OSError("private index detail")
+
+    monkeypatch.setattr(ms, "FTSIndex", BrokenFTS)
+    with caplog.at_level("WARNING", logger="lorekeep.mcp"):
+        ms.configure(graph_dir=d, allowed_ns=["backend"], schema_path=fixtures / "schema.json")
+    assert ms._fts is None
+    assert "FTS unavailable" in caplog.text
+    assert "private index detail" not in caplog.text
