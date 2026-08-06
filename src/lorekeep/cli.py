@@ -615,10 +615,20 @@ def serve(
         from lorekeep.mcp_server import configure, mcp
     except ImportError as exc:
         from lorekeep.output import error
-        error(f"'lorekeep serve' requires the 'mcp' package, which is not installed: {exc}")
-        error("Fix: pip install mcp  (or: uv pip install mcp)")
+        missing = str(exc)
+        if "fastmcp" in missing.lower():
+            error("lorekeep requires mcp v1.x, but mcp v2.x is installed (FastMCP was removed).")
+            error("Fix: pip install 'mcp>=1.0,<2.0'  (or: uv pip install 'mcp>=1.0,<2.0')")
+        else:
+            error(f"'lorekeep serve' requires the 'mcp' package, which is not installed: {exc}")
+            error("Fix: pip install mcp  (or: uv pip install mcp)")
         raise typer.Exit(code=1)
-    configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
+    try:
+        configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
+    except FileNotFoundError as exc:
+        from lorekeep.output import error
+        error(str(exc))
+        raise typer.Exit(code=1)
     log.info(
         "MCP server starting transport=%s namespace_count=%s", transport, len(allowed),
         extra={"event": "mcp.start"},
