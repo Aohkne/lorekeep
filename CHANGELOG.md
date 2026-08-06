@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0 (2026-08-06)
+
+## What's Changed
+* refactor!: merge bugreport commands into support group by @manhhailua in https://github.com/manhhailua/lorekeep/pull/160
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.16.1...v0.17.0
+
 ## 0.16.1 (2026-08-06)
 
 ## What's Changed
