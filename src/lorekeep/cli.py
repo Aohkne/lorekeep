@@ -611,7 +611,13 @@ def serve(
         allowed = [x.strip() for x in raw_ns.split(",") if x.strip()]
     else:
         allowed = load_config(p["config"]).ns.default
-    from lorekeep.mcp_server import configure, mcp
+    try:
+        from lorekeep.mcp_server import configure, mcp
+    except ImportError as exc:
+        from lorekeep.output import error
+        error(f"'lorekeep serve' requires the 'mcp' package, which is not installed: {exc}")
+        error("Fix: pip install mcp  (or: uv pip install mcp)")
+        raise typer.Exit(code=1)
     configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
     log.info(
         "MCP server starting transport=%s namespace_count=%s", transport, len(allowed),

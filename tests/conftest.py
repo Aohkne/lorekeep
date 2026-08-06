@@ -5,6 +5,16 @@ import pytest
 from lorekeep.compile.providers import FakeProvider
 
 
+@pytest.fixture(autouse=True)
+def _disable_bugreport_in_tests(monkeypatch):
+    """Prevent BugReportHandler from creating GitHub issues during tests.
+
+    Individual test_bugreport.py tests unset this so they can verify the
+    handler's real behaviour.
+    """
+    monkeypatch.setenv("LOREKEEP_BUGREPORT_TEST_MODE", "1")
+
+
 @pytest.fixture
 def fixtures() -> Path:
     return Path(__file__).parent / "fixtures"

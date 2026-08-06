@@ -185,6 +185,8 @@ class TestHandlerEmit:
             (home / "config.yaml").write_text(config_yaml, encoding="utf-8")
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        # Allow the handler to run — conftest disables it for all other tests.
+        monkeypatch.delenv("LOREKEEP_BUGREPORT_TEST_MODE", raising=False)
         # Mock gh CLI to return empty unless a test overrides it.
         monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
         # Reset the warn-once flag.
@@ -312,6 +314,20 @@ class TestHandlerEmit:
         dedup = _load_dedup(_dedup_path())
         assert len(dedup) == 0  # not recorded → allows retry next run
 
+    @patch("lorekeep.bugreport._create_github_issue")
+    def test_skips_in_test_mode(self, mock_create, tmp_path: Path, monkeypatch):
+        """Handler must not create issues when LOREKEEP_BUGREPORT_TEST_MODE is set."""
+        self._setup_home(tmp_path, monkeypatch)
+        monkeypatch.setenv("LOREKEEP_GITHUB_TOKEN", "ghp_fake")
+        monkeypatch.setenv("LOREKEEP_BUGREPORT_TEST_MODE", "1")
+        mock_create.return_value = 42
+
+        handler = BugReportHandler()
+        record = _make_error_record()
+        handler.emit(record)
+
+        mock_create.assert_not_called()
+
 
 # ── token fallback chain ─────────────────────────────────────────────────────
 
@@ -353,6 +369,7 @@ class TestTokenFallback:
         (home / "logs").mkdir()
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
         monkeypatch.delenv("LOREKEEP_GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("LOREKEEP_BUGREPORT_TEST_MODE", raising=False)
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_ci")
         monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
         import lorekeep.bugreport as br

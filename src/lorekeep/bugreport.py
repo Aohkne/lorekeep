@@ -31,6 +31,12 @@ logger = logging.getLogger("lorekeep.bugreport")
 # Warn-once flag for the "no token" case (per-process).
 _warned_no_token = False
 
+# Events that are symptoms of other errors and should never trigger an
+# auto-reported issue (they would just create duplicates of the root cause).
+_SKIP_EVENTS = frozenset({
+    "compile.manifest_error",   # always a consequence of compile.chunk_failed
+})
+
 
 # ---------------------------------------------------------------------------
 # Token resolution (fallback chain)
@@ -264,6 +270,10 @@ class BugReportHandler(logging.Handler):
         if record.levelno < logging.ERROR:
             return
 
+        # Skip auto-reporting in test environments (set by conftest.py).
+        if os.environ.get("LOREKEEP_BUGREPORT_TEST_MODE"):
+            return
+
         # Lazily load config.
         from lorekeep.config import load_config
         from lorekeep.paths import resolve_paths
@@ -289,6 +299,13 @@ class BugReportHandler(logging.Handler):
 
         event = getattr(record, "event", "runtime")
         component = record.name
+
+        # Skip events that are symptoms of other errors (never actionable on
+        # their own).  compile.manifest_error is always a consequence of
+        # compile.chunk_failed; mcp.failed is logged by the serve loop.
+        if event in _SKIP_EVENTS:
+            return
+
         error_type = ""
         if record.exc_info and record.exc_info[0]:
             error_type = record.exc_info[0].__name__
