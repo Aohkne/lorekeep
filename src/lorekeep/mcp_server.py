@@ -57,6 +57,11 @@ def _rebuild() -> None:
     """(Re)load the graph + schema + manifest + FTS from disk into a fresh ScopedGraph."""
     global _scope, _schema, _manifest, _fts
     facts = _state["graph_dir"] / "facts.jsonl"
+    if not facts.exists():
+        raise FileNotFoundError(
+            f"facts.jsonl not found at {facts}. "
+            "Run 'lorekeep compile' first to build the knowledge graph."
+        )
     store = GraphStore.from_jsonl(facts)
     sp = _state.get("schema_path")
     _schema = load_schema(sp) if sp else None
