@@ -622,12 +622,21 @@ def serve(
         else:
             error(f"'lorekeep serve' requires the 'mcp' package, which is not installed: {exc}")
             error("Fix: pip install mcp  (or: uv pip install mcp)")
+        log.error(
+            "serve: mcp dependency missing error_type=ImportError detail=%s",
+            "fastmcp" if "fastmcp" in missing.lower() else "mcp",
+            extra={"event": "serve.mcp_missing"},
+        )
         raise typer.Exit(code=1)
     try:
         configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
     except FileNotFoundError as exc:
         from lorekeep.output import error
         error(str(exc))
+        log.error(
+            "serve: graph not built detail=%s", exc,
+            extra={"event": "serve.no_graph"},
+        )
         raise typer.Exit(code=1)
     log.info(
         "MCP server starting transport=%s namespace_count=%s", transport, len(allowed),
