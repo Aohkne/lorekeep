@@ -104,3 +104,106 @@ def test_opencode_preserves_existing_keys(tmp_path: Path):
     assert data["model"] == "anthropic/claude-sonnet-4-5"
     assert "other" in data["mcp"]
     assert "lorekeep" in data["mcp"]
+
+
+# ── write_config idempotent merge (existing config files) ────────────────
+
+
+def test_cursor_write_config_merges_existing(tmp_path: Path):
+    """write_config preserves existing mcpServers when mcp.json already exists."""
+    d = tmp_path / ".cursor"
+    d.mkdir(parents=True)
+    existing = {"mcpServers": {"other": {"command": "foo"}}}
+    (d / "mcp.json").write_text(json.dumps(existing))
+    cursor.write_config(tmp_path, "uvx", ["lorekeep", "serve"], ns="ns1")
+    data = json.loads((d / "mcp.json").read_text())
+    assert "other" in data["mcpServers"]
+    assert "lorekeep" in data["mcpServers"]
+
+
+def test_claude_write_config_merges_existing(tmp_path: Path):
+    """write_config preserves existing mcpServers when .mcp.json exists."""
+    existing = {"mcpServers": {"other": {"command": "foo"}}}
+    (tmp_path / ".mcp.json").write_text(json.dumps(existing))
+    claude_code.write_config(tmp_path, "uvx", ["lorekeep", "serve"], ns=None)
+    data = json.loads((tmp_path / ".mcp.json").read_text())
+    assert "other" in data["mcpServers"]
+    assert "lorekeep" in data["mcpServers"]
+
+
+def test_codex_write_config_replaces_with_following_table(tmp_path: Path):
+    """write_config finds the next [table] boundary when replacing lorekeep block."""
+    (tmp_path / "config.toml").write_text(
+        '[mcp_servers.lorekeep]\ncommand = "old"\n\n'
+        '[other_table]\nkey = "value"\n'
+    )
+    codex.write_config(tmp_path, "uvx", ["lorekeep", "serve"], ns=None)
+    result = (tmp_path / "config.toml").read_text()
+    assert "old" not in result
+    assert "[other_table]" in result
+    assert "lorekeep" in result
+
+
+# ── write_hook tests ─────────────────────────────────────────────────────
+
+
+def test_cursor_write_hook(tmp_path: Path):
+    path = cursor.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
+    assert path.exists()
+    data = json.loads(path.read_text())
+    assert "sessionEnd" in data["hooks"]
+
+
+def test_cursor_write_hook_merges_corrupt(tmp_path: Path):
+    """Corrupt hooks.json is replaced cleanly."""
+    d = tmp_path / ".cursor"
+    d.mkdir(parents=True)
+    (d / "hooks.json").write_text("not-json{")
+    path = cursor.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
+    data = json.loads(path.read_text())
+    assert "sessionEnd" in data["hooks"]
+
+
+def test_codex_write_hook(tmp_path: Path):
+    path = codex.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
+    assert path.exists()
+    data = json.loads(path.read_text())
+    assert "Stop" in data["hooks"]
+
+
+def test_codex_write_hook_merges_existing(tmp_path: Path):
+    """write_hook preserves existing hooks when hooks.json exists."""
+    d = tmp_path / ".codex"
+    d.mkdir(parents=True)
+    existing = {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": "x"}]}]}}
+    (d / "hooks.json").write_text(json.dumps(existing))
+    codex.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
+    data = json.loads((d / "hooks.json").read_text())
+    assert "PreToolUse" in data["hooks"]
+    assert "Stop" in data["hooks"]
+
+
+def test_codex_write_hook_corrupt_existing(tmp_path: Path):
+    d = tmp_path / ".codex"
+    d.mkdir(parents=True)
+    (d / "hooks.json").write_text("corrupt")
+    codex.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
+    data = json.loads((d / "hooks.json").read_text())
+    assert "Stop" in data["hooks"]
+
+
+def test_claude_write_hook(tmp_path: Path):
+    path = claude_code.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
+    assert path.exists()
+    data = json.loads(path.read_text())
+    assert "SessionEnd" in data["hooks"]
+
+
+def test_claude_write_hook_corrupt_settings(tmp_path: Path):
+    """Corrupt settings.json is replaced cleanly."""
+    d = tmp_path / ".claude"
+    d.mkdir(parents=True)
+    (d / "settings.json").write_text("not-json")
+    claude_code.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
+    data = json.loads((d / "settings.json").read_text())
+    assert "SessionEnd" in data["hooks"]

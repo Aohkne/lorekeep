@@ -40,3 +40,13 @@ def test_mcp_add_opencode_project(tmp_path: Path, monkeypatch):
     assert entry["type"] == "local"
     assert entry["command"] == ["lorekeep", "serve", "--transport", "stdio"]
     assert entry["environment"]["LOREKEEP_NS"] == "teams/backend"
+
+
+def test_mcp_add_unknown_agent(tmp_path: Path, monkeypatch):
+    """mcp add with an unknown agent exits with error."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
+    (tmp_path / "config.yaml").write_text("install_source: local\n")
+    result = runner.invoke(app, ["mcp", "add", "--agent", "bogus", "--ns", "x"])
+    assert result.exit_code == 1
+    assert "unknown agent" in result.stdout
