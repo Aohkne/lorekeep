@@ -1,6 +1,7 @@
 from datetime import date
 from pathlib import Path
 import json
+import pytest
 from lorekeep.models import Node, Edge, Manifest
 from lorekeep.compile.writer import write_graph, run_id, facts_hash
 
@@ -45,6 +46,19 @@ def test_manifest_written(tmp_path: Path):
     write_graph(out, [n("svc:a")], [], m)
     loaded = Manifest.from_json((out / "manifest.json").read_text())
     assert loaded.chunk_hashes == {"abc": ["svc:a"]}
+
+
+def test_atomic_write_cleanup_on_error(tmp_path: Path, monkeypatch):
+    """_atomic_write cleans up temp file when os.replace fails."""
+    from lorekeep.compile.writer import _atomic_write
+    target = tmp_path / "out" / "data.txt"
+    monkeypatch.setattr("lorekeep.compile.writer.os.replace",
+                        lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(OSError):
+        _atomic_write(target, "hello")
+    # temp file should be cleaned up
+    remaining = list((tmp_path / "out").glob("data.txt.*.tmp"))
+    assert remaining == []
 
 
 def test_run_id_deterministic():

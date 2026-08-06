@@ -131,3 +131,28 @@ class TestUpdateJournalStatus:
         update_journal_status(pending, "backend", {"x"}, "merged")
         # No crash, no file created
         assert not (pending / "backend" / "journal.jsonl").exists()
+
+    def test_replace_failure_cleans_up_temp(self, tmp_path: Path, monkeypatch):
+        """When os.replace fails, temp file is cleaned up and exception propagates."""
+        pending = tmp_path / "pending"
+        ns = pending / "backend"
+        ns.mkdir(parents=True)
+        entry = _make_entry(status="pending")
+        (ns / "journal.jsonl").write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+        original_replace = os.replace
+
+        def fail_replace(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(os, "replace", fail_replace)
+
+        with pytest.raises(OSError, match="disk full"):
+            update_journal_status(pending, "backend",
+                                  {"2026-01-01T00:00:00Z"}, "merged")
+
+        # temp files cleaned up
+        leftover = list(ns.glob("journal.jsonl.*.tmp"))
+        assert leftover == []
+        # original file untouched
+        assert "pending" in (ns / "journal.jsonl").read_text()

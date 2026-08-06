@@ -198,3 +198,102 @@ def test_suggest_improvement_without_pending_dir(fixtures: Path):
     _setup(fixtures, ["backend"], with_pending=False)
     r = ms.suggest_improvement("test suggestion")
     assert "error" in r
+
+
+# ── propose_fact edge validation ──────────────────────────────────────────
+
+
+def test_propose_fact_no_schema(fixtures: Path):
+    """propose_fact returns error when no schema is loaded."""
+    d = Path(tempfile.mkdtemp())
+    shutil.copy(fixtures / "gold/payments.facts.jsonl", d / "facts.jsonl")
+    ms.configure(graph_dir=d, allowed_ns=["backend"], schema_path=None,
+                 pending_dir=d / "pending")
+    fact = {"kind": "node", "id": "x", "type": "service", "props": {}}
+    r = ms.propose_fact(fact, confidence=0.9)
+    assert "error" in r and "schema" in r["error"]
+
+
+def test_propose_fact_edge_valid(fixtures: Path):
+    """A valid edge proposal passes all validation checks."""
+    d, pending = _setup(fixtures, ["backend"])
+    fact = {
+        "kind": "edge", "id": "e_test_edge", "type": "depends_on",
+        "from": "svc:payments-api", "to": "svc:auth", "props": {},
+    }
+    r = ms.propose_fact(fact, confidence=0.85)
+    assert r["accepted"] is True
+
+
+def test_propose_fact_edge_unknown_type(fixtures: Path):
+    _setup(fixtures, ["backend"])
+    fact = {
+        "kind": "edge", "id": "e_bad", "type": "bogus_edge",
+        "from": "svc:payments-api", "to": "svc:auth", "props": {},
+    }
+    r = ms.propose_fact(fact, confidence=0.8)
+    assert "error" in r and "unknown edge type" in r["error"]
+
+
+def test_propose_fact_edge_endpoint_not_found(fixtures: Path):
+    _setup(fixtures, ["backend"])
+    fact = {
+        "kind": "edge", "id": "e_orphan", "type": "depends_on",
+        "from": "svc:nonexistent", "to": "svc:auth", "props": {},
+    }
+    r = ms.propose_fact(fact, confidence=0.8)
+    assert "error" in r and "endpoint" in r["error"]
+
+
+def test_propose_fact_edge_invalid_endpoints(fixtures: Path):
+    """depends_on requires service→service, not team→service."""
+    _setup(fixtures, ["backend"])
+    fact = {
+        "kind": "edge", "id": "e_wrong", "type": "depends_on",
+        "from": "team:backend", "to": "svc:auth", "props": {},
+    }
+    r = ms.propose_fact(fact, confidence=0.8)
+    assert "error" in r and "invalid endpoints" in r["error"]
+
+
+def test_propose_fact_unknown_kind(fixtures: Path):
+    _setup(fixtures, ["backend"])
+    fact = {"kind": "bogus", "id": "x", "type": "service", "props": {}}
+    r = ms.propose_fact(fact, confidence=0.8)
+    assert "error" in r and "unknown fact kind" in r["error"]
+
+
+# ── link_facts edge cases ─────────────────────────────────────────────────
+
+
+def test_link_facts_unknown_to(fixtures: Path):
+    """link_facts rejects when the 'to' node doesn't exist."""
+    _setup(fixtures, ["backend"])
+    r = ms.link_facts("svc:payments-api", "svc:nonexistent", "depends_on",
+                      confidence=0.8)
+    assert "error" in r and "to node" in r["error"]
+
+
+def test_link_facts_no_schema(fixtures: Path):
+    """link_facts returns error when no schema is loaded."""
+    d = Path(tempfile.mkdtemp())
+    shutil.copy(fixtures / "gold/payments.facts.jsonl", d / "facts.jsonl")
+    ms.configure(graph_dir=d, allowed_ns=["backend"], schema_path=None,
+                 pending_dir=d / "pending")
+    r = ms.link_facts("svc:payments-api", "svc:auth", "depends_on",
+                      confidence=0.8)
+    assert "error" in r and "schema" in r["error"]
+
+
+# ── update_fact on edge ───────────────────────────────────────────────────
+
+
+def test_update_fact_edge(fixtures: Path):
+    """update_fact can update an edge's props, not just a node's."""
+    d, pending = _setup(fixtures, ["backend"])
+    # e_dep_1 is an existing edge in the payments fixture
+    r = ms.update_fact("e_dep_1", {"weight": "critical"}, confidence=0.9)
+    assert r["accepted"] is True
+    entries = _journal_entries(pending)
+    assert len(entries) == 1
+    assert entries[0]["fact"]["props"]["weight"] == "critical"
