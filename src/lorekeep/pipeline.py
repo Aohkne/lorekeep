@@ -25,6 +25,36 @@ log = logging.getLogger("lorekeep")
 # Optional per-chunk progress hook: (index, total, chunk). Default None → silent.
 ProgressCb = Callable[[int, int, DocChunk], None]
 
+# Exception names that indicate a systemic provider failure (bad API key,
+# unreachable endpoint, etc.). These will fail identically on every chunk, so
+# we short-circuit the compile loop after the first occurrence.
+_FATAL_PROVIDER_ERRORS = frozenset({
+    "AuthenticationError",
+    "PermissionDeniedError",
+    "NotFoundError",
+    "ConnectionError",
+    "Timeout",
+    "APIConnectionError",
+    "APITimeoutError",
+    "ServiceUnavailableError",
+    "InternalServerError",
+    "RateLimitError",
+})
+
+
+def _is_fatal_provider_error(exc: Exception) -> bool:
+    """True if *exc* is a systemic provider error that will recur on every chunk."""
+    exc_name = type(exc).__name__
+    if exc_name in _FATAL_PROVIDER_ERRORS:
+        return True
+    # Walk the cause chain (litellm wraps errors inside retries).
+    cause = exc.__cause__ or exc.__context__
+    while cause is not None and cause is not exc:
+        if type(cause).__name__ in _FATAL_PROVIDER_ERRORS:
+            return True
+        cause = getattr(cause, "__cause__", None) or getattr(cause, "__context__", None)
+    return False
+
 
 def measure_content_quality(
     nodes: list[Node], edges: list[Edge], schema: Schema,
@@ -109,6 +139,16 @@ def compile_graph(
             )
             errors.append({"path": chunk.path, "line": chunk.start_line,
                            "message": str(exc)})
+            # Fatal errors (auth, network) will fail identically on every
+            # remaining chunk — abort the loop to save time and avoid N
+            # identical auto-reported issues from the same root cause.
+            if _is_fatal_provider_error(exc):
+                log.error(
+                    "compile aborted: fatal provider error, skipping %s remaining chunk(s)",
+                    total - i - 1,
+                    extra={"event": "compile.aborted_fatal"},
+                )
+                break
     cache.save()
 
     resolved = resolve(
