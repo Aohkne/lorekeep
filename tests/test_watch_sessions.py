@@ -205,3 +205,108 @@ def test_import_memories_handles_missing_memory_dir(tmp_path: Path):
 
     exported_files = import_memories(session_dir, raw_root, "ns")
     assert exported_files == []
+
+
+# ── _do_auto_resolve with wiki_dir (production path) ──────────────────────
+
+def test_auto_resolve_regenerates_wiki(tmp_path: Path, fixtures: Path):
+    """_do_auto_resolve must regenerate wiki when wiki_dir is provided.
+
+    This tests the production path (cli.py:2417) — every daemon call passes
+    p.get("wiki"), but all prior tests passed wiki_dir=None.
+    """
+    import shutil
+
+    out_dir = tmp_path / "graph"
+    out_dir.mkdir()
+    pending_dir = tmp_path / "pending"
+    pending_dir.mkdir()
+    wiki_dir = tmp_path / "wiki"
+
+    gold = fixtures / "gold" / "payments.facts.jsonl"
+    shutil.copy(gold, out_dir / "facts.jsonl")
+
+    ns_dir = pending_dir / "backend"
+    ns_dir.mkdir()
+    entry = {
+        "agent": "test", "ns": "backend", "confidence": 1.0,
+        "proposed_at": "2026-06-22T00:00:00Z", "status": "pending",
+        "fact": {
+            "kind": "node", "id": "svc:wiki-test", "type": "service",
+            "ns": ["backend"], "props": {"name": "wiki-test"}, "src": ["test.md"],
+        },
+    }
+    (ns_dir / "journal.jsonl").write_text(json.dumps(entry, sort_keys=True) + "\n")
+
+    result = _do_auto_resolve(out_dir, pending_dir, wiki_dir=wiki_dir)
+
+    assert result is True
+    assert (wiki_dir / "index.md").exists()
+    assert (wiki_dir / "overview.md").exists()
+
+
+# ── _do_auto_resolve error handling ───────────────────────────────────────
+
+def test_auto_resolve_handles_exception(tmp_path: Path):
+    """_do_auto_resolve returns False on internal error (best-effort)."""
+    out_dir = tmp_path / "graph"
+    out_dir.mkdir()
+    pending_dir = tmp_path / "pending"
+    pending_dir.mkdir()
+
+    # Corrupt journal entry that will cause merge to fail
+    ns_dir = pending_dir / "backend"
+    ns_dir.mkdir()
+    (ns_dir / "journal.jsonl").write_text("NOT VALID JSON\n")
+
+    result = _do_auto_resolve(out_dir, pending_dir)
+    assert result is False
+
+
+# ── _auto_generate_wiki error handling ────────────────────────────────────
+
+def test_auto_generate_wiki_failure_swallowed(tmp_path: Path):
+    """_auto_generate_wiki never raises even when wiki generation fails."""
+    from lorekeep.cli import _auto_generate_wiki
+
+    # Non-existent graph dir → wiki generation should fail silently
+    bad_graph = tmp_path / "nonexistent-graph"
+    wiki_dir = tmp_path / "wiki"
+
+    # Should not raise
+    _auto_generate_wiki(bad_graph, wiki_dir)
+
+
+def test_auto_generate_wiki_no_schema(tmp_path: Path):
+    """_auto_generate_wiki works with schema_path=None."""
+    from lorekeep.cli import _auto_generate_wiki
+
+    out_dir = tmp_path / "graph"
+    out_dir.mkdir()
+    (out_dir / "facts.jsonl").write_text(json.dumps({
+        "kind": "node", "id": "svc:test", "type": "service",
+        "ns": ["team"], "props": {"name": "test", "summary": "Test."},
+    }) + "\n")
+
+    wiki_dir = tmp_path / "wiki"
+    _auto_generate_wiki(out_dir, wiki_dir, schema_path=None)
+
+    assert (wiki_dir / "index.md").exists()
+
+
+def test_auto_generate_wiki_missing_schema_path(tmp_path: Path):
+    """_auto_generate_wiki works when schema_path points to non-existent file."""
+    from lorekeep.cli import _auto_generate_wiki
+
+    out_dir = tmp_path / "graph"
+    out_dir.mkdir()
+    (out_dir / "facts.jsonl").write_text(json.dumps({
+        "kind": "node", "id": "svc:test", "type": "service",
+        "ns": ["team"], "props": {"name": "test", "summary": "Test."},
+    }) + "\n")
+
+    wiki_dir = tmp_path / "wiki"
+    fake_schema = tmp_path / "no-such-schema.json"
+    _auto_generate_wiki(out_dir, wiki_dir, schema_path=fake_schema)
+
+    assert (wiki_dir / "index.md").exists()

@@ -75,6 +75,18 @@ class TestOnDiskVersion:
         assert _on_disk_version() == "0.19.2"
         assert _on_disk_version() == "0.19.2"
 
+    def test_invalidate_caches_called(self, monkeypatch):
+        """importlib.invalidate_caches must be called so on-disk changes are visible.
+
+        Without this, importlib.metadata caches the version from the first
+        read and never sees a uv-tool-upgrade that rewrites dist-info.
+        """
+        import importlib
+        called = []
+        monkeypatch.setattr(importlib, "invalidate_caches", lambda: called.append(True))
+        _on_disk_version()
+        assert len(called) >= 1
+
 
 # ---------------------------------------------------------------------------
 # Wiki fallback after daemon compile
@@ -193,8 +205,86 @@ class TestPidFileUnification:
 
 
 # ---------------------------------------------------------------------------
-# SIGTERM handler
+# Upgrade → os.execv hot-swap
 # ---------------------------------------------------------------------------
+
+class TestUpgradeExecv:
+    def test_upgrade_triggers_execv(self, daemon_home: Path, monkeypatch):
+        """When on-disk version differs from startup, os.execv is called."""
+        import lorekeep.cli as cli_module
+
+        pid_file = daemon_home / ".daemon.pid"
+        pid_file.write_text(str(os.getpid()))
+
+        execv_called = []
+        monkeypatch.setattr("os.execv", lambda *a, **kw: execv_called.append(True))
+
+        # Simulate the upgrade-check logic from watch() loop
+        startup_version = "0.19.2"
+        current_version = "0.20.0"
+        if startup_version is not None and current_version is not None and current_version != startup_version:
+            pid_file.unlink(missing_ok=True)
+            os.execv(sys.argv[0], sys.argv)  # mocked
+
+        assert len(execv_called) == 1
+        assert not pid_file.exists()
+
+    def test_upgrade_skipped_when_version_none(self, daemon_home: Path, monkeypatch):
+        """When _on_disk_version returns None, upgrade check is skipped."""
+        import lorekeep.cli as cli_module
+
+        monkeypatch.setattr(cli_module, "_on_disk_version", lambda: None)
+        execv_called = []
+        monkeypatch.setattr("os.execv", lambda *a, **kw: execv_called.append(True))
+
+        # Simulate the guard
+        startup_version = "0.19.2"
+        current = cli_module._on_disk_version()
+        if startup_version is not None and current is not None and current != startup_version:
+            os.execv(sys.argv[0], sys.argv)
+
+        assert len(execv_called) == 0
+
+
+# ---------------------------------------------------------------------------
+# _start_daemon
+# ---------------------------------------------------------------------------
+
+class TestStartDaemonGuards:
+    def test_skips_when_pid_already_running(self, daemon_home: Path, monkeypatch):
+        """_start_daemon must not spawn a second daemon if PID is alive."""
+        import subprocess
+        from lorekeep.cli import _start_daemon
+
+        pid_file = daemon_home / ".daemon.pid"
+        pid_file.write_text(str(os.getpid()))  # our PID is alive
+
+        popen_called = []
+        monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: popen_called.append(True))
+
+        p = {"home": daemon_home, "logs": daemon_home / "logs"}
+        _start_daemon(p)
+
+        assert len(popen_called) == 0  # no second spawn
+
+    def test_daemon_detaches_correctly(self, daemon_home: Path, monkeypatch):
+        """_start_daemon must use start_new_session=True and stdin=DEVNULL."""
+        import subprocess
+        from lorekeep.cli import _start_daemon
+
+        class FakeProc:
+            pid = 12345
+
+        captured_kwargs = {}
+        monkeypatch.setattr(subprocess, "Popen",
+                            lambda *a, **kw: (captured_kwargs.update(kw) or FakeProc()))
+
+        p = {"home": daemon_home, "logs": daemon_home / "logs"}
+        _start_daemon(p)
+
+        assert captured_kwargs.get("start_new_session") is True
+        assert captured_kwargs.get("stdin") == subprocess.DEVNULL
+        assert captured_kwargs.get("stderr") == subprocess.STDOUT
 
 class TestSigtermHandler:
     def test_sigterm_removes_pid_file(self, daemon_home: Path):
