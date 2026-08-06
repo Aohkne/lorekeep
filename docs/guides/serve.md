@@ -128,7 +128,7 @@ uvx lorekeep agent watch
 # Watches pending/ → auto-resolve
 # Watches Claude memory/ + Codex memories/ → delta quick-import (zero LLM)
 # Session re-discovery every cycle — detects new sessions after daemon start
-# Survives restart: lorekeep agent daemon install (systemd/launchd/startup)
+# Survives restart: lorekeep agent service install (systemd/launchd/startup)
 # Backup auto-syncs: pull --rebase (other machines) + push (local changes)
 # Use --no-watch-sessions to disable session watching
 

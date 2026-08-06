@@ -1,4 +1,4 @@
-"""`lorekeep contribution` — team-knowledge gap suggestions (read-only)."""
+"""`lorekeep agent contribution` — team-knowledge gap suggestions (read-only)."""
 from pathlib import Path
 from typer.testing import CliRunner
 
@@ -27,7 +27,7 @@ def test_contribution_finds_personal_only_gap(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_OUT", str(out))
     monkeypatch.setenv("LOREKEEP_CONFIG", str(cfg))
 
-    result = runner.invoke(app, ["contribution"])
+    result = runner.invoke(app, ["agent", "contribution"])
     assert result.exit_code == 0, result.output
     assert "svc:gap" in result.output           # in me only -> gap
     assert "svc:shared" not in result.output    # also in backend -> not a gap
@@ -44,13 +44,13 @@ def test_contribution_no_gap_when_shared(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_OUT", str(out))
     monkeypatch.setenv("LOREKEEP_CONFIG", str(cfg))
 
-    result = runner.invoke(app, ["contribution"])
+    result = runner.invoke(app, ["agent", "contribution"])
     assert result.exit_code == 0, result.output
     assert "no contribution gaps" in result.output.lower()
 
 
 def test_contribution_no_graph(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_OUT", str(tmp_path / "nope"))
-    result = runner.invoke(app, ["contribution"])
+    result = runner.invoke(app, ["agent", "contribution"])
     assert result.exit_code == 1
     assert "compile" in result.output.lower()
