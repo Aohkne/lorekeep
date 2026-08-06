@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.0 (2026-08-06)
+
+## What's Changed
+* refactor!: consolidate CLI groups for leaner top-level surface by @manhhailua in https://github.com/manhhailua/lorekeep/pull/166
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.17.0...v0.18.0
+
 ## 0.17.0 (2026-08-06)
 
 ## What's Changed
