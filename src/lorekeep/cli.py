@@ -38,6 +38,14 @@ def _main(
     configure_logging(level)
 
 
+# Agent subcommand group (created early so commands below can register on it).
+agent_app = typer.Typer(
+    help="Agent operations: ingest, lint, suggest, status, watch, profile, "
+         "contribution, service.",
+)
+app.add_typer(agent_app, name="agent")
+
+
 def _build_provider(config: Config) -> LiteLLMProvider:
     """Create a real LLM provider from config.  Shared by compile + import."""
     from lorekeep.compile.providers import setup_observability
@@ -318,7 +326,7 @@ def wiki(
         _open_in_obsidian(p["wiki"])
 
 
-@app.command()
+@agent_app.command()
 def profile(
     open: bool = typer.Option(False, "--open", help="Open your raw profile dir in Obsidian/Tolaria."),
 ) -> None:
@@ -340,7 +348,7 @@ def profile(
         _open_in_obsidian(ns_dir)
 
 
-@app.command()
+@agent_app.command()
 def contribution() -> None:
     """Suggest team-knowledge gaps: nodes in your personal namespace not yet shared.
 
@@ -463,7 +471,10 @@ def eval_locomo_cmd(
 
 @app.command()
 def check() -> None:
-    """Validate the compiled graph: loads, no dangling edges."""
+    """Validate the compiled graph: loads, no dangling edges.
+
+    See also: `lorekeep doctor` for full install verification (schema, MCP, provider).
+    """
     p = resolve_paths()
     from lorekeep.eval.construction import structure_report
     struct = structure_report(p["out"])
@@ -1636,20 +1647,19 @@ def import_cmd(
             typer.echo("next: lorekeep compile")
 
 
-# --- Agent subcommand group -----------------------------------------------
+# --- Agent subcommands --------------------------------------------------------
 
-agent_app = typer.Typer(help="Autonomous agent operations: ingest, lint, suggest, status, watch, daemon.")
-app.add_typer(agent_app, name="agent")
-
-daemon_app = typer.Typer(help="Install/uninstall daemon as persistent OS service.")
-agent_app.add_typer(daemon_app, name="daemon")
+service_app = typer.Typer(help="Install/uninstall the daemon as a persistent OS service.")
+agent_app.add_typer(service_app, name="service")
 
 
-@daemon_app.command("install")
+@service_app.command("install")
 def daemon_install() -> None:
     """Install daemon as a persistent OS service (survives restart).
 
     Linux: systemd user service. macOS: launchd LaunchAgent. Windows: Startup folder.
+
+    The service runs `lorekeep agent watch` in the background.
     """
     from lorekeep.daemon_service import install as svc_install
     p = resolve_paths()
@@ -1670,7 +1680,7 @@ def daemon_install() -> None:
         raise typer.Exit(code=1)
 
 
-@daemon_app.command("uninstall")
+@service_app.command("uninstall")
 def daemon_uninstall() -> None:
     """Remove the persistent daemon service."""
     from lorekeep.daemon_service import uninstall as svc_uninstall
@@ -1685,7 +1695,7 @@ def daemon_uninstall() -> None:
         typer.echo("daemon: no service found")
 
 
-@daemon_app.command("status")
+@service_app.command("status")
 def daemon_status() -> None:
     """Check if the persistent daemon service is installed and running."""
     from lorekeep.daemon_service import status as svc_status
@@ -1883,7 +1893,10 @@ def lint(
         help="Lint a specific entity by id",
     ),
 ) -> None:
-    """Run semantic health checks on the graph."""
+    """Run semantic health checks on the graph.
+
+    See also: `lorekeep check` for structural validation (dangling edges).
+    """
     p = resolve_paths()
     facts_path = p["out"] / "facts.jsonl"
     if not facts_path.exists():
@@ -2042,6 +2055,9 @@ def watch(
     Watches pending/ for new journal entries → auto-resolve.
     Watches Claude + Codex memory dirs → delta quick import → raw/.
     Cursor/opencode are handled by session-end hooks (`lorekeep hook`).
+
+    For unattended operation, use `lorekeep agent service install` to run this
+    as a background OS service.
     """
     import time
     p = resolve_paths()

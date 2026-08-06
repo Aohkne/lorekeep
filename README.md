@@ -132,14 +132,14 @@ The full journey from install to continuous use — see the
 | 6. Serve | `lorekeep serve` | MCP server (9 read + 5 write tools, lazy-reload) |
 | 7. Keep current | `lorekeep agent watch &` | Daemon: auto-compile, auto-resolve, delta-import sessions |
 | 8. Back up | `lorekeep backup` | Push data home to private git repo (raw/ + schema.json) |
-| 9. Persist daemon | `lorekeep agent daemon install` | Survive restart (systemd/launchd/startup) |
+| 9. Persist daemon | `lorekeep agent service install` | Survive restart (systemd/launchd/startup) |
 
 Personal knowledge + team sharing:
 
 | Command | Purpose |
 |---|---|
-| `lorekeep profile [--open]` | Show / open your personal profile source (`raw/<ns>/about.md` + `profile.md`) — edit in Obsidian/Tolaria, then `compile`. |
-| `lorekeep contribution` | Suggest team-knowledge gaps: nodes in your personal ns not yet shared with a team ns. |
+| `lorekeep agent profile [--open]` | Show / open your personal profile source (`raw/<ns>/about.md` + `profile.md`) — edit in Obsidian/Tolaria, then `compile`. |
+| `lorekeep agent contribution` | Suggest team-knowledge gaps: nodes in your personal ns not yet shared with a team ns. |
 | `lorekeep schema upgrade [--dry-run]` | Upgrade a stock v2/v3 schema to the human-readable v4 contract with a backup; custom schemas require `--force`. |
 
 Steps 1–6 are one-time setup. Step 7 runs in the background for continuous

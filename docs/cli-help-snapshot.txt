@@ -1,0 +1,152 @@
+                                                                                
+ Usage: lorekeep [OPTIONS] COMMAND [ARGS]...                                    
+                                                                                
+ Lorekeep — compile team docs into a temporal knowledge graph.                  
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --verbose             -v        Debug-level logs.                            │
+│ --quiet               -q        Warnings only; suppress progress.            │
+│ --install-completion            Install completion for the current shell.    │
+│ --show-completion               Show completion for the current shell, to    │
+│                                 copy it or customize the installation.       │
+│ --help                          Show this message and exit.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ version       Print the Lorekeep version.                                    │
+│ compile       Compile raw/ → facts.jsonl + merge pending + generate wiki     │
+│               (all-in-one).                                                  │
+│ wiki          Generate Obsidian-compatible wiki from facts.jsonl.            │
+│ profile       Show / open your personal profile source (raw/<ns>/).          │
+│ contribution  Suggest team-knowledge gaps: nodes in your personal namespace  │
+│               not yet shared.                                                │
+│ check         Validate the compiled graph: loads, no dangling edges.         │
+│ resolve       Merge pending journal entries into facts.jsonl (full resolve   │
+│               pass).                                                         │
+│ serve         Serve the scoped graph over MCP.                               │
+│ doctor        Verify install: graph loads, schema valid, ns resolves, a tool │
+│               responds,                                                      │
+│               and the configured LLM provider is reachable.                  │
+│ init          Bootstrap the data home, wire agents, import sessions,         │
+│               compile, and start daemon.                                     │
+│ backup        Commit + push the data home to your private backup repo.       │
+│ import        Import knowledge from an agent's sessions into raw/.           │
+│ mcp           Coding-agent integration.                                      │
+│ config        View and edit lorekeep config.                                 │
+│ schema        Inspect and upgrade the graph schema.                          │
+│ support       Create privacy-safe diagnostics for bug reports.               │
+│ bugreport     Control automatic GitHub issue reporting.                      │
+│ agent         Autonomous agent operations: ingest, lint, suggest, status,    │
+│               watch, daemon.                                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+=== lorekeep agent --help ===
+                                                                                
+ Usage: lorekeep agent [OPTIONS] COMMAND [ARGS]...                              
+                                                                                
+ Autonomous agent operations: ingest, lint, suggest, status, watch, daemon.     
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ ingest   Conversational ingest: read a source, extract facts via LLM, review │
+│          and journal.                                                        │
+│ lint     Run semantic health checks on the graph.                            │
+│ suggest  Generate improvement suggestions for the graph.                     │
+│ status   Print a graph health dashboard.                                     │
+│ watch    Run the autonomous agent daemon: watch raw/, pending/, and agent    │
+│          sessions.                                                           │
+│ daemon   Install/uninstall daemon as persistent OS service.                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+=== lorekeep config --help ===
+                                                                                
+ Usage: lorekeep config [OPTIONS] COMMAND [ARGS]...                             
+                                                                                
+ View and edit lorekeep config.                                                 
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ show  Print the current config.yaml.                                         │
+│ set   Set a config value (e.g. `config set provider.model                    │
+│       deepseek/deepseek-chat`).                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+=== lorekeep schema --help ===
+                                                                                
+ Usage: lorekeep schema [OPTIONS] COMMAND [ARGS]...                             
+                                                                                
+ Inspect and upgrade the graph schema.                                          
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ upgrade  Upgrade a stock ontology schema to the latest version, preserving a │
+│          backup.                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+=== lorekeep support --help ===
+                                                                                
+ Usage: lorekeep support [OPTIONS] COMMAND [ARGS]...                            
+                                                                                
+ Create privacy-safe diagnostics for bug reports.                               
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --output       -o      PATH  Write the ZIP to this path.                     │
+│ --report-only                Print the report without creating a ZIP.        │
+│ --no-print                   Create the ZIP without printing the report.     │
+│ --help                       Show this message and exit.                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+=== lorekeep bugreport --help ===
+                                                                                
+ Usage: lorekeep bugreport [OPTIONS] COMMAND [ARGS]...                          
+                                                                                
+ Control automatic GitHub issue reporting.                                      
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ on      Enable automatic GitHub issue creation on errors.                    │
+│ off     Disable automatic GitHub issue creation on errors.                   │
+│ status  Show current auto bug-report configuration and dedup stats.          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+=== lorekeep mcp --help ===
+                                                                                
+ Usage: lorekeep mcp [OPTIONS] COMMAND [ARGS]...                                
+                                                                                
+ Coding-agent integration.                                                      
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ add  Write the agent's MCP config + print an agent-memory snippet.           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+=== lorekeep agent daemon --help ===
+                                                                                
+ Usage: lorekeep agent daemon [OPTIONS] COMMAND [ARGS]...                       
+                                                                                
+ Install/uninstall daemon as persistent OS service.                             
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ install    Install daemon as a persistent OS service (survives restart).     │
+│ uninstall  Remove the persistent daemon service.                             │
+│ status     Check if the persistent daemon service is installed and running.  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+

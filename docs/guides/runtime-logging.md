@@ -64,7 +64,7 @@ never added to a support bundle.
 
 ```bash
 lorekeep doctor
-lorekeep agent daemon status
+lorekeep agent service status
 lorekeep support
 ```
 

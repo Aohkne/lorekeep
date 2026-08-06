@@ -255,7 +255,7 @@ def test_profile_command_shows_source(tmp_path: Path, monkeypatch):
     home = tmp_path / "home"
     (home / "raw" / "public").mkdir(parents=True)
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
-    result = runner.invoke(app, ["profile"])
+    result = runner.invoke(app, ["agent", "profile"])
     assert result.exit_code == 0, result.stdout
     assert "profile source" in result.stdout
     assert "raw" in result.stdout
