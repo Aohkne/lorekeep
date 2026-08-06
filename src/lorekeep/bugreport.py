@@ -35,6 +35,8 @@ _warned_no_token = False
 # auto-reported issue (they would just create duplicates of the root cause).
 _SKIP_EVENTS = frozenset({
     "compile.manifest_error",   # always a consequence of compile.chunk_failed
+    "serve.mcp_missing",        # user needs to install/pin mcp — not a code bug
+    "serve.no_graph",           # user needs to run compile first — not a code bug
 })
 
 
