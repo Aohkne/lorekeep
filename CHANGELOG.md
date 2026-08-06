@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0 (2026-08-06)
+
+## What's Changed
+* refactor!: merge check into doctor as sole validation command by @manhhailua in https://github.com/manhhailua/lorekeep/pull/170
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.18.0...v0.19.0
+
 ## 0.18.0 (2026-08-06)
 
 ## What's Changed
