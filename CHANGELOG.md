@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.2 (2026-08-06)
+
+## What's Changed
+* fix: prevent crashes and noise from systemic provider errors by @manhhailua in https://github.com/manhhailua/lorekeep/pull/177
+* fix: pin mcp<2.0 to prevent FastMCP breakage by @manhhailua in https://github.com/manhhailua/lorekeep/pull/179
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.19.1...v0.19.2
+
 ## 0.19.1 (2026-08-06)
 
 ## What's Changed
