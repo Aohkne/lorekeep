@@ -119,10 +119,11 @@ Snapshots to `.lorekeep/eval/results.json`.
 ## 7. Validate
 
 ```bash
-uv run lorekeep check
+uv run lorekeep doctor
 ```
 
-Exits non-zero if the graph has dangling edges.
+Verifies graph loads with no dangling edges, schema is valid, MCP tools
+respond, and provider is reachable.
 
 ## How agents contribute knowledge
 

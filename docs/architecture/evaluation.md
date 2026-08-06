@@ -29,7 +29,7 @@ All compile/serve/import tests inject `FakeProvider` via monkeypatch to avoid a 
 
 ### Tier 1 — Construction quality (CI, every commit)
 
-Evaluates the **compiler**, not the agent. `lorekeep eval` / `lorekeep check`.
+Evaluates the **compiler**, not the agent. `lorekeep eval` / `lorekeep doctor`.
 
 - Extraction P/R/F1 vs a **gold-annotated corpus** (human-authored `facts.jsonl` reference), per node/edge type.
 - Entity-resolution F1 + false-merge rate.

@@ -2,22 +2,21 @@
 
 ## 1. Command Inventory
 
-Source: `src/lorekeep/cli.py` (34 command registrations, 31 user-visible commands).
+Source: `src/lorekeep/cli.py` (32 command registrations, 30 user-visible commands).
 
-### Top-level commands (13 visible + 3 hidden)
+### Top-level commands (12 visible + 3 hidden)
 
 | Command | Line | Purpose | Target user |
 |---|---|---|---|
 | `lorekeep version` | 88 | Print version | All |
 | `lorekeep compile` | 246 | raw/*.md → facts.jsonl + wiki + resolve (all-in-one) | Curator |
 | `lorekeep wiki` | 303 | Regenerate wiki from facts.jsonl | Curator |
-| `lorekeep check` | 464 | Validate graph: loads, no dangling edges | Curator/Dev |
 | `lorekeep resolve` | 494 | Merge pending journals into facts.jsonl | Curator |
 | `lorekeep serve` | 609 | Run MCP server (stdio/http) | Agent/Dev |
-| `lorekeep doctor` | 890 | Full install verification (graph + schema + MCP + provider ping) | Dev |
-| `lorekeep init` | 988 | Bootstrap data home, wire agents, import, compile, daemon | All |
-| `lorekeep backup` | 1439 | Commit + push .lorekeep/ to backup git repo | Curator |
-| `lorekeep import` | 1465 | Import agent sessions → raw/ (claude/cursor/codex/opencode) | Curator |
+| `lorekeep doctor` | 875 | Validate full install: graph, schema, MCP, provider | All |
+| `lorekeep init` | 973 | Bootstrap data home, wire agents, import, compile, daemon | All |
+| `lorekeep backup` | 1424 | Commit + push .lorekeep/ to backup git repo | Curator |
+| `lorekeep import` | 1450 | Import agent sessions → raw/ (claude/cursor/codex/opencode) | Curator |
 | `lorekeep hook` | 94 (**hidden**) | Session-end hook: quick-import memories (all agents) | Agent (auto) |
 | `lorekeep eval` | 391 (**hidden**) | Construction-quality eval vs gold corpus | Dev |
 | `lorekeep eval-locomo` | 408 (**hidden**) | LoCoMo benchmark eval | Dev |
@@ -47,7 +46,7 @@ Source: `src/lorekeep/cli.py` (34 command registrations, 31 user-visible command
 | `agent` | `agent service uninstall` | 1674 | Remove daemon OS service | Curator |
 | `agent` | `agent service status` | 1691 | Check daemon service status | Curator |
 
-**Total: 31 user-visible commands + 3 hidden = 34 command entry points.**
+**Total: 30 user-visible commands + 3 hidden = 32 command entry points.**
 
 ---
 
@@ -77,13 +76,13 @@ Source: `src/lorekeep/cli.py` (34 command registrations, 31 user-visible command
 
 ## 3. Remaining issues
 
-### R1: `check` vs `doctor` — overlapping validation (HIGH — keep as-is)
+### R1 ✅: `check` merged into `doctor` (HIGH — resolved)
 
-Both load the graph and validate it. `check` is a fast structural subset (CI gate, no network). `doctor` is a superset including schema, MCP, and provider ping. Cross-reference added to `check --help`. Do NOT merge — different use cases.
+The standalone `check` command is removed. `doctor` is the sole validation command — it covers structural integrity (dangling edges), schema validation, MCP tool response, and provider connectivity. Provider ping is auto-skipped when no API key is set, so `doctor` works in CI/offline without flags.
 
-### R2: `check` vs `agent lint` — overlapping graph validation (MEDIUM — future enhancement)
+### R2: `doctor` vs `agent lint` — structural vs semantic validation (MEDIUM — future enhancement)
 
-`check` is structural (dangling edges). `agent lint` is semantic (orphans, contradictions). Cross-reference added to `agent lint --help`. Future: `check --deep` flag to run both.
+`doctor` is structural (dangling edges, schema, connectivity). `agent lint` is semantic (orphans, contradictions). Cross-reference added to `agent lint --help`. Future: `doctor --deep` flag to run both.
 
 ### R3: `agent status` vs `doctor` — overlapping health reporting (MEDIUM — keep as-is)
 
@@ -113,18 +112,19 @@ Future: add post-write Pydantic validation.
 
 | Action | Commands | Status |
 |---|---|---|
-| Add cross-references to `check` and `agent lint` --help | `check`, `agent lint` | ✅ |
+| Add cross-references to `agent lint` --help | `agent lint` | ✅ |
 | Add service/watch cross-references | `agent watch`, `agent service install` | ✅ |
 | Move `profile` → `agent profile` | `agent` | ✅ |
 | Move `contribution` → `agent contribution` | `agent` | ✅ |
 | Rename `agent daemon` → `agent service` | `agent` | ✅ |
 | Merge `bugreport` into `support` | `support` | ✅ |
+| Merge `check` into `doctor` | `doctor` | ✅ |
 
 ### Future work (no urgency)
 
 | Action | Priority | Impact |
 |---|---|---|
-| Add `check --deep` flag running `agent lint` checks | Low | Single command for full health check |
+| Add `doctor --deep` flag running `agent lint` checks | Low | Single command for full health check |
 | Add Pydantic validation to `config set` | Low | Catches invalid values at write time |
 | Rename `agent ingest` → `agent extract` | P4 (breaking) | Distinguish from `import` |
 | Merge `hook` into `import --hook` mode | P4 (breaking) | Reduce hidden commands |
@@ -134,6 +134,6 @@ Future: add post-write Pydantic validation.
 ## Verification
 
 **Before this review**: 37 command entry points (15 top-level + 7 groups × 19 subcommands + 5 hidden).
-**After**: 34 command entry points (13 top-level + 4 groups × 18 subcommands + 3 hidden).
+**After**: 32 command entry points (12 top-level + 4 groups × 18 subcommands + 3 hidden).
 
-Top-level surface reduced from 15 → 13 visible commands. `bugreport` group eliminated, `profile`/`contribution` moved under `agent`, `agent daemon` renamed to `agent service`.
+Top-level surface reduced from 15 → 12 visible commands. `check` and `bugreport` groups eliminated, `profile`/`contribution` moved under `agent`, `agent daemon` renamed to `agent service`.
