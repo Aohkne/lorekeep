@@ -99,7 +99,7 @@ def test_init_starts_daemon(tmp_path: Path, monkeypatch):
     assert "agent" in cmd
     assert "watch" in cmd
 
-    pid_file = home / "agent.pid"
+    pid_file = home / ".daemon.pid"
     assert pid_file.exists()
     assert pid_file.read_text().strip() == "99999"
 
@@ -128,7 +128,7 @@ def test_init_rerun_revives_dead_daemon(tmp_path: Path, monkeypatch):
     runner.invoke(app, ["init", "--yes", "--no-watch"])
 
     # Simulate dead daemon: stale PID file pointing to nonexistent process
-    pid_path = home / "agent.pid"
+    pid_path = home / ".daemon.pid"
     pid_path.write_text("999999")
 
     mock_proc = MagicMock()

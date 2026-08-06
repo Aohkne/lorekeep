@@ -1417,7 +1417,7 @@ def _start_daemon(p: dict) -> None:
     import subprocess
     import sys
 
-    pid_path = p["home"] / "agent.pid"
+    pid_path = p["home"] / ".daemon.pid"
     log_dir = p.get("logs", p["home"] / "logs")
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "daemon-bootstrap.log"
@@ -2050,6 +2050,23 @@ def _quick_import_session(agent: str, session_dir: Path, memory_dir: Path, raw_d
     return 0
 
 
+def _on_disk_version() -> str | None:
+    """Read lorekeep's version from installed package metadata on disk.
+
+    Called by the daemon loop to detect upgrades: the running process has
+    ``__version__`` in memory, but ``importlib.metadata.version()`` reads
+    from the dist-info dir. When ``uv tool upgrade`` installs a new version,
+    the on-disk value changes while the process keeps the old code.
+    """
+    import importlib
+    import importlib.metadata
+    importlib.invalidate_caches()
+    try:
+        return importlib.metadata.version("lorekeep")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 @agent_app.command()
 def watch(
     interval: int = typer.Option(
@@ -2071,7 +2088,10 @@ def watch(
     For unattended operation, use `lorekeep agent service install` to run this
     as a background OS service.
     """
+    import signal
+    import sys
     import time
+
     p = resolve_paths()
     raw_dir = p["raw"]
     pending_dir = p.get("pending")
@@ -2090,8 +2110,7 @@ def watch(
     if pid_file.exists():
         try:
             old_pid = int(pid_file.read_text().strip())
-            import os as _os
-            _os.kill(old_pid, 0)
+            os.kill(old_pid, 0)
             typer.echo(f"agent: daemon already running (PID {old_pid}), exiting")
             raise typer.Exit(code=1)
         except (ProcessLookupError, ValueError, PermissionError):
@@ -2099,9 +2118,21 @@ def watch(
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     pid_file.write_text(str(os.getpid()))
 
+    # --- SIGTERM handler: clean PID file on kill / systemctl stop -------------
+    def _on_sigterm(signum, frame):
+        pid_file.unlink(missing_ok=True)
+        log.info("daemon received SIGTERM — shutting down", extra={"event": "daemon.sigterm"})
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+
+    # --- Capture startup version for auto-restart-on-upgrade -----------------
+    startup_version = _on_disk_version()
+
     last_raw_mtime = 0.0
     last_raw_count = -1
     last_pending_mtime = 0.0
+    last_schema_mtime = 0.0
     session_state: dict[str, float] = {}
     session_import_time: dict[str, float] = {}
 
@@ -2130,13 +2161,29 @@ def watch(
 
     while True:
         try:
+            # --- auto-restart on upgrade ---------------------------------------
+            # If lorekeep was upgraded (pip/uv) while this daemon is running,
+            # the on-disk version changes but the process still runs old code.
+            # Detect and hot-swap via os.execv (systemd/launchd won't notice).
+            current_version = _on_disk_version()
+            if startup_version is not None and current_version is not None and current_version != startup_version:
+                log.info(
+                    "lorekeep upgraded (%s → %s) — restarting daemon",
+                    startup_version, current_version,
+                    extra={"event": "daemon.upgrade_restart"},
+                )
+                typer.echo(f"agent: upgraded {startup_version} → {current_version}, restarting...")
+                pid_file.unlink(missing_ok=True)
+                os.execv(sys.argv[0], sys.argv)
+
             # Re-check existence each cycle (raw/ or pending/ may be created after start)
             has_raw = raw_dir.exists()
             has_pending = pending_dir and pending_dir.exists()
-            # --- raw/ watch → auto-compile ----------------------------------
+            # --- raw/ + schema watch → auto-compile ---------------------------
             raw_files = sorted(raw_dir.rglob("*.md")) if has_raw else []
             raw_mtime = max((f.stat().st_mtime for f in raw_files), default=0.0)
             raw_count = len(raw_files)
+            schema_mtime = p["schema"].stat().st_mtime if p["schema"].exists() else 0.0
             compiled = False
 
             should_compile = False
@@ -2145,6 +2192,8 @@ def watch(
                     should_compile = True
                 elif raw_mtime > last_raw_mtime:
                     should_compile = True
+            if last_schema_mtime > 0 and schema_mtime > last_schema_mtime:
+                should_compile = True
 
             if should_compile:
                 typer.echo(f"agent: raw/ changed ({raw_count} files) — compiling...")
@@ -2172,6 +2221,7 @@ def watch(
                     typer.echo(f"agent: compile error: {exc}")
             last_raw_mtime = raw_mtime
             last_raw_count = raw_count
+            last_schema_mtime = schema_mtime
 
             # --- auto-backup + sync after compile ---------------------------
             if compiled:
@@ -2184,11 +2234,14 @@ def watch(
                         "post-compile backup sync failed error_type=%s",
                         type(exc).__name__, extra={"event": "daemon.backup_failed"},
                     )
+                resolved = False
                 if has_pending:
-                    _do_auto_resolve(
+                    resolved = _do_auto_resolve(
                         p["out"], pending_dir, p.get("wiki"), p.get("schema"),
                         replay_accepted=True,
                     )
+                if not resolved:
+                    _auto_generate_wiki(p["out"], p.get("wiki"), p.get("schema"))
 
             # --- pending/ watch → auto-resolve ------------------------------
             if has_pending:
