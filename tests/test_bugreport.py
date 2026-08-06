@@ -154,6 +154,9 @@ class TestIssueBody:
         assert "bad chunk" not in body
         assert "[details redacted]" in body
         assert "ValueError" in body
+        # Full traceback frames should be included for debugging.
+        assert 'File "' in body
+        assert "line " in body
 
     def test_redacts_home_directory(self):
         record = _make_record(msg=f"failed reading {Path.home()}/secret/file")

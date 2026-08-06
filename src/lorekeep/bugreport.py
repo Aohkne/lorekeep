@@ -20,6 +20,7 @@ import logging
 import os
 import platform
 import sys
+import traceback as _tb
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -162,14 +163,23 @@ def _build_issue_body(record: logging.LogRecord, run_id: str) -> str:
     if record.exc_info and record.exc_info[0]:
         error_type = record.exc_info[0].__name__
 
-    # Redacted log message.  Traceback frames are NOT included — they can
-    # carry the exception message in the source line of the raise statement.
-    # The full redacted traceback is already in the runtime log; the issue
-    # body only needs enough metadata to identify the error class.
+    # Full traceback with redacted exception message — same pattern as
+    # _SafeFileFormatter in output.py.  Stack frames (file/line/function) are
+    # safe to include and essential for diagnosing auto-reported errors.
+    # Source code lines are stripped from each frame to avoid leaking
+    # exception messages embedded in raise statements.
     msg = redact_text(record.getMessage())
-    if record.exc_info and record.exc_info[0]:
+    if record.exc_info and record.exc_info[2]:
         exc_type = record.exc_info[0]
-        log_entry = f"{msg}\n{exc_type.__module__}.{exc_type.__name__}: [details redacted]"
+        frames = "".join(
+            f'  File "{f.filename}", line {f.lineno}, in {f.name}\n'
+            for f in _tb.extract_tb(record.exc_info[2])
+        )
+        log_entry = (
+            f"{msg}\n"
+            f"{frames}{exc_type.__module__}.{exc_type.__name__}: [details redacted]"
+        )
+        log_entry = redact_text(log_entry)
     else:
         log_entry = msg
     log_entry = redact_text(log_entry)
