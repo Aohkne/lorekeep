@@ -147,6 +147,8 @@ class TestIssueBody:
         assert "compile.chunk_failed" in body
         assert "ERROR" in body
         assert "run123" in body
+        assert "Timestamp" in body
+        assert "Source" in body
 
     def test_traceback_is_redacted(self):
         record = _make_error_record()
@@ -157,6 +159,12 @@ class TestIssueBody:
         # Full traceback frames should be included for debugging.
         assert 'File "' in body
         assert "line " in body
+
+    def test_log_message_shown_directly(self):
+        record = _make_record(msg="compile: chunk failed line=1")
+        body = _build_issue_body(record, "run123")
+        # Log message should be visible without expanding details.
+        assert "chunk failed" in body
 
     def test_redacts_home_directory(self):
         record = _make_record(msg=f"failed reading {Path.home()}/secret/file")

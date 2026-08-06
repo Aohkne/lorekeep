@@ -153,6 +153,7 @@ def _create_github_issue(
 
 def _build_issue_body(record: logging.LogRecord, run_id: str) -> str:
     """Build a privacy-safe Markdown issue body from a log record."""
+    from datetime import datetime, timezone
     from lorekeep import __version__
     from lorekeep.redaction import redact_text
 
@@ -162,6 +163,22 @@ def _build_issue_body(record: logging.LogRecord, run_id: str) -> str:
     error_type = ""
     if record.exc_info and record.exc_info[0]:
         error_type = record.exc_info[0].__name__
+
+    # Timestamp from the record's creation time.
+    ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ",
+    )
+
+    # Source location from the top traceback frame (where the error
+    # originated in lorekeep code).  Falls back to the log call site.
+    source = ""
+    if record.exc_info and record.exc_info[2]:
+        tb_frames = _tb.extract_tb(record.exc_info[2])
+        if tb_frames:
+            f = tb_frames[-1]  # innermost frame = where the raise happened
+            source = redact_text(f"{f.filename}:{f.lineno} in {f.name}")
+    if not source and record.pathname:
+        source = redact_text(f"{record.pathname}:{record.lineno} in {record.funcName}")
 
     # Full traceback with redacted exception message — same pattern as
     # _SafeFileFormatter in output.py.  Stack frames (file/line/function) are
@@ -175,35 +192,52 @@ def _build_issue_body(record: logging.LogRecord, run_id: str) -> str:
             f'  File "{f.filename}", line {f.lineno}, in {f.name}\n'
             for f in _tb.extract_tb(record.exc_info[2])
         )
-        log_entry = (
-            f"{msg}\n"
+        traceback_text = (
             f"{frames}{exc_type.__module__}.{exc_type.__name__}: [details redacted]"
         )
-        log_entry = redact_text(log_entry)
+        traceback_text = redact_text(traceback_text)
     else:
-        log_entry = msg
-    log_entry = redact_text(log_entry)
+        traceback_text = ""
 
-    return (
-        "## Auto-reported error\n\n"
-        f"| Field | Value |\n"
-        f"|---|---|\n"
-        f"| Event | `{redact_text(event)}` |\n"
-        f"| Level | {level} |\n"
-        f"| Component | `{redact_text(component)}` |\n"
-        f"| Run ID | {redact_text(run_id)} |\n"
-        f"| Version | {__version__} |\n"
-        f"| Platform | {redact_text(platform.platform())} |\n"
-        f"| Python | {redact_text(platform.python_version())} |\n"
-        f"{f'| Error type | `{error_type}` |' + chr(10) if error_type else ''}"
-        "\n"
-        "<details><summary>Redacted log entry</summary>\n\n"
-        f"```\n{log_entry}\n```\n\n"
-        "</details>\n\n"
+    # Build metadata table rows.
+    rows = [
+        ("Event", f"`{redact_text(event)}`"),
+        ("Level", level),
+        ("Timestamp", ts),
+        ("Component", f"`{redact_text(component)}`"),
+        ("Run ID", redact_text(run_id)),
+        ("Version", __version__),
+    ]
+    if error_type:
+        rows.append(("Error type", f"`{error_type}`"))
+    if source:
+        rows.append(("Source", f"`{source}`"))
+    rows.append(("Platform", redact_text(platform.platform())))
+    rows.append(("Python", redact_text(platform.python_version())))
+
+    table = "| Field | Value |\n|---|---|\n"
+    for label, value in rows:
+        table += f"| {label} | {value} |\n"
+
+    # Log message shown directly (already redacted) + traceback in details.
+    sections = [
+        "## Auto-reported error\n",
+        f"```\n{msg}\n```\n",
+        table,
+    ]
+    if traceback_text:
+        sections.append(
+            "<details><summary>Full traceback</summary>\n\n"
+            f"```\n{traceback_text}\n```\n\n"
+            "</details>\n\n"
+        )
+    sections.append(
         "---\n"
         "*Created automatically by `lorekeep` runtime diagnostics. "
         "Sensitive data has been redacted.*\n"
     )
+
+    return "\n".join(sections)
 
 
 # ---------------------------------------------------------------------------
