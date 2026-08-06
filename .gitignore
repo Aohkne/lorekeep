@@ -20,6 +20,8 @@ build/
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
+.coverage
+htmlcov/
 
 # OS / editors
 .DS_Store
