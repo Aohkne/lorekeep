@@ -51,14 +51,14 @@ ns:
   default: [me]
   personal: me
 
-# ── auto bug-report ───────────────────────────────────────────────────────────
+# ── auto error reporting ─────────────────────────────────────────────────────
 # When enabled, lorekeep automatically creates a GitHub issue the first time it
 # encounters a unique ERROR/CRITICAL.  Subsequent occurrences are deduplicated
 # (tracked in logs/bugreport-dedup.json).  All issue content is redacted via the
 # same privacy filters used in `lorekeep support`.
 #
 # To use: export LOREKEEP_GITHUB_TOKEN with a fine-grained PAT that has
-# `issues: write` on the target repo.  Disable any time with `lorekeep bugreport off`.
+# `issues: write` on the target repo.  Control with `lorekeep support on/off`.
 bugreport:
   enabled: true
   repo: manhhailua/lorekeep

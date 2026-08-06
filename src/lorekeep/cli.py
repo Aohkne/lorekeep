@@ -641,14 +641,11 @@ app.add_typer(config_app, name="config")
 schema_app = typer.Typer(help="Inspect and upgrade the graph schema.")
 app.add_typer(schema_app, name="schema")
 support_app = typer.Typer(
-    help="Create privacy-safe diagnostics for bug reports.",
+    help="Diagnostics and automatic error reporting.",
     invoke_without_command=True,
     no_args_is_help=False,
 )
 app.add_typer(support_app, name="support")
-
-bugreport_app = typer.Typer(help="Control automatic GitHub issue reporting.")
-app.add_typer(bugreport_app, name="bugreport")
 
 
 @support_app.callback()
@@ -702,7 +699,7 @@ def support_bundle(
     typer.echo(f"sha256: {digest}")
 
 
-# ── bugreport ────────────────────────────────────────────────────────────────
+# ── support auto-reporting (merged from bugreport) ───────────────────────────
 
 def _set_bugreport_enabled(value: bool) -> None:
     """Write bugreport.enabled in config.yaml."""
@@ -722,21 +719,21 @@ def _set_bugreport_enabled(value: bool) -> None:
     ok(f"auto bug-report {'enabled' if value else 'disabled'}")
 
 
-@bugreport_app.command("on")
-def bugreport_on() -> None:
+@support_app.command("on")
+def support_on() -> None:
     """Enable automatic GitHub issue creation on errors."""
     _set_bugreport_enabled(True)
 
 
-@bugreport_app.command("off")
-def bugreport_off() -> None:
+@support_app.command("off")
+def support_off() -> None:
     """Disable automatic GitHub issue creation on errors."""
     _set_bugreport_enabled(False)
 
 
-@bugreport_app.command("status")
-def bugreport_status() -> None:
-    """Show current auto bug-report configuration and dedup stats."""
+@support_app.command("status")
+def support_status() -> None:
+    """Show auto-report configuration, dedup stats, and token resolution."""
     import json
     from lorekeep.bugreport import _dedup_path, _load_dedup, _resolve_token
     from lorekeep.config import load_config

@@ -359,7 +359,7 @@ class TestTokenFallback:
 
 
 class TestCli:
-    def test_bugreport_off(self, tmp_path: Path, monkeypatch):
+    def test_support_off(self, tmp_path: Path, monkeypatch):
         home = tmp_path / "home"
         home.mkdir()
         (home / "config.yaml").write_text(
@@ -367,14 +367,14 @@ class TestCli:
         )
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
 
-        result = runner.invoke(app, ["bugreport", "off"])
+        result = runner.invoke(app, ["support", "off"])
         assert result.exit_code == 0, result.output
         assert "disabled" in result.output.lower()
 
         data = (home / "config.yaml").read_text(encoding="utf-8")
         assert "enabled: false" in data
 
-    def test_bugreport_on(self, tmp_path: Path, monkeypatch):
+    def test_support_on(self, tmp_path: Path, monkeypatch):
         home = tmp_path / "home"
         home.mkdir()
         (home / "config.yaml").write_text(
@@ -382,14 +382,14 @@ class TestCli:
         )
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
 
-        result = runner.invoke(app, ["bugreport", "on"])
+        result = runner.invoke(app, ["support", "on"])
         assert result.exit_code == 0, result.output
         assert "enabled" in result.output.lower()
 
         data = (home / "config.yaml").read_text(encoding="utf-8")
         assert "enabled: true" in data
 
-    def test_bugreport_status(self, tmp_path: Path, monkeypatch):
+    def test_support_status(self, tmp_path: Path, monkeypatch):
         home = tmp_path / "home"
         home.mkdir()
         (home / "logs").mkdir()
@@ -402,13 +402,13 @@ class TestCli:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
 
-        result = runner.invoke(app, ["bugreport", "status"])
+        result = runner.invoke(app, ["support", "status"])
         assert result.exit_code == 0, result.output
         assert "myorg/myrepo" in result.output
         assert "token source:" in result.output
         assert "no errors reported yet" in result.output
 
-    def test_bugreport_status_no_token(self, tmp_path: Path, monkeypatch):
+    def test_support_status_no_token(self, tmp_path: Path, monkeypatch):
         home = tmp_path / "home"
         home.mkdir()
         (home / "logs").mkdir()
@@ -417,6 +417,6 @@ class TestCli:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.setattr("lorekeep.bugreport._gh_cli_token", lambda: "")
 
-        result = runner.invoke(app, ["bugreport", "status"])
+        result = runner.invoke(app, ["support", "status"])
         assert result.exit_code == 0, result.output
         assert "token: not found" in result.output
