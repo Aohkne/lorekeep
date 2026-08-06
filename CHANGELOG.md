@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.1 (2026-08-06)
+
+## What's Changed
+* fix: include full traceback in auto-reported GitHub issues by @manhhailua in https://github.com/manhhailua/lorekeep/pull/174
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.19.0...v0.19.1
+
 ## 0.19.0 (2026-08-06)
 
 ## What's Changed
