@@ -189,7 +189,7 @@ def test_v4_compile_wiki_check_end_to_end(
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
 
     compiled = runner.invoke(app, ["compile"])
-    checked = runner.invoke(app, ["check"])
+    checked = runner.invoke(app, ["doctor"])
     regenerated = runner.invoke(app, ["wiki"])
 
     assert compiled.exit_code == 0, compiled.output

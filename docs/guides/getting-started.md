@@ -126,7 +126,7 @@ Prefer an env var instead? Set `api_key_env: DEEPSEEK_API_KEY` (and
 
 ```bash
 uvx lorekeep compile      # raw/*.md -> graph/facts.jsonl + manifest.json
-uvx lorekeep check        # loads, no dangling edges (exit 1 on failure)
+uvx lorekeep doctor       # full install check: graph, schema, MCP, provider
 ```
 
 Recompiling unchanged input is **byte-identical** (determinism is a hard
@@ -205,7 +205,7 @@ recovery — is in [Backing up the data home](backup.md).
   `{provider}/{model}`), `api_base`, and `api_key` / `api_key_env` in
   `config.yaml`. (The cache key includes the model, so switching it
   re-extracts automatically — no need to delete `cache.json`.)
-- **`check` reports dangling edges** — an edge points at a node that isn't in
+- **`doctor` reports dangling edges** — an edge points at a node that isn't in
   the graph. Re-open the source doc at the `path:line` in the edge's `src` and
   fix the reference, then recompile.
 - **Agent can't see a namespace** — serve-time scope comes from `LOREKEEP_NS`

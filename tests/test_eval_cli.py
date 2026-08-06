@@ -23,13 +23,13 @@ def test_eval_construction_command(tmp_path: Path, fixtures: Path, monkeypatch):
     assert saved["extraction"]["nodes"]["f1"] == 1.0
 
 
-def test_check_command_reports_clean_graph(tmp_path: Path, fixtures: Path, monkeypatch):
+def test_doctor_reports_clean_graph(tmp_path: Path, fixtures: Path, monkeypatch):
     out = tmp_path / "graph"
     out.mkdir()
     (out / "facts.jsonl").write_text(
         (fixtures / "gold/payments.facts.jsonl").read_text())
     monkeypatch.setenv("LOREKEEP_OUT", str(out))
     monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
-    result = runner.invoke(app, ["check"])
+    result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0, result.stdout
-    assert "ok" in result.stdout.lower()
+    assert "ok" in result.stdout.lower() or "passed" in result.stdout.lower()

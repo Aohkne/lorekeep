@@ -131,7 +131,7 @@ Re-compiling unchanged input (same raw/ + same journals with same statuses) yiel
 
 - **LLM failure / unparseable chunk** ⇒ log to `manifest.errors`, skip chunk, continue. Partial compile is valid; re-run fills the gaps.
 - **Malformed candidate fact** ⇒ `resolve` quarantines to `manifest.quarantine`, drops from output.
-- **Edge with missing endpoint** ⇒ deferred to pending retry, not permanently dropped. Edges whose endpoints don't yet exist (e.g., node proposed in a different journal entry not yet resolved) are held in a retry queue and re-evaluated on subsequent resolve passes up to 5 times (or until the endpoint appears). After max retries, they are quarantined. Dangling edges also surface in `lorekeep check`.
+- **Edge with missing endpoint** ⇒ deferred to pending retry, not permanently dropped. Edges whose endpoints don't yet exist (e.g., node proposed in a different journal entry not yet resolved) are held in a retry queue and re-evaluated on subsequent resolve passes up to 5 times (or until the endpoint appears). After max retries, they are quarantined. Dangling edges also surface in `lorekeep doctor`.
 - **Provider unavailable** ⇒ compile aborts with a clear message; partial results are not merged.
 - **Low-confidence agent proposal** ⇒ quarantined, never enters `facts.jsonl`; listed in resolve report.
 - **Journal parse error** ⇒ skip corrupted line, log warning, continue resolve.

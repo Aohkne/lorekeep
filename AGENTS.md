@@ -26,15 +26,13 @@ uv run lorekeep <command>                    # run the CLI in dev mode
 |---|---|
 | `init` | Bootstrap data home (config + schema + raw/graph dirs) |
 | `compile` | `raw/*.md` → `graph/facts.jsonl` + `manifest.json` + `wiki/` (runs the LLM pipeline, auto-generates wiki) |
-| `check` | Validate compiled graph loads, no dangling edges (exit 1 on failure) |
-| `check` | Validate compiled graph loads, no dangling edges (exit 1 on failure) |
 | `wiki` | Regenerate `wiki/` from `facts.jsonl` (Obsidian-compatible markdown) |
 | `serve [--transport stdio\|http]` | Run the MCP server (9 read + 5 write tools) |
 | `mcp add --agent claude\|cursor\|codex\|opencode --ns NS` | Write agent MCP config |
 | `config show` | Print config.yaml |
 | `config set <key> <value>` | Set nested config value (dot notation) |
 | `import --from claude\|cursor\|codex\|opencode` | Import agent sessions into `raw/` |
-| `doctor` | Verify install: graph loads, schema valid, a tool responds |
+| `doctor` | Validate full install: graph loads (no dangling edges), schema valid, MCP tools respond, provider reachable |
 | `backup [--init <remote-url>]` | Commit + push `.lorekeep/` to your private backup git repo |
 | `version` | Print version |
 
@@ -102,6 +100,6 @@ The startup update script already runs `uv sync`; the toolchain (Python 3.11+ vi
 Non-obvious caveats for running/testing here:
 
 - **No API key needed for tests.** Tests inject `FakeProvider` via `patch_make_provider` / `patch_make_import_provider` conftest fixtures. For manual smoke testing, configure a real provider in `config.yaml`. To avoid polluting the repo's `.lorekeep/` data home, run demos against a throwaway data home: `LOREKEEP_HOME=/tmp/lk uv run lorekeep <cmd>`.
-- **End-to-end smoke flow** (offline): `init` → drop a markdown file under `.lorekeep/raw/<ns>/` → `compile` → `check`/`doctor`. Then query the graph by calling the `mcp_server.py` tools directly after `ms.configure(graph_dir=..., allowed_ns=[...], schema_path=...)` — the read tools (`search`, `get_node`, `neighbors`, `at_time`, `history`, `list_namespaces`) are plain functions, no MCP transport required. `search` returns a list of node-id strings; `get_node` returns a dict; `neighbors`/`at_time`/`changes` return `{"nodes": [...], "edges": [...]}`.
+- **End-to-end smoke flow** (offline): `init` → drop a markdown file under `.lorekeep/raw/<ns>/` → `compile` → `doctor`. Then query the graph by calling the `mcp_server.py` tools directly after `ms.configure(graph_dir=..., allowed_ns=[...], schema_path=...)` — the read tools (`search`, `get_node`, `neighbors`, `at_time`, `history`, `list_namespaces`) are plain functions, no MCP transport required. `search` returns a list of node-id strings; `get_node` returns a dict; `neighbors`/`at_time`/`changes` return `{"nodes": [...], "edges": [...]}`.
 - **`lorekeep serve` blocks on stdio** waiting for an MCP client — it won't return on its own. To just confirm it boots, run it under `timeout` with stdin closed (`timeout 3 uv run lorekeep serve --transport stdio </dev/null`); a clean timeout with no error output means success.
 - **`tests/test_mcp_reload.py::test_lazy_reload_on_facts_change` is timing-flaky** — lazy-reload triggers off `facts.jsonl` mtime, and the test can rewrite the file within one mtime tick on fast filesystems, so it intermittently fails then passes on re-run. Treat an isolated failure of just this test as a flake, not a regression.

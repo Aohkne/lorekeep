@@ -469,23 +469,6 @@ def eval_locomo_cmd(
         typer.echo(f"{cat:<20} {stats['count']:>6} {stats['f1']:>8.4f}")
 
 
-@app.command()
-def check() -> None:
-    """Validate the compiled graph: loads, no dangling edges.
-
-    See also: `lorekeep doctor` for full install verification (schema, MCP, provider).
-    """
-    p = resolve_paths()
-    from lorekeep.eval.construction import structure_report
-    struct = structure_report(p["out"])
-    if struct["dangling_edge_rate"] > 0:
-        from lorekeep.output import error
-        error(f"check: FAIL — {struct['dangling_edge_rate']} dangling edges")
-        raise typer.Exit(code=1)
-    from lorekeep.output import ok
-    ok(f"check: ok — {struct['node_count']} nodes, {struct['edge_count']} edges, 0 dangling")
-
-
 def _with_resolve_lock(func):
     """Typer-safe decorator serializing manual resolve with daemon resolve."""
     from functools import wraps
@@ -897,8 +880,12 @@ def mcp_add(
 
 @app.command()
 def doctor() -> None:
-    """Verify install: graph loads, schema valid, ns resolves, a tool responds,
-    and the configured LLM provider is reachable."""
+    """Validate the full install: graph loads with no dangling edges, schema
+    is valid, MCP tools respond, and the configured LLM provider is reachable.
+
+    This is the sole validation command — run it after `compile` or when
+    troubleshooting. Provider ping is skipped automatically when no API key
+    is configured."""
     p = resolve_paths()
     problems = []
     notes = []
@@ -1895,7 +1882,7 @@ def lint(
 ) -> None:
     """Run semantic health checks on the graph.
 
-    See also: `lorekeep check` for structural validation (dangling edges).
+    See also: `lorekeep doctor` for structural validation and full install checks.
     """
     p = resolve_paths()
     facts_path = p["out"] / "facts.jsonl"
