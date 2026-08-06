@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.1 (2026-08-06)
+
+## What's Changed
+* fix: deduplicate changelog entries from merge commits by @manhhailua in https://github.com/manhhailua/lorekeep/pull/155
+* fix: update changelog version regex for github changelog-type by @manhhailua in https://github.com/manhhailua/lorekeep/pull/157
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.16.0...v0.16.1
+
 ## [0.16.0](https://github.com/manhhailua/lorekeep/compare/v0.15.0...v0.16.0) (2026-08-05)
 
 
