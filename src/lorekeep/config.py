@@ -63,6 +63,7 @@ class AgentsConfig(BaseModel):
     transcript_max_chars: int = Field(default=20_000, gt=0)
     transcript_retain_sessions: int = Field(default=5, gt=0)
     deep_import: bool = False                # advanced opt-in: LLM summarization
+    self_heal: bool = True                   # daemon auto-heals graph after compile
 
 
 class Config(BaseModel):

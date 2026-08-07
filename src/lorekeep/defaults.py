@@ -216,6 +216,7 @@ agents:
   transcript_max_chars: 20000
   transcript_retain_sessions: 5
   deep_import: false
+  self_heal: true
 install_source: pypi
 """
 
