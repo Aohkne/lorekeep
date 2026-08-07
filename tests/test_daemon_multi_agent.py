@@ -161,6 +161,24 @@ class TestQuickImportSession:
         count = _quick_import_session("unknown", tmp_path, tmp_path, tmp_path)
         assert count == 0
 
+    def test_uses_the_located_memory_dir_not_the_cwd_session(self, tmp_path, monkeypatch):
+        """The daemon already found the dir; re-resolving it would read the wrong session."""
+        mem_dir = tmp_path / "found" / "memory"
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "note.md").write_text("# Found")
+
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+
+        # Session lookup would resolve elsewhere — it must not be consulted.
+        monkeypatch.setattr(
+            "lorekeep.importer.claude.find_current_session",
+            lambda: (_ for _ in ()).throw(AssertionError("re-resolved the session")),
+        )
+        count = _quick_import_session("claude", mem_dir.parent, mem_dir, raw_dir)
+        assert count == 1
+        assert (raw_dir / "claude-memory" / "note.md").read_text() == "# Found"
+
 
 class TestRawFileCountTracking:
     """Test that new files in raw/ trigger compile (not just mtime)."""

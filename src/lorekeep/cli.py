@@ -101,44 +101,68 @@ def version() -> None:
 
 @app.command(hidden=True)
 def hook() -> None:
-    """Session lifecycle hook: quick-import memories from all agents.
+    """Session lifecycle hook: ingest memories and transcripts from every agent.
 
-    Agent-agnostic — tries Claude and Codex memory imports (idempotent
-    via manifest). Each is a no-op if nothing changed. Daemon picks up
-    raw/ changes for compile.
+    Registry-driven, so an agent starts contributing the moment it declares
+    an ingest path. Idempotent via SHA-256 manifest — a hook that fires on
+    every turn costs nothing when nothing changed.
     """
+    from lorekeep.importer.session_dump import prune_sessions
+    from lorekeep.integrations.registry import all_specs
+
     p = resolve_paths()
-    total = 0
+    acfg = load_config(p["config"]).agents
+    memory_count = 0
+    transcript_count = 0
 
-    try:
-        from lorekeep.importer.claude import find_current_session as find_claude
-        from lorekeep.importer.claude import import_memories as import_claude_mem
-        session_dir = find_claude()
-        if session_dir and (session_dir / "memory").is_dir():
-            written = import_claude_mem(session_dir, p["raw"], "claude-memory")
-            total += len(written)
-    except Exception as exc:
-        log.warning(
-            "Claude hook import failed error_type=%s", type(exc).__name__,
-            extra={"event": "hook.claude_failed"},
-        )
+    for spec in all_specs():
+        if spec.name not in acfg.enabled:
+            continue
 
-    try:
-        from lorekeep.importer.codex import import_memories as import_codex_mem
-        written = import_codex_mem(p["raw"], "codex-memory")
-        total += len(written)
-    except Exception as exc:
-        log.warning(
-            "Codex hook import failed error_type=%s", type(exc).__name__,
-            extra={"event": "hook.codex_failed"},
-        )
+        if spec.memory is not None and spec.memory_ns is not None:
+            try:
+                written = getattr(spec.importer(), spec.memory.import_fn)(
+                    p["raw"], namespace=spec.memory_ns,
+                )
+                memory_count += len(written)
+            except Exception as exc:
+                log.warning(
+                    "hook memory import failed agent=%s error_type=%s",
+                    spec.name, type(exc).__name__,
+                    extra={"event": "hook.memory_import_failed"},
+                )
 
-    if total:
+        if not acfg.watch_transcripts or spec.session is None or spec.session_ns is None:
+            continue
+        try:
+            written = getattr(spec.importer(), spec.session.dump_fn)(
+                p["raw"],
+                namespace=spec.session_ns,
+                max_chars=acfg.transcript_max_chars,
+                max_batches=acfg.transcript_max_batches,
+            )
+            transcript_count += len(written)
+            prune_sessions(
+                p["raw"], spec.session_ns,
+                retain=acfg.transcript_retain_sessions,
+            )
+        except Exception as exc:
+            log.warning(
+                "hook transcript dump failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "hook.transcript_dump_failed"},
+            )
+
+    if memory_count or transcript_count:
         log.info(
-            "memory hook completed file_count=%s", total,
+            "session hook completed memory_count=%s transcript_count=%s",
+            memory_count, transcript_count,
             extra={"event": "hook.complete"},
         )
-        typer.echo(f"lorekeep: imported {total} memory file(s)")
+        typer.echo(
+            f"lorekeep: imported {memory_count} memory file(s), "
+            f"{transcript_count} transcript file(s)"
+        )
 
 
 def _report_compile_errors(manifest, *, exit_on_total_failure: bool = True) -> None:
@@ -876,6 +900,40 @@ def config_set(
     typer.echo(f"  {key} = {value}")
 
 
+def _validate_scope(scope: str) -> str:
+    """Reject anything but the two real scopes, in one place."""
+    if scope not in ("project", "user"):
+        typer.echo(f"unknown scope: {scope} (choose project|user)")
+        raise typer.Exit(code=1)
+    return scope
+
+
+def _wire_scope(acfg) -> str:
+    """The configured wiring scope. ``wire_scope`` is a plain str, so check it."""
+    if acfg.wire_scope not in ("project", "user"):
+        typer.echo(
+            f"config error: agents.wire_scope is {acfg.wire_scope!r} — fix with "
+            "`lorekeep config set agents.wire_scope user`",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return acfg.wire_scope
+
+
+def _resolve_agent_arg(agent: str):
+    """Look up one :class:`AgentSpec` by name, exiting 1 on an unknown name.
+
+    Shared by ``mcp add`` and ``agent wire`` so the two cannot drift.
+    """
+    from lorekeep.integrations.registry import AGENT_NAMES, find
+
+    spec = find(agent)
+    if spec is None:
+        typer.echo(f"unknown agent: {agent} (choose {'|'.join(AGENT_NAMES)})")
+        raise typer.Exit(code=1)
+    return spec
+
+
 @mcp_app.command("add")
 def mcp_add(
     agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode"),
@@ -890,16 +948,22 @@ def mcp_add(
     command, args = resolve_command(config.install_source)
     hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
 
-    target = Path.cwd() if scope == "project" else Path.home()
-    writers = _agent_writers()
-    if agent not in writers:
-        typer.echo(f"unknown agent: {agent} (choose claude|cursor|codex|opencode)")
-        raise typer.Exit(code=1)
-    written = writers[agent].write_config(target, command, args, ns)
-    typer.echo(f"wrote {agent} config -> {written}")
-    if hasattr(writers[agent], "write_hook"):
-        hook_path = writers[agent].write_hook(target, hook_cmd, hook_args)
-        typer.echo(f"wrote session-end hook -> {hook_path}")
+    _validate_scope(scope)
+    spec = _resolve_agent_arg(agent)
+
+    writer = spec.writer()
+    target = Path.cwd()
+    written = writer.write_config(target, command, args, ns, scope=scope)
+    if written is None:
+        typer.echo(f"{agent} config unchanged -> {writer.config_target(target, scope)}")
+    else:
+        typer.echo(f"wrote {agent} config -> {written}")
+    if spec.supports_hook:
+        hook_path = writer.write_hook(target, hook_cmd, hook_args, scope=scope)
+        if hook_path is None:
+            typer.echo(f"session-end hook unchanged -> {writer.hook_target(target, scope)}")
+        else:
+            typer.echo(f"wrote session-end hook -> {hook_path}")
     typer.echo("\n" + agent_memory_snippet())
 
 
@@ -1086,9 +1150,11 @@ def init(
                 )
 
     # --- One-click chain: wire → import → compile → daemon -----------------
-    if not config_existed:
-        _auto_wire_agents(p, ns)
+    # Wiring runs on every init: it is free and idempotent, so re-running
+    # init is how you pick up an agent installed after the first run.
+    _auto_wire_agents(p, ns)
 
+    if not config_existed:
         config = load_config(p["config"])
         if _has_provider(config):
             typer.echo("\n  Compiling your docs into the knowledge graph...")
@@ -1290,38 +1356,57 @@ def _write_config(p, model, api_base, api_key_env, api_key, ns):
     p["config"].write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
 
 
-def _auto_wire_agents(p: dict, ns: str) -> None:
-    """Detect coding agents and write their MCP configs automatically.
+def _wire_one(
+    spec, target: Path, ns: str | None, *, scope: str = "project",
+) -> tuple[Path | None, Path | None]:
+    """Write one agent's MCP config + session-end hook.
 
-    If running inside a coding agent (env var set), wires only that agent.
-    Otherwise scans the filesystem for all installed agents and wires each.
+    Returns ``(config_path, hook_path)``, each ``None`` when that file
+    already held the desired wiring.
+    """
+    from lorekeep.integrations.common import resolve_command
+
+    config = load_config(resolve_paths()["config"])
+    command, args = resolve_command(config.install_source)
+    hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
+
+    writer = spec.writer()
+    written = writer.write_config(target, command, args, ns, scope=scope)
+    hooked = None
+    if spec.supports_hook:
+        hooked = writer.write_hook(target, hook_cmd, hook_args, scope=scope)
+    return written, hooked
+
+
+def _auto_wire_agents(p: dict, ns: str, *, scope: str = "project") -> None:
+    """Detect every installed coding agent and write its MCP config.
+
+    Idempotent: a writer that finds the desired entry already present
+    reports ``unchanged`` instead of rewriting the file.
     """
     from lorekeep.integrations.detect import detect_agents
-    from lorekeep.integrations.common import agent_memory_snippet, resolve_command
+    from lorekeep.integrations.common import agent_memory_snippet
+    from lorekeep.integrations.registry import find
 
     detected = detect_agents()
     if not detected:
         typer.echo("\n  No coding agents detected — run `lorekeep mcp add --agent <name>` after install.")
         return
 
-    config = load_config(p["config"])
-    command, args = resolve_command(config.install_source)
-    hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
-
-    writers = _agent_writers()
     target = Path.cwd()
-
     typer.echo(f"\n  Detected agents: {', '.join(detected)}")
     for agent_name in detected:
-        writer = writers.get(agent_name)
-        if not writer:
+        spec = find(agent_name)
+        if spec is None:
             continue
         try:
-            written = writer.write_config(target, command, args, ns)
-            typer.echo(f"  wired {agent_name} -> {written}")
-            if hasattr(writer, "write_hook"):
-                hook_path = writer.write_hook(target, hook_cmd, hook_args)
-                typer.echo(f"  hooked {agent_name} session-end -> {hook_path}")
+            written, hooked = _wire_one(spec, target, ns, scope=scope)
+            typer.echo(
+                f"  wired {agent_name} -> {written}" if written
+                else f"  {agent_name} already wired -> {spec.config_path(target, scope)}"
+            )
+            if spec.supports_hook and hooked:
+                typer.echo(f"  hooked {agent_name} session-end -> {hooked}")
         except Exception as exc:
             log.warning(
                 "agent wiring failed agent=%s error_type=%s",
@@ -1333,37 +1418,68 @@ def _auto_wire_agents(p: dict, ns: str) -> None:
     typer.echo("\n  " + agent_memory_snippet().replace("\n", "\n  ").strip())
 
 
-def _agent_writers() -> dict:
-    """Return the agent-name → writer-module mapping (lazy import)."""
-    from lorekeep.integrations import claude_code, codex, cursor, opencode
-    return {
-        "claude": claude_code,
-        "cursor": cursor,
-        "codex": codex,
-        "opencode": opencode,
-    }
+def _sync_agent_wiring(
+    *, scope: str, ns: str, enabled: list[str],
+    backoff: dict[str, float], now: float,
+) -> list[tuple[str, Path]]:
+    """Wire every detected agent, returning only the targets that changed.
+
+    A steady state is silent: the writers report ``unchanged`` without touching
+    a file, which is what makes this safe to run on a timer forever. An agent
+    whose target cannot be written — read-only ``~``, a config another process
+    left unparseable — is backed off for an hour rather than retried, and
+    logged, on every pass.
+    """
+    from lorekeep.integrations.detect import detect_agents
+    from lorekeep.integrations.registry import find
+
+    target = Path.cwd()
+    changed: list[tuple[str, Path]] = []
+
+    for name in detect_agents():
+        if name not in enabled or now < backoff.get(name, 0.0):
+            continue
+        spec = find(name)
+        if spec is None:
+            continue
+        try:
+            written, hooked = _wire_one(spec, target, ns, scope=scope)
+        except Exception as exc:
+            backoff[name] = now + 3600
+            log.warning(
+                "agent wiring failed agent=%s error_type=%s retry_after_seconds=3600",
+                name, type(exc).__name__,
+                extra={"event": "daemon.wire_failed"},
+            )
+            continue
+        backoff.pop(name, None)
+        changed += [(name, path) for path in (written, hooked) if path]
+
+    return changed
 
 
 def _auto_import_and_compile(p: dict) -> None:
-    """Quick-import Claude memory files, then compile if provider is available."""
-    imported = 0
+    """Quick-import every agent's memory files, then compile if a provider is available."""
+    from lorekeep.integrations.registry import all_specs
 
-    # --- Quick import: Claude memory files (zero LLM cost) ----------------
-    try:
-        from lorekeep.importer.claude import find_current_session, import_memories
-        session_dir = find_current_session()
-        if session_dir is not None and (session_dir / "memory").is_dir():
-            written = import_memories(session_dir, p["raw"], "claude-memory")
-            imported = len(written)
-            if imported:
-                typer.echo(f"  imported {imported} memory file(s) from Claude session")
-    except Exception as exc:
-        log.warning(
-            "automatic memory import failed error_type=%s", type(exc).__name__,
-            extra={"event": "init.import_failed"},
-        )
-        if os.environ.get("LOREKEEP_DEBUG"):
-            typer.echo(f"  import error: {exc}")
+    # --- Quick import: agent-authored memory files (zero LLM cost) ---------
+    for spec in all_specs():
+        if spec.memory is None or spec.memory_ns is None:
+            continue
+        try:
+            written = getattr(spec.importer(), spec.memory.import_fn)(
+                p["raw"], namespace=spec.memory_ns,
+            )
+            if written:
+                typer.echo(f"  imported {len(written)} memory file(s) from {spec.label}")
+        except Exception as exc:
+            log.warning(
+                "automatic memory import failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "init.import_failed"},
+            )
+            if os.environ.get("LOREKEEP_DEBUG"):
+                typer.echo(f"  import error ({spec.name}): {exc}")
 
     # --- Compile (if provider is usable) ----------------------------------
     schema = load_schema(p["schema"])
@@ -1486,7 +1602,7 @@ def backup(
 def import_cmd(
     from_source: str = typer.Option(
         "claude", "--from",
-        help="Source to import from (claude | cursor)",
+        help="Source to import from (claude | codex | cursor | opencode)",
     ),
     quick: bool = typer.Option(
         False, "--quick",
@@ -1510,17 +1626,24 @@ def import_cmd(
 ) -> None:
     """Import knowledge from an agent's sessions into raw/.
 
+    This is the manual, LLM-summarizing path. The zero-cost path runs on its
+    own: the session-end hook and `agent watch` dump transcripts straight to
+    `raw/<agent>-session/` for compile to extract.
+
     Sources:
       claude    Claude Code sessions. --quick copies memory/*.md only (no LLM);
                 default (deep) adds LLM-summarized transcript analysis.
-      cursor    Cursor composer conversations (GLOBAL state.vscdb). Deep-only.
+      cursor    Cursor composer conversations (GLOBAL state.vscdb). No memory
+                files, so --quick does not apply.
       codex     Codex CLI rollout transcripts ($CODEX_HOME/sessions/).
                 --quick copies memories/*.md only; default (deep) summarizes.
-      opencode  opencode sessions (SQLite DB). Deep-only — no memory dir.
+      opencode  opencode sessions (SQLite DB). No memory files, so --quick
+                does not apply.
     """
     from lorekeep.output import ok
-    if from_source not in ("claude", "cursor", "codex", "opencode"):
-        typer.echo(f"unknown source: {from_source} (claude | cursor | codex | opencode)")
+    from lorekeep.integrations.registry import AGENT_NAMES
+    if from_source not in AGENT_NAMES:
+        typer.echo(f"unknown source: {from_source} ({' | '.join(AGENT_NAMES)})")
         raise typer.Exit(code=1)
 
     p = resolve_paths()
@@ -2003,51 +2126,298 @@ def status() -> None:
     typer.echo(f"pending journals: {dash.pending_journals}")
 
 
-def _discover_watchable_sessions() -> list[tuple[str, Path, Path]]:
-    """Find agent session memory dirs that support quick import.
+def _tilde(path: Path | None) -> str:
+    """Render a path with ``~`` so a report row fits a terminal."""
+    if path is None:
+        return "—"
+    home, text = str(Path.home()), str(path)
+    return "~" + text[len(home):] if text.startswith(home) else text
 
-    Returns [(agent_name, session_dir, memory_dir), ...].
-    Only Claude + Codex have memory dirs for zero-LLM quick import.
-    Cursor/opencode are deep-only — handled by session-end hooks.
+
+def _is_wired(path: Path | None) -> bool:
+    """Does this config/hook file already mention lorekeep?
+
+    A substring probe, not a parse: the four agents use three file formats, and
+    a report must not fail because one of them is mid-write.
     """
+    if path is None or not path.is_file():
+        return False
+    try:
+        return "lorekeep" in path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def _daemon_pid(p: dict) -> int | None:
+    """PID of the live daemon, or ``None``. Read-only — signal 0 never kills."""
+    try:
+        pid = int((p["home"] / ".daemon.pid").read_text().strip())
+    except (OSError, ValueError):
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except OSError:
+        pass                    # alive, just not ours to signal
+    return pid
+
+
+def _agent_report(scope: str) -> list[dict]:
+    """One row per known agent: installed, has data, wired, hooked, ingest paths."""
+    from lorekeep.integrations.detect import detect_installed_agents
+    from lorekeep.integrations.registry import all_specs
+
+    installed = set(detect_installed_agents())
+    target = Path.cwd()
+    rows = []
+    for spec in all_specs():
+        config_path = spec.config_path(target, scope)
+        hook_path = spec.hook_path(target, scope)
+        ingest = [n for n, src in (("memory", spec.memory), ("transcript", spec.session)) if src]
+        rows.append({
+            "name": spec.name,
+            "label": spec.label,
+            "installed": spec.name in installed,
+            # Install markers and the paths importers actually read drift apart
+            # (a stale ~/.cursor outlives an uninstall), so report them apart.
+            "session_data": any(Path(m).expanduser().exists() for m in spec.data_markers),
+            "config": str(config_path),
+            "wired": _is_wired(config_path),
+            "hook": str(hook_path) if hook_path else None,
+            "hooked": _is_wired(hook_path),
+            "ingest": ingest,
+        })
+    return rows
+
+
+@agent_app.command("detect")
+def agent_detect(
+    json_out: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Report which coding agents are installed, active, and wired.
+
+    A report, not a check: exits 0 even when nothing is found. `doctor` is the
+    command that fails.
+    """
+    from lorekeep.integrations.detect import detect_active_agent
+    from lorekeep.integrations.registry import find
+
+    p = resolve_paths()
+    acfg = load_config(p["config"]).agents
+    scope = _wire_scope(acfg)
+    active = detect_active_agent()
+    pid = _daemon_pid(p)
+    rows = _agent_report(scope)
+
+    if json_out:
+        spec = find(active) if active else None
+        typer.echo(json.dumps({
+            "active": active,
+            "active_env": next(
+                (v for v in (spec.active_env if spec else ()) if os.environ.get(v)), None,
+            ),
+            "scope": scope,
+            "enabled": acfg.enabled,
+            "daemon": {"running": pid is not None, "pid": pid},
+            "agents": rows,
+        }, indent=2))
+        return
+
+    if active:
+        spec = find(active)
+        env = next((v for v in (spec.active_env if spec else ()) if os.environ.get(v)), None)
+        typer.echo(f"active: {active}" + (f" ({env})" if env else ""))
+    else:
+        typer.echo("active: none (not running inside a coding agent)")
+    typer.echo(f"daemon: running (PID {pid})" if pid else "daemon: not running")
+    typer.echo("")
+
+    header = ("agent", "installed", "session data", f"wired ({scope})", "hook", "ingest")
+    yn = {True: "yes", False: "no"}
+    table = [header] + [(
+        r["name"], yn[r["installed"]], yn[r["session_data"]],
+        _tilde(Path(r["config"])) if r["wired"] else "—",
+        yn[r["hooked"]] if r["hook"] else "n/a",
+        " + ".join(r["ingest"]) or "—",
+    ) for r in rows]
+    widths = [max(len(row[i]) for row in table) for i in range(len(header))]
+    for row in table:
+        typer.echo("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
+
+    # An installed, wired agent that config excludes contributes nothing. That
+    # is exactly the silent surprise this command exists to make visible.
+    muted = [r["name"] for r in rows if r["installed"] and r["name"] not in acfg.enabled]
+    if muted:
+        typer.echo(f"\nnote: {', '.join(muted)} installed but excluded by agents.enabled")
+    if not any(r["installed"] for r in rows):
+        typer.echo("\nno coding agents found — lorekeep has nothing to aggregate yet")
+
+
+@agent_app.command("wire")
+def agent_wire(
+    agent: str = typer.Option(None, "--agent", help="Wire one agent (default: all detected)"),
+    scope: str = typer.Option(None, "--scope", help="project | user (default: agents.wire_scope)"),
+    ns: str = typer.Option(None, "--ns", help="Namespace to scope the agents to"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report targets without writing"),
+    force: bool = typer.Option(False, "--force", help="Include undetected agents"),
+) -> None:
+    """Write MCP config + session-end hooks for detected agents.
+
+    Idempotent: a target already holding the right wiring reports ``unchanged``
+    and keeps its mtime. That is what makes it safe for the daemon to call this
+    every cycle, and it is why `--force` widens the roster rather than
+    rewriting files.
+    """
+    from lorekeep.integrations.detect import detect_agents
+    from lorekeep.integrations.registry import AGENT_NAMES, find
+
+    p = resolve_paths()
+    config = load_config(p["config"])
+    scope = _validate_scope(scope) if scope else _wire_scope(config.agents)
+
+    if agent:
+        specs = [_resolve_agent_arg(agent)]          # explicit name beats both filters
+    else:
+        names = AGENT_NAMES if force else detect_agents()
+        specs = [s for s in map(find, names) if s and s.name in config.agents.enabled]
+
+    if not specs:
+        typer.echo("no coding agents detected — install one, or pass --force")
+        return
+
+    target = Path.cwd()
+    namespace = ns or config.ns.personal_namespace
+    typer.echo(f"scope: {scope}   namespace: {namespace}")
+    failed = False
+
+    for spec in specs:
+        config_path = spec.config_path(target, scope)
+        hook_path = spec.hook_path(target, scope)
+
+        if dry_run:
+            for label, path in (("config", config_path), ("hook", hook_path)):
+                if path is None:
+                    continue
+                state = "already wired" if _is_wired(path) else "would write"
+                typer.echo(f"{spec.name}: {label} -> {_tilde(path)} ({state})")
+            continue
+
+        try:
+            written, hooked = _wire_one(spec, target, namespace, scope=scope)
+        except Exception as exc:
+            failed = True
+            log.warning(
+                "agent wiring failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "wire.failed"},
+            )
+            typer.echo(f"{spec.name}: failed ({type(exc).__name__}: {exc})")
+            continue
+
+        typer.echo(
+            f"{spec.name}: wired -> {_tilde(written)}" if written
+            else f"{spec.name}: unchanged -> {_tilde(config_path)}"
+        )
+        if hooked:
+            typer.echo(f"{spec.name}: hooked -> {_tilde(hooked)}")
+        elif hook_path:
+            typer.echo(f"{spec.name}: hook unchanged -> {_tilde(hook_path)}")
+
+    if failed:
+        raise typer.Exit(code=1)
+
+
+def _discover_watchable_sessions() -> list[tuple[str, Path, Path]]:
+    """Find agent memory dirs that support zero-LLM quick import.
+
+    Returns [(agent_name, session_dir, memory_dir), ...]. Only agents whose
+    spec declares a memory source appear here — transcript-only agents are
+    handled by the session dump step.
+    """
+    from lorekeep.integrations.registry import all_specs
+
     sessions: list[tuple[str, Path, Path]] = []
-
-    try:
-        from lorekeep.importer.claude import find_current_session as find_claude
-        sd = find_claude()
-        if sd and (sd / "memory").is_dir() and any((sd / "memory").glob("*.md")):
-            sessions.append(("claude", sd, sd / "memory"))
-    except Exception as exc:
-        log.warning(
-            "Claude session discovery failed error_type=%s", type(exc).__name__,
-            extra={"event": "daemon.session_discovery_failed"},
-        )
-
-    try:
-        from lorekeep.importer.codex import _codex_home
-        mem_dir = _codex_home() / "memories"
-        if mem_dir.is_dir() and any(mem_dir.glob("*.md")):
-            sessions.append(("codex", mem_dir.parent, mem_dir))
-    except Exception as exc:
-        log.warning(
-            "Codex session discovery failed error_type=%s", type(exc).__name__,
-            extra={"event": "daemon.session_discovery_failed"},
-        )
+    for spec in all_specs():
+        if spec.memory is None:
+            continue
+        try:
+            mem_dir = getattr(spec.importer(), spec.memory.dir_finder)()
+            if mem_dir and any(mem_dir.glob("*.md")):
+                sessions.append((spec.name, mem_dir.parent, mem_dir))
+        except Exception as exc:
+            log.warning(
+                "session discovery failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "daemon.session_discovery_failed"},
+            )
 
     return sessions
 
 
 def _quick_import_session(agent: str, session_dir: Path, memory_dir: Path, raw_dir: Path) -> int:
     """Quick-import memory files for one agent. Returns file count."""
-    if agent == "claude":
-        from lorekeep.importer.claude import import_memories
-        written = import_memories(session_dir, raw_dir, "claude-memory")
-        return len(written)
-    if agent == "codex":
-        from lorekeep.importer.codex import import_memories
-        written = import_memories(raw_dir, "codex-memory")
-        return len(written)
-    return 0
+    from lorekeep.integrations.registry import find
+
+    spec = find(agent)
+    if spec is None or spec.memory is None or spec.memory_ns is None:
+        return 0
+    written = getattr(spec.importer(), spec.memory.import_fn)(
+        raw_dir, namespace=spec.memory_ns, memory_dir=memory_dir,
+    )
+    return len(written)
+
+
+def _discover_session_transcripts(cwd: Path | None = None) -> list[tuple[str, object]]:
+    """Find the live session handle for every agent that has one.
+
+    Returns [(agent_name, handle), ...]. The handle stays opaque here — whether
+    it is a transcript path, a DB blob, or a session id is the agent's business,
+    and the registry names the functions that understand it.
+    """
+    from lorekeep.integrations.registry import all_specs
+
+    found: list[tuple[str, object]] = []
+    for spec in all_specs():
+        if spec.session is None:
+            continue
+        try:
+            handle = getattr(spec.importer(), spec.session.locate)(cwd)
+            if handle is not None:
+                found.append((spec.name, handle))
+        except Exception as exc:
+            log.warning(
+                "transcript discovery failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "daemon.transcript_discovery_failed"},
+            )
+    return found
+
+
+def _dump_session_transcript(agent: str, handle: object, raw_dir: Path, acfg) -> int:
+    """Dump one agent's conversation to raw/ markdown. Returns file count.
+
+    Zero LLM cost — compile extracts from the markdown like any other doc. This
+    is the only ingest path cursor and opencode have.
+    """
+    from lorekeep.importer.session_dump import dump_session_turns, prune_sessions
+    from lorekeep.integrations.registry import find
+
+    spec = find(agent)
+    if spec is None or spec.session is None or spec.session_ns is None:
+        return 0
+
+    importer = spec.importer()
+    written = dump_session_turns(
+        getattr(importer, spec.session.parse)(handle),
+        raw_dir,
+        namespace=spec.session_ns,
+        session_key=getattr(importer, spec.session.key)(handle),
+        max_chars=acfg.transcript_max_chars,
+        max_batches=acfg.transcript_max_batches,
+    )
+    prune_sessions(raw_dir, spec.session_ns, retain=acfg.transcript_retain_sessions)
+    return len(written)
 
 
 def _on_disk_version() -> str | None:
@@ -2099,7 +2469,7 @@ def watch(
     typer.echo(f"agent watch: monitoring raw={raw_dir}, pending={pending_dir}, interval={interval}s")
     typer.echo("agent: auto-compile (raw/) and auto-resolve (pending/) enabled")
     if watch_sessions:
-        typer.echo("agent: session watch enabled (Claude + Codex memory dirs)")
+        typer.echo("agent: session watch enabled (all agents: memory + transcripts)")
     typer.echo("agent: MCP server lazy-reloads facts.jsonl — no reconnect needed")
     log.info(
         "daemon watch started interval=%s session_watch=%s",
@@ -2128,6 +2498,15 @@ def watch(
 
     # --- Capture startup version for auto-restart-on-upgrade -----------------
     startup_version = _on_disk_version()
+
+    # --- Load agents config for auto-wire + transcript dump ------------------
+    try:
+        _acfg = load_config(p["config"]).agents
+    except Exception:
+        _acfg = None  # config may be missing in minimal homes
+    wire_backoff: dict[str, float] = {}
+    last_wire_check = 0.0
+    first_pass = True
 
     last_raw_mtime = 0.0
     last_raw_count = -1
@@ -2175,6 +2554,25 @@ def watch(
                 typer.echo(f"agent: upgraded {startup_version} → {current_version}, restarting...")
                 pid_file.unlink(missing_ok=True)
                 os.execv(sys.argv[0], sys.argv)
+
+            # --- auto-wire agents (root cause #4: re-detect every cycle) -----
+            now_ts = time.monotonic()
+            if _acfg and _acfg.auto_wire and (
+                first_pass or now_ts - last_wire_check >= _acfg.wire_interval_seconds
+            ):
+                last_wire_check = now_ts
+                try:
+                    for name, path in _sync_agent_wiring(
+                        scope=_acfg.wire_scope, ns=load_config(p["config"]).ns.personal_namespace,
+                        enabled=_acfg.enabled, backoff=wire_backoff, now=now_ts,
+                    ):
+                        typer.echo(f"agent: wired {name} → {path}")
+                        log.info("agent wired agent=%s", name, extra={"event": "daemon.agent_wired"})
+                except Exception as exc:
+                    log.warning(
+                        "auto-wire failed error_type=%s", type(exc).__name__,
+                        extra={"event": "daemon.auto_wire_failed"},
+                    )
 
             # Re-check existence each cycle (raw/ or pending/ may be created after start)
             has_raw = raw_dir.exists()
@@ -2266,14 +2664,18 @@ def watch(
                     prev = session_state.get(agent_name, 0.0)
                     last_import = session_import_time.get(agent_name, 0.0)
 
-                    if (mem_mtime > prev and prev > 0
-                            and now - last_import >= 30):
+                    # Bug 1 fix: first-sight import (prev was 0.0 → blocked import forever).
+                    first_sight = agent_name not in session_state
+                    if (first_sight or mem_mtime > prev) and now - last_import >= 30:
                         typer.echo(f"agent: {agent_name} memory changed ({len(mem_files)} files) — importing...")
                         try:
                             count = _quick_import_session(agent_name, session_dir, memory_dir, raw_dir)
+                            # Bug 2 fix: always advance import time (not just when count > 0).
+                            session_import_time[agent_name] = now
+                            # Bug 3 fix: only update state on success.
+                            session_state[agent_name] = mem_mtime
                             if count:
                                 typer.echo(f"agent: {agent_name} import done — {count} files → raw/{agent_name}-memory/")
-                                session_import_time[agent_name] = now
                         except Exception as exc:
                             log.exception(
                                 "session import failed agent=%s error_type=%s",
@@ -2281,8 +2683,33 @@ def watch(
                                 extra={"event": "daemon.session_import_failed"},
                             )
                             typer.echo(f"agent: {agent_name} import error: {exc}")
+                        continue  # state was set in the try block above
                     session_state[agent_name] = mem_mtime
 
+                # --- transcript dump → raw/<agent>-session/ -----------------
+                if _acfg and _acfg.watch_transcripts:
+                    tk = f"transcript"
+                    transcript_last = session_import_time.get(tk, 0.0)
+                    if now - transcript_last >= 30:
+                        session_import_time[tk] = now
+                        try:
+                            transcripts = _discover_session_transcripts()
+                            for agent_name, handle in transcripts:
+                                count = _dump_session_transcript(agent_name, handle, raw_dir, _acfg)
+                                if count:
+                                    typer.echo(f"agent: {agent_name} transcript dump — {count} files → raw/{agent_name}-session/")
+                                    log.info(
+                                        "transcript dumped agent=%s file_count=%s",
+                                        agent_name, count,
+                                        extra={"event": "daemon.transcript_dumped"},
+                                    )
+                        except Exception as exc:
+                            log.warning(
+                                "transcript dump failed error_type=%s", type(exc).__name__,
+                                extra={"event": "daemon.transcript_dump_failed"},
+                            )
+
+            first_pass = False
             time.sleep(interval)
         except KeyboardInterrupt:
             log.info("daemon watch stopped", extra={"event": "daemon.stop"})

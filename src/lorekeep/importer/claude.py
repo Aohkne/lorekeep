@@ -208,6 +208,49 @@ def chunk_turns(
 
 
 # ---------------------------------------------------------------------------
+# Zero-LLM session dump
+# ---------------------------------------------------------------------------
+
+
+def locate_session(cwd: Path | None = None) -> Path | None:
+    """Newest transcript JSONL for this project, or None."""
+    project_dir = find_current_session(cwd)
+    if project_dir is None:
+        return None
+    transcripts = sorted(
+        (p for p in project_dir.iterdir() if p.suffix == ".jsonl"),
+        key=lambda p: (p.stat().st_mtime, p.name),
+        reverse=True,
+    )
+    return transcripts[0] if transcripts else None
+
+
+def session_key(transcript_path: Path) -> str:
+    return transcript_path.stem
+
+
+def dump_current_session(
+    raw_root: Path,
+    cwd: Path | None = None,
+    *,
+    namespace: str = "claude-session",
+    dry_run: bool = False,
+    **limits,
+) -> list[Path]:
+    """Dump this project's Claude transcript to markdown — no LLM involved."""
+    from lorekeep.importer.session_dump import dump_session_turns
+
+    transcript = locate_session(cwd)
+    if transcript is None:
+        return []
+    return dump_session_turns(
+        parse_transcript(transcript), raw_root,
+        namespace=namespace, session_key=session_key(transcript),
+        dry_run=dry_run, **limits,
+    )
+
+
+# ---------------------------------------------------------------------------
 # LLM summarization (deep mode)
 # ---------------------------------------------------------------------------
 
@@ -283,7 +326,16 @@ def import_memories(
     Returns list of written paths.  Idempotent: skips if a file with the
     same SHA-256 content hash already exists in the destination.
     """
-    memory_dir = session_dir / "memory"
+    return _copy_memory_files(session_dir / "memory", raw_root, namespace, dry_run=dry_run)
+
+
+def _copy_memory_files(
+    memory_dir: Path,
+    raw_root: Path,
+    namespace: str,
+    *,
+    dry_run: bool = False,
+) -> list[Path]:
     if not memory_dir.is_dir():
         return []
 
@@ -311,6 +363,34 @@ def import_memories(
         save_import_manifest(raw_root, namespace, manifest)
 
     return written
+
+
+def memories_dir() -> Path | None:
+    """Locate the current session's memory directory, if any."""
+    session_dir = find_current_session()
+    if session_dir is None:
+        return None
+    memory_dir = session_dir / "memory"
+    return memory_dir if memory_dir.is_dir() else None
+
+
+def quick_import(
+    raw_root: Path,
+    *,
+    namespace: str = "claude-memory",
+    memory_dir: Path | None = None,
+    dry_run: bool = False,
+) -> list[Path]:
+    """Registry-uniform memory import.
+
+    Pass ``memory_dir`` when the caller already located it (the daemon does)
+    to skip a redundant session lookup.
+    """
+    if memory_dir is None:
+        memory_dir = memories_dir()
+    if memory_dir is None:
+        return []
+    return _copy_memory_files(memory_dir, raw_root, namespace, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------

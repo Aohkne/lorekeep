@@ -206,6 +206,16 @@ bugreport:
   repo: manhhailua/lorekeep
   token_env: LOREKEEP_GITHUB_TOKEN
   labels: [auto-reported]
+agents:
+  auto_wire: true
+  wire_scope: user
+  wire_interval_seconds: 900
+  enabled: [claude, codex, cursor, opencode]
+  watch_transcripts: true
+  transcript_max_batches: 20
+  transcript_max_chars: 20000
+  transcript_retain_sessions: 5
+  deep_import: false
 install_source: pypi
 """
 

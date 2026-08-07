@@ -157,7 +157,16 @@ def import_memories(
 
     Returns list of written paths. Idempotent via SHA-256 manifest.
     """
-    mem_dir = _codex_home() / "memories"
+    return _copy_memory_files(_codex_home() / "memories", raw_root, namespace, dry_run=dry_run)
+
+
+def _copy_memory_files(
+    mem_dir: Path,
+    raw_root: Path,
+    namespace: str,
+    *,
+    dry_run: bool = False,
+) -> list[Path]:
     if not mem_dir.is_dir():
         return []
 
@@ -185,6 +194,66 @@ def import_memories(
         save_import_manifest(raw_root, namespace, manifest)
 
     return written
+
+
+def memories_dir() -> Path | None:
+    """Locate $CODEX_HOME/memories, if it exists."""
+    mem_dir = _codex_home() / "memories"
+    return mem_dir if mem_dir.is_dir() else None
+
+
+def quick_import(
+    raw_root: Path,
+    *,
+    namespace: str = "codex-memory",
+    memory_dir: Path | None = None,
+    dry_run: bool = False,
+) -> list[Path]:
+    """Registry-uniform memory import.
+
+    Pass ``memory_dir`` when the caller already located it (the daemon does)
+    to skip a redundant lookup.
+    """
+    if memory_dir is None:
+        memory_dir = memories_dir()
+    if memory_dir is None:
+        return []
+    return _copy_memory_files(memory_dir, raw_root, namespace, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# Zero-LLM session dump
+# ---------------------------------------------------------------------------
+
+
+def locate_session(cwd: Path | None = None) -> Path | None:
+    """Rollout file for this project, or None. Uniform registry entry point."""
+    return find_current_session(cwd)
+
+
+def session_key(rollout_path: Path) -> str:
+    return rollout_path.stem
+
+
+def dump_current_session(
+    raw_root: Path,
+    cwd: Path | None = None,
+    *,
+    namespace: str = "codex-session",
+    dry_run: bool = False,
+    **limits,
+) -> list[Path]:
+    """Dump this project's Codex rollout to markdown — no LLM involved."""
+    from lorekeep.importer.session_dump import dump_session_turns
+
+    rollout = locate_session(cwd)
+    if rollout is None:
+        return []
+    return dump_session_turns(
+        parse_rollout(rollout), raw_root,
+        namespace=namespace, session_key=session_key(rollout),
+        dry_run=dry_run, **limits,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,8 @@
 from pathlib import Path
 import json
+import os
+import signal
+import subprocess
 import pytest
 
 from lorekeep.compile.providers import FakeProvider
@@ -15,9 +18,63 @@ def _disable_bugreport_in_tests(monkeypatch):
     monkeypatch.setenv("LOREKEEP_BUGREPORT_TEST_MODE", "1")
 
 
+@pytest.fixture(autouse=True)
+def _kill_stray_daemons():
+    """Kill any lorekeep daemon processes spawned by tests after each test.
+
+    Some tests (e.g. test_init_interactive*) trigger _start_daemon via the
+    real init flow, spawning background 'agent watch' processes. Without this
+    cleanup, those processes accumulate as zombies across test runs.
+    """
+    yield
+    try:
+        result = subprocess.run(
+            ["ps", "aux"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            # Match only 'lorekeep.cli agent watch' daemons, not the test runner
+            if "lorekeep.cli agent watch" in line and "grep" not in line and "pytest" not in line:
+                parts = line.split()
+                if len(parts) > 1:
+                    try:
+                        pid = int(parts[1])
+                        os.kill(pid, signal.SIGTERM)
+                    except (ProcessLookupError, ValueError, PermissionError):
+                        pass
+    except Exception:
+        pass
+
+
 @pytest.fixture
 def fixtures() -> Path:
     return Path(__file__).parent / "fixtures"
+
+
+# Env vars that make an agent, its home, or its session store resolve to a
+# real location on the developer's machine.
+_AGENT_ENV_VARS = (
+    "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "OPENCODE", "CURSOR_DEBUG",
+    "CODEX_SANDBOX", "CODEX_HOME", "CURSOR_STATE_DB",
+    "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+)
+
+
+@pytest.fixture
+def isolated_home(monkeypatch, tmp_path) -> Path:
+    """Point HOME / Path.home() at a temp dir and blank PATH lookups.
+
+    Any test touching integrations, detect, or wiring MUST request this,
+    otherwise it reads — or writes! — the developer's real ~/.claude.json.
+    """
+    home = tmp_path / "fakehome"
+    home.mkdir(exist_ok=True)
+    for var in _AGENT_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr("pathlib.Path.home", lambda: home)
+    monkeypatch.setattr("lorekeep.integrations.detect.shutil.which", lambda _: None)
+    return home
 
 
 CANNED_EXTRACTION = json.dumps({

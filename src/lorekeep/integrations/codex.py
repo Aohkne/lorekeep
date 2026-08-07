@@ -1,10 +1,36 @@
-"""Codex MCP config writer (config.toml) + Stop hook writer (hooks.json)."""
+"""Codex MCP config (config.toml) + Stop hook writer (hooks.json).
+
+Project scope writes ``config.toml`` and ``.codex/hooks.json``; user scope
+writes into ``$CODEX_HOME`` (default ``~/.codex``).
+
+The TOML is edited by hand rather than round-tripped through a parser: Codex
+writes its own tables (``[projects."…"]``, ``[hooks.state."…"]``) into the same
+file, and a reformatting round-trip would rewrite all of them.
+"""
 from __future__ import annotations
 
-import json
+import os
 from pathlib import Path
 
+from lorekeep.integrations.common import atomic_write, merge_json_config
+
 _HEADER = "[mcp_servers.lorekeep]"
+
+
+def _codex_home() -> Path:
+    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+
+
+def config_target(target_dir: Path, scope: str = "project") -> Path:
+    if scope == "user":
+        return _codex_home() / "config.toml"
+    return Path(target_dir) / "config.toml"
+
+
+def hook_target(target_dir: Path, scope: str = "project") -> Path:
+    if scope == "user":
+        return _codex_home() / "hooks.json"
+    return Path(target_dir) / ".codex" / "hooks.json"
 
 
 def _toml_escape(s: str) -> str:
@@ -28,10 +54,17 @@ def _lorekeep_block(command: str, args: list[str], ns: str | None) -> str:
     return "\n".join(lines)
 
 
-def write_config(target_dir: Path, command: str, args: list[str], ns: str | None) -> Path:
+def write_config(
+    target_dir: Path,
+    command: str,
+    args: list[str],
+    ns: str | None = None,
+    *,
+    scope: str = "project",
+) -> Path | None:
     if ns and ("\n" in ns or "\r" in ns):
         raise ValueError("namespace must not contain newlines")
-    path = Path(target_dir) / "config.toml"
+    path = config_target(target_dir, scope)
     block = _lorekeep_block(command, args, ns)
     text = path.read_text() if path.exists() else ""
     lines = text.splitlines()
@@ -49,36 +82,34 @@ def write_config(target_dir: Path, command: str, args: list[str], ns: str | None
         after = lines[end:]
         rebuilt = before + [block] + ([""] + after if after else [])
         new_text = "\n".join(rebuilt) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(new_text)
-    return path
+    if new_text == text:
+        return None
+    return atomic_write(path, new_text)
 
 
-def write_hook(target_dir: Path, command: str, args: list[str]) -> Path:
-    """Write a Stop hook to .codex/hooks.json.
+def write_hook(
+    target_dir: Path,
+    command: str,
+    args: list[str],
+    *,
+    scope: str = "project",
+) -> Path | None:
+    """Write a Stop hook to hooks.json.
 
     Codex fires Stop after every turn. The lorekeep hook command is
     idempotent (manifest dedup) — zero cost if memories unchanged.
     """
     cmd_str = " ".join([command, *args])
-    path = Path(target_dir) / ".codex" / "hooks.json"
-    existing = {}
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
 
-    hooks = existing.get("hooks", {})
-    hooks["Stop"] = [{
-        "hooks": [{
-            "type": "command",
-            "command": cmd_str,
-            "timeout": 30,
+    def mutate(data: dict) -> None:
+        data.setdefault("hooks", {})["Stop"] = [{
+            "hooks": [{
+                "type": "command",
+                "command": cmd_str,
+                "timeout": 30,
+            }]
         }]
-    }]
-    existing["hooks"] = hooks
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(existing, indent=2))
-    return path
+    return merge_json_config(
+        hook_target(target_dir, scope), mutate, reset_if_corrupt=True,
+    )

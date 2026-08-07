@@ -1,37 +1,59 @@
-"""opencode MCP config writer (opencode.json) + session.idle plugin writer."""
+"""opencode MCP config (opencode.json) + session.idle plugin writer.
+
+Project scope writes ``opencode.json`` and ``.opencode/plugins/lorekeep.ts``;
+user scope writes into ``$XDG_CONFIG_HOME/opencode`` (default ``~/.config/opencode``).
+opencode auto-loads every script under ``plugins/``, so the file alone is
+enough — the ``plugin`` array in opencode.json is for npm packages.
+"""
 from __future__ import annotations
 
-import json
+import os
 from pathlib import Path
 
+from lorekeep.integrations.common import merge_json_config, write_text_if_changed
 
-def write_config(target_dir: Path, command: str, args: list[str], ns: str | None) -> Path:
-    target_dir = Path(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / "opencode.json"
 
-    existing: dict = {}
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text())
-        except (json.JSONDecodeError, ValueError):
-            existing = {}
+def _opencode_config_dir() -> Path:
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".config"
+    return base / "opencode"
 
+
+def config_target(target_dir: Path, scope: str = "project") -> Path:
+    if scope == "user":
+        return _opencode_config_dir() / "opencode.json"
+    return Path(target_dir) / "opencode.json"
+
+
+def hook_target(target_dir: Path, scope: str = "project") -> Path:
+    if scope == "user":
+        return _opencode_config_dir() / "plugins" / "lorekeep.ts"
+    return Path(target_dir) / ".opencode" / "plugins" / "lorekeep.ts"
+
+
+def write_config(
+    target_dir: Path,
+    command: str,
+    args: list[str],
+    ns: str | None = None,
+    *,
+    scope: str = "project",
+) -> Path | None:
     entry: dict = {
         "type": "local",
         "command": [command, *args],
         "enabled": True,
+        "environment": {"LOREKEEP_AGENT": "opencode"},
     }
-    entry["environment"] = {"LOREKEEP_AGENT": "opencode"}
     if ns:
         entry["environment"]["LOREKEEP_NS"] = ns
 
-    mcp = existing.get("mcp", {})
-    mcp["lorekeep"] = entry
-    existing["mcp"] = mcp
+    def mutate(data: dict) -> None:
+        data.setdefault("mcp", {})["lorekeep"] = entry
 
-    path.write_text(json.dumps(existing, indent=2) + "\n")
-    return path
+    return merge_json_config(
+        config_target(target_dir, scope), mutate, reset_if_corrupt=True,
+    )
 
 
 _PLUGIN_TS = """\
@@ -47,15 +69,18 @@ export default {{
 """
 
 
-def write_hook(target_dir: Path, command: str, args: list[str]) -> Path:
-    """Write a session.idle plugin to .opencode/plugins/lorekeep.ts.
+def write_hook(
+    target_dir: Path,
+    command: str,
+    args: list[str],
+    *,
+    scope: str = "project",
+) -> Path | None:
+    """Write a session.idle plugin to plugins/lorekeep.ts.
 
     opencode has no declarative hooks — this TS plugin subscribes to
     session.idle and runs the lorekeep hook command.
     """
     cmd = " ".join([command, *args])
-    plugin_dir = Path(target_dir) / ".opencode" / "plugins"
-    plugin_dir.mkdir(parents=True, exist_ok=True)
-    path = plugin_dir / "lorekeep.ts"
-    path.write_text(_PLUGIN_TS.format(cmd=cmd))
-    return path
+    path = hook_target(target_dir, scope)
+    return write_text_if_changed(path, _PLUGIN_TS.format(cmd=cmd))

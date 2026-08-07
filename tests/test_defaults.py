@@ -47,6 +47,29 @@ def test_default_config_yaml_loads_into_config():
     assert c.ns.personal_namespace == "me"
 
 
+def test_default_config_yaml_materializes_every_agents_key():
+    """`config set` infers types from disk, so a missing key becomes a string.
+
+    Leaving `agents.auto_wire` out of the template would make
+    `config set agents.auto_wire false` store the string "false", which is
+    truthy — silently the opposite of what the user asked for.
+    """
+    from lorekeep.config import AgentsConfig
+
+    written = yaml.safe_load(DEFAULT_CONFIG_YAML)["agents"]
+    assert set(written) == set(AgentsConfig.model_fields)
+
+
+def test_default_config_yaml_agents_values_keep_their_types():
+    agents = Config.model_validate(yaml.safe_load(DEFAULT_CONFIG_YAML)).agents
+    assert agents.auto_wire is True
+    assert agents.wire_scope == "user"
+    assert agents.wire_interval_seconds == 900
+    assert agents.enabled == ["claude", "codex", "cursor", "opencode"]
+    assert agents.watch_transcripts is True
+    assert agents.deep_import is False
+
+
 def test_default_config_yaml_has_no_backend():
     """backend is a removed dead field — must not appear in the template."""
     assert "backend" not in DEFAULT_CONFIG_YAML

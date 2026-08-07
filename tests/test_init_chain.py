@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
 from typer.testing import CliRunner
 
 from lorekeep.cli import app
@@ -10,20 +11,18 @@ from lorekeep.cli import app
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _isolate(isolated_home):
+    """Every test here runs `init`, which auto-wires agents by reading HOME."""
+
+
 def _setup_env(tmp_path: Path, monkeypatch):
     home = tmp_path / "home"
     project = tmp_path / "project"
-    fake_home = tmp_path / "fakehome"
     project.mkdir()
-    fake_home.mkdir()
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
-    monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.setenv("LOREKEEP_DEV", "0")
     monkeypatch.chdir(project)
-    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
-    monkeypatch.setattr("lorekeep.integrations.detect.shutil.which", lambda _: None)
-    monkeypatch.delenv("OPENCODE", raising=False)
-    monkeypatch.delenv("CLAUDECODE", raising=False)
     return home, project
 
 
@@ -174,3 +173,32 @@ def test_init_rerun_skips_chain(tmp_path: Path, monkeypatch):
 
     mock_popen.assert_not_called()
     assert "already initialized" in result2.stdout.lower()
+
+
+def test_init_rerun_wires_an_agent_installed_later(isolated_home, tmp_path: Path, monkeypatch):
+    """Installing an agent after the first init must not require a manual mcp add."""
+    home, project = _setup_env(tmp_path, monkeypatch)
+    (isolated_home / ".claude").mkdir(parents=True)
+
+    runner.invoke(app, ["init", "--yes", "--no-watch"])
+    assert (project / ".mcp.json").exists()
+    assert not (project / "opencode.json").exists()
+
+    (isolated_home / ".config" / "opencode").mkdir(parents=True)
+    result = runner.invoke(app, ["init", "--yes", "--no-watch"])
+    assert result.exit_code == 0, result.stdout
+    assert (project / "opencode.json").exists(), f"opencode never wired: {result.stdout}"
+
+
+def test_init_rerun_does_not_rewrite_unchanged_wiring(isolated_home, tmp_path: Path, monkeypatch):
+    """Wiring runs every init, so it must be a true no-op when nothing changed."""
+    home, project = _setup_env(tmp_path, monkeypatch)
+    (isolated_home / ".claude").mkdir(parents=True)
+
+    runner.invoke(app, ["init", "--yes", "--no-watch"])
+    before = (project / ".mcp.json").stat().st_mtime_ns
+
+    result = runner.invoke(app, ["init", "--yes", "--no-watch"])
+    assert result.exit_code == 0, result.stdout
+    assert (project / ".mcp.json").stat().st_mtime_ns == before
+    assert "already wired" in result.stdout

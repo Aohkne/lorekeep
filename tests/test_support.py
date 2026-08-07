@@ -133,3 +133,17 @@ def test_report_survives_invalid_config_and_manifest(tmp_path: Path, monkeypatch
     report = build_report()
     assert "invalid (ParserError)" in report
     assert "invalid (JSONDecodeError)" in report
+
+
+def test_report_escapes_pipes_so_markdown_tables_stay_intact(tmp_path: Path, monkeypatch):
+    home = tmp_path / "data"
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    (home / "graph").mkdir(parents=True)
+    (home / "config.yaml").write_text(
+        "provider:\n  model: openai/gpt-4o\ninstall_source: 'pipx|uvx'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("lorekeep.daemon_service.status", lambda: "inactive")
+    report = build_report()
+    assert "pipx\\|uvx" in report
+    assert "install_source | pipx|uvx" not in report
