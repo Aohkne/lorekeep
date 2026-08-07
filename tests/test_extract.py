@@ -267,3 +267,86 @@ def test_parse_response_raises_on_non_json():
     c = make_chunk()
     with pytest.raises(ValueError):
         parse_response("no JSON here at all", c, schema=SCHEMA)
+
+
+# ── JSON resilience tests ───────────────────────────────────────────────────
+
+def test_parse_response_tolerates_trailing_commas():
+    """LLMs like DeepSeek/Qwen often emit trailing commas."""
+    c = make_chunk()
+    raw = '{"nodes": [{"id": "svc:a", "type": "service", "name": "a"},], "edges": [], "aliases": {},}'
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1 and nodes[0].id == "svc:a"
+
+
+def test_parse_response_tolerates_nested_trailing_commas():
+    """Trailing commas in nested objects/arrays."""
+    c = make_chunk()
+    raw = json.dumps({
+        "nodes": [{"id": "svc:a", "type": "service", "name": "a",
+                    "props": {"lang": "go",}}],
+        "edges": [{"type": "depends_on", "from": "svc:a", "to": "svc:b",}],
+        "aliases": {},
+    }).replace('": "', '": "').replace('",}', '",}')
+    # Manually inject trailing commas
+    raw = '{"nodes": [{"id": "svc:a", "type": "service", "name": "a", "props": {"lang": "go",},},], "edges": [], "aliases": {,}}'
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1
+
+
+def test_parse_response_tolerates_json_after_prose_with_braces():
+    """Prose before JSON that itself contains braces in strings."""
+    c = make_chunk()
+    payload = {"nodes": [{"id": "svc:a", "type": "service", "name": "a"}],
+               "edges": [], "aliases": {}}
+    raw = "Here is the result for {project}:\n" + json.dumps(payload) + "\nDone."
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1 and nodes[0].id == "svc:a"
+
+
+def test_parse_response_tolerates_fenced_with_language_tag():
+    """Code fence with json language tag."""
+    c = make_chunk()
+    payload = {"nodes": [{"id": "svc:a", "type": "service", "name": "a"}],
+               "edges": [], "aliases": {}}
+    raw = "```json\n" + json.dumps(payload, indent=2) + "\n```"
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1
+
+
+def test_parse_response_tolerates_trailing_comma_in_fence():
+    """Trailing commas inside fenced code block."""
+    c = make_chunk()
+    payload_str = '{"nodes": [{"id": "svc:a", "type": "service", "name": "a",},], "edges": [], "aliases": {},}'
+    raw = f"```json\n{payload_str}\n```"
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1
+
+
+def test_parse_response_brace_in_string_value():
+    """JSON with braces inside string values (not confused as structure)."""
+    c = make_chunk()
+    payload = {"nodes": [{"id": "svc:a", "type": "service", "name": "a",
+                           "props": {"template": "Hello {name}!"}}],
+               "edges": [], "aliases": {}}
+    raw = "Sure! " + json.dumps(payload)
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1
+
+
+def test_parse_response_multiple_objects():
+    """Multiple JSON objects — should extract the first complete one."""
+    c = make_chunk()
+    payload = {"nodes": [{"id": "svc:a", "type": "service", "name": "a"}],
+               "edges": [], "aliases": {}}
+    raw = json.dumps(payload) + "\n\n" + json.dumps({"extra": True})
+    nodes, _, _ = parse_response(raw, c, schema=SCHEMA)
+    assert len(nodes) == 1 and nodes[0].id == "svc:a"
+
+
+def test_extract_json_value_error_includes_src():
+    """Error message should include chunk source for debugging."""
+    from lorekeep.compile.extract import _extract_json
+    c = make_chunk()
+    with pytest.raises(ValueError, match="a.md"):
+        _extract_json("not json at all", c)
