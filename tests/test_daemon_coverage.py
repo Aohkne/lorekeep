@@ -35,6 +35,33 @@ from lorekeep.compile.providers import FakeProvider
 
 runner = CliRunner()
 
+
+def safe_sleep_break(max_cycles=2, side_effect=None):
+    """Return a fake time.sleep that just counts + calls side_effect.
+    The loop is broken by the caller's injected break mechanism, not sleep."""
+    count = [0]
+
+    def _fake(s):
+        count[0] += 1
+        if side_effect:
+            side_effect(count[0])
+
+    return _fake
+
+
+def make_break_after(max_calls=2):
+    """Return a callback that raises KeyboardInterrupt after max_calls.
+    Safe to inject into any function called inside the watch try block."""
+    count = [0]
+
+    def _breaker(*a, **kw):
+        count[0] += 1
+        if count[0] >= max_calls:
+            raise KeyboardInterrupt
+        return []
+
+    return _breaker
+
 # Canned responses for FakeProvider
 _COMPILE_RESPONSE = json.dumps({"nodes": [], "edges": [], "aliases": []})
 _IMPORT_RESPONSE = "# Knowledge Summary\n\n## Decisions\n- Test import summary.\n"
@@ -501,7 +528,21 @@ class TestDaemonWatchSessions:
                             lambda: [("claude", isolated_home / "sess", mem_dir)])
         monkeypatch.setattr("lorekeep.cli._quick_import_session", lambda *a: 2)
         monkeypatch.setattr("lorekeep.cli._discover_session_transcripts", lambda cwd=None: [])
-        monkeypatch.setattr("time.sleep", lambda s: (_ for _ in ()).throw(KeyboardInterrupt))
+
+        # Use a flag-based break: after first successful cycle, inject a
+        # SystemExit(0) via _discover_watchable_sessions to cleanly exit.
+        # Use _sync_agent_wiring to break the loop (it's called inside try).
+        cycle_count = [0]
+        original_discover = lambda: [("claude", isolated_home / "sess", mem_dir)]
+
+        def discover_and_break():
+            cycle_count[0] += 1
+            if cycle_count[0] >= 2:
+                raise KeyboardInterrupt
+            return original_discover()
+
+        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", discover_and_break)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
 
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
@@ -514,18 +555,19 @@ class TestDaemonWatchSessions:
         mem_dir.mkdir()
         (mem_dir / "fact.md").write_text("# Fact")
 
-        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions",
-                            lambda: [("claude", isolated_home / "sess", mem_dir)])
         monkeypatch.setattr("lorekeep.cli._quick_import_session",
                             lambda *a: (_ for _ in ()).throw(RuntimeError("import failed")))
         monkeypatch.setattr("lorekeep.cli._discover_session_transcripts", lambda cwd=None: [])
 
-        sleep_count = [0]
-        def fake_sleep(s):
-            sleep_count[0] += 1
-            if sleep_count[0] >= 2:
+        cycle_count = [0]
+        def discover_and_break():
+            cycle_count[0] += 1
+            if cycle_count[0] >= 2:
                 raise KeyboardInterrupt
-        monkeypatch.setattr("time.sleep", fake_sleep)
+            return [("claude", isolated_home / "sess", mem_dir)]
+
+        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", discover_and_break)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
 
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
@@ -534,11 +576,28 @@ class TestDaemonWatchSessions:
     def test_watch_transcript_dump(self, isolated_home, monkeypatch, fixtures):
         """Watch discovers transcripts and dumps them."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)
+        # Write config.yaml so _acfg is loaded with watch_transcripts=True
+        (isolated_home / "config.yaml").write_text(
+            "agents:\n  auto_wire: false\n  watch_transcripts: true\n  enabled: [claude]\n"
+        )
         monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", lambda: [])
-        monkeypatch.setattr("lorekeep.cli._discover_session_transcripts",
-                            lambda cwd=None: [("claude", "session-handle")])
         monkeypatch.setattr("lorekeep.cli._dump_session_transcript", lambda *a: 3)
-        monkeypatch.setattr("time.sleep", lambda s: (_ for _ in ()).throw(KeyboardInterrupt))
+
+        cycle_count = [0]
+        def discover_transcripts_and_break(cwd=None):
+            cycle_count[0] += 1
+            if cycle_count[0] >= 2:
+                raise KeyboardInterrupt
+            return [("claude", "session-handle")]
+
+        monkeypatch.setattr("lorekeep.cli._discover_session_transcripts", discover_transcripts_and_break)
+        # Speed up time.monotonic so the 30s transcript throttle passes immediately
+        fake_time = [0.0]
+        def fast_monotonic():
+            fake_time[0] += 100.0
+            return fake_time[0]
+        monkeypatch.setattr("time.monotonic", fast_monotonic)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
 
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
@@ -582,25 +641,26 @@ class TestDaemonWatchAdvanced:
         monkeypatch.setattr("lorekeep.cli._has_provider", lambda c: True)
         monkeypatch.setattr("lorekeep.backup.has_remote", lambda h: False)
         monkeypatch.setattr("lorekeep.cli._sync_agent_wiring", lambda **kw: [])
-        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", lambda: [])
+        # Break loop via _discover_watchable_sessions
+        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", make_break_after())
         monkeypatch.setattr("lorekeep.cli._discover_session_transcripts", lambda cwd=None: [])
 
     def test_watch_compile_error_logged(self, isolated_home, monkeypatch, fixtures):
         """Compile failure in daemon loop is logged, not fatal."""
         self._setup(isolated_home, monkeypatch, fixtures)
-        # Provider that raises
         monkeypatch.setattr("lorekeep.cli._make_provider",
                             lambda c: (_ for _ in ()).throw(RuntimeError("bad provider")))
-        call_count = [0]
 
-        def fake_sleep(s):
-            call_count[0] += 1
-            if call_count[0] == 1:
+        cycle_count = [0]
+        def discover_add_and_break():
+            cycle_count[0] += 1
+            if cycle_count[0] == 2:
                 (isolated_home / "raw" / "new.md").write_text("# New")
-            elif call_count[0] >= 2:
+            elif cycle_count[0] >= 3:
                 raise KeyboardInterrupt
-
-        monkeypatch.setattr("time.sleep", fake_sleep)
+            return []
+        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", discover_add_and_break)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
         assert "compile error" in result.stdout.lower()
@@ -612,15 +672,16 @@ class TestDaemonWatchAdvanced:
         backup_calls = []
         monkeypatch.setattr("lorekeep.backup.sync_backup", lambda h: backup_calls.append(1) or True)
 
-        call_count = [0]
-        def fake_sleep(s):
-            call_count[0] += 1
-            if call_count[0] == 1:
+        cycle_count = [0]
+        def discover_add_and_break():
+            cycle_count[0] += 1
+            if cycle_count[0] == 2:
                 (isolated_home / "raw" / "new.md").write_text("# New")
-            elif call_count[0] >= 2:
+            elif cycle_count[0] >= 3:
                 raise KeyboardInterrupt
-
-        monkeypatch.setattr("time.sleep", fake_sleep)
+            return []
+        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", discover_add_and_break)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
         assert "compiling" in result.stdout.lower()
@@ -644,13 +705,7 @@ class TestDaemonWatchAdvanced:
             '"props":{},"src":"test"}}\n'
         )
 
-        call_count = [0]
-        def fake_sleep(s):
-            call_count[0] += 1
-            if call_count[0] >= 2:
-                raise KeyboardInterrupt
-
-        monkeypatch.setattr("time.sleep", fake_sleep)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
 
@@ -808,16 +863,16 @@ class TestDaemonWatchLoop:
         monkeypatch.setattr("lorekeep.cli._has_provider", lambda c: True)
         # Mock backup (no remote configured)
         monkeypatch.setattr("lorekeep.backup.has_remote", lambda h: False)
-        # Mock session discovery + agent wiring
-        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", lambda: [])
+        # Break after first cycle via _discover_watchable_sessions
+        # (called inside the try block, so KeyboardInterrupt is caught properly)
+        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", make_break_after())
         monkeypatch.setattr("lorekeep.cli._discover_session_transcripts", lambda cwd=None: [])
         monkeypatch.setattr("lorekeep.cli._sync_agent_wiring", lambda **kw: [])
 
     def test_watch_one_cycle(self, isolated_home, monkeypatch, fixtures):
         """Daemon watch runs startup + one cycle and exits on KeyboardInterrupt."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)
-        # Break after first cycle
-        monkeypatch.setattr("time.sleep", lambda s: (_ for _ in ()).throw(KeyboardInterrupt))
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
         assert "monitoring" in result.stdout.lower()
@@ -825,9 +880,7 @@ class TestDaemonWatchLoop:
     def test_watch_pid_file_running(self, isolated_home, monkeypatch, fixtures):
         """Watch exits 1 when another daemon is already running."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)
-        # Write current PID → os.kill(pid, 0) succeeds
         (isolated_home / ".daemon.pid").write_text(str(os.getpid()))
-        monkeypatch.setattr("time.sleep", lambda s: None)
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 1
         assert "already running" in result.stdout.lower()
@@ -835,26 +888,26 @@ class TestDaemonWatchLoop:
     def test_watch_pid_file_stale(self, isolated_home, monkeypatch, fixtures):
         """Stale PID file (dead process) is ignored."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)
-        # PID 999999 is very unlikely to exist
         (isolated_home / ".daemon.pid").write_text("999999")
-        monkeypatch.setattr("time.sleep", lambda s: (_ for _ in ()).throw(KeyboardInterrupt))
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
 
     def test_watch_compile_on_change(self, isolated_home, monkeypatch, fixtures):
         """Watch detects new raw/ files and triggers compile."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)
-        call_count = [0]
 
-        def fake_sleep(s):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                # After first cycle (baseline), add a new file
+        cycle_count = [0]
+        def discover_add_and_break():
+            cycle_count[0] += 1
+            if cycle_count[0] == 2:
                 (isolated_home / "raw" / "new.md").write_text("# New\n\nAnother fact.")
-            elif call_count[0] >= 2:
+            elif cycle_count[0] >= 3:
                 raise KeyboardInterrupt
+            return []
 
-        monkeypatch.setattr("time.sleep", fake_sleep)
+        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", discover_add_and_break)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
         assert "compiling" in result.stdout.lower()
@@ -862,31 +915,34 @@ class TestDaemonWatchLoop:
     def test_watch_no_sessions(self, isolated_home, monkeypatch, fixtures):
         """Watch with --no-watch-sessions skips session discovery."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)
-        monkeypatch.setattr("time.sleep", lambda s: (_ for _ in ()).throw(KeyboardInterrupt))
+        # Since --no-watch-sessions disables _discover_watchable_sessions,
+        # we need a different break point. Use compile trigger + _on_disk_version.
+        from lorekeep.cli import _on_disk_version
+        call_v = [0]
+        def version_break():
+            call_v[0] += 1
+            if call_v[0] >= 3:
+                raise KeyboardInterrupt
+            return _on_disk_version()
+        monkeypatch.setattr("lorekeep.cli._on_disk_version", version_break)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
         result = runner.invoke(app, ["agent", "watch", "--no-watch-sessions", "--interval", "1"])
         assert result.exit_code == 0
 
     def test_watch_loop_exception_continues(self, isolated_home, monkeypatch, fixtures):
         """Unexpected exception in loop body is logged, loop continues."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)
-        sleep_count = [0]
-        session_calls = [0]
-
-        def fake_discover():
-            session_calls[0] += 1
-            if session_calls[0] == 2:
+        cycle_count = [0]
+        def discover_err_and_break():
+            cycle_count[0] += 1
+            if cycle_count[0] == 2:
                 raise RuntimeError("discovery failed")
-            return []
-
-        def fake_sleep(s):
-            sleep_count[0] += 1
-            if sleep_count[0] >= 3:
+            elif cycle_count[0] >= 3:
                 raise KeyboardInterrupt
-
-        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", fake_discover)
-        monkeypatch.setattr("time.sleep", fake_sleep)
+            return []
+        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", discover_err_and_break)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
-        # Exit 0 means loop handled exception and broke cleanly
         assert result.exit_code == 0
 
 
