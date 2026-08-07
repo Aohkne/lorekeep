@@ -313,6 +313,29 @@ def import_memories(
     return written
 
 
+def memories_dir(cwd: Path | None = None) -> Path | None:
+    """Locate the current session's memory directory, if any."""
+    session_dir = find_current_session(cwd)
+    if session_dir is None:
+        return None
+    memory_dir = session_dir / "memory"
+    return memory_dir if memory_dir.is_dir() else None
+
+
+def quick_import(
+    raw_root: Path,
+    *,
+    namespace: str = "claude-memory",
+    dry_run: bool = False,
+    cwd: Path | None = None,
+) -> list[Path]:
+    """Registry-uniform memory import: locate the session, then copy."""
+    session_dir = find_current_session(cwd)
+    if session_dir is None:
+        return []
+    return import_memories(session_dir, raw_root, namespace, dry_run=dry_run)
+
+
 # ---------------------------------------------------------------------------
 # Deep session import
 # ---------------------------------------------------------------------------

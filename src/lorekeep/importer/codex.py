@@ -187,6 +187,23 @@ def import_memories(
     return written
 
 
+def memories_dir(cwd: Path | None = None) -> Path | None:
+    """Locate $CODEX_HOME/memories, if it exists."""
+    mem_dir = _codex_home() / "memories"
+    return mem_dir if mem_dir.is_dir() else None
+
+
+def quick_import(
+    raw_root: Path,
+    *,
+    namespace: str = "codex-memory",
+    dry_run: bool = False,
+    cwd: Path | None = None,
+) -> list[Path]:
+    """Registry-uniform memory import."""
+    return import_memories(raw_root, namespace, dry_run=dry_run)
+
+
 # ---------------------------------------------------------------------------
 # Deep session import
 # ---------------------------------------------------------------------------
