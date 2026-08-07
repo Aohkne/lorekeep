@@ -168,3 +168,65 @@ def test_import_opencode_no_session(tmp_path: Path, monkeypatch):
     result = import_opencode(tmp_path / "raw")
     assert result["memory"] == []
     assert result["session"] == []
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────
+
+def test_cli_import_opencode_runs(patch_make_import_provider, monkeypatch, tmp_path: Path):
+    """End-to-end CLI: import --from opencode writes session files."""
+    from typer.testing import CliRunner
+    from lorekeep.cli import app
+
+    db = tmp_path / "opencode.db"
+    sid = _build_db(db, str(tmp_path))
+
+    monkeypatch.setenv("LOREKEEP_RAW", str(tmp_path / "raw"))
+    monkeypatch.setenv("LOREKEEP_OUT", str(tmp_path / "graph"))
+    monkeypatch.setenv("LOREKEEP_CACHE", str(tmp_path / "cache.json"))
+    monkeypatch.setattr("lorekeep.importer.opencode._opencode_db", lambda: db)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["import", "--from", "opencode", "--session-path", sid])
+    assert result.exit_code == 0, result.stdout
+    assert "opencode-session" in result.stdout
+
+
+def test_cli_import_opencode_rejects_quick(monkeypatch, tmp_path: Path):
+    """import --from opencode --quick exits with error."""
+    from typer.testing import CliRunner
+    from lorekeep.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["import", "--from", "opencode", "--quick"])
+    assert result.exit_code == 1
+    assert "deep-only" in result.stdout
+
+
+def test_cli_import_opencode_no_session(monkeypatch, tmp_path: Path):
+    """import --from opencode with no session found exits with error."""
+    from typer.testing import CliRunner
+    from lorekeep.cli import app
+
+    monkeypatch.setattr("lorekeep.importer.opencode.find_current_session", lambda cwd=None: None)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["import", "--from", "opencode"])
+    assert result.exit_code == 1
+    assert "no opencode session" in result.stdout
+
+
+def test_cli_import_opencode_dry_run(patch_make_import_provider, monkeypatch, tmp_path: Path):
+    """import --from opencode --dry-run reports without writing."""
+    from typer.testing import CliRunner
+    from lorekeep.cli import app
+
+    db = tmp_path / "opencode.db"
+    sid = _build_db(db, str(tmp_path))
+
+    monkeypatch.setenv("LOREKEEP_RAW", str(tmp_path / "raw"))
+    monkeypatch.setattr("lorekeep.importer.opencode._opencode_db", lambda: db)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["import", "--from", "opencode", "--session-path", sid, "--dry-run"])
+    assert result.exit_code == 0, result.stdout
+    assert "dry-run" in result.stdout
