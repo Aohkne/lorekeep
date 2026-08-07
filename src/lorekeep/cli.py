@@ -890,16 +890,27 @@ def mcp_add(
     command, args = resolve_command(config.install_source)
     hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
 
-    target = Path.cwd() if scope == "project" else Path.home()
+    if scope not in ("project", "user"):
+        typer.echo(f"unknown scope: {scope} (choose project|user)")
+        raise typer.Exit(code=1)
     writers = _agent_writers()
     if agent not in writers:
         typer.echo(f"unknown agent: {agent} (choose claude|cursor|codex|opencode)")
         raise typer.Exit(code=1)
-    written = writers[agent].write_config(target, command, args, ns)
-    typer.echo(f"wrote {agent} config -> {written}")
-    if hasattr(writers[agent], "write_hook"):
-        hook_path = writers[agent].write_hook(target, hook_cmd, hook_args)
-        typer.echo(f"wrote session-end hook -> {hook_path}")
+
+    writer = writers[agent]
+    target = Path.cwd()
+    written = writer.write_config(target, command, args, ns, scope=scope)
+    if written is None:
+        typer.echo(f"{agent} config unchanged -> {writer.config_target(target, scope)}")
+    else:
+        typer.echo(f"wrote {agent} config -> {written}")
+    if hasattr(writer, "write_hook"):
+        hook_path = writer.write_hook(target, hook_cmd, hook_args, scope=scope)
+        if hook_path is None:
+            typer.echo(f"session-end hook unchanged -> {writer.hook_target(target, scope)}")
+        else:
+            typer.echo(f"wrote session-end hook -> {hook_path}")
     typer.echo("\n" + agent_memory_snippet())
 
 
