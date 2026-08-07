@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.21.1 (2026-08-07)
+
+## What's Changed
+* fix(extract): make JSON parsing resilient to common LLM output issues by @manhhailua in https://github.com/manhhailua/lorekeep/pull/192
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.21.0...v0.21.1
+
 ## 0.21.0 (2026-08-07)
 
 ## What's Changed
