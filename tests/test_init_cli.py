@@ -170,20 +170,14 @@ def test_init_no_about_on_second_run(tmp_path: Path, monkeypatch):
     assert "Don't overwrite me" in about.read_text()
 
 
-def test_init_auto_wires_detected_agent(tmp_path: Path, monkeypatch):
+def test_init_auto_wires_detected_agent(isolated_home, tmp_path: Path, monkeypatch):
     """init detects active agent from env and writes its MCP config."""
     home = tmp_path / "home"
     project = tmp_path / "project"
     project.mkdir()
-    fake_home = tmp_path / "fakehome"
-    fake_home.mkdir()
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
-    monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.chdir(project)
     monkeypatch.setenv("OPENCODE", "1")
-    monkeypatch.delenv("CLAUDECODE", raising=False)
-    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
-    monkeypatch.setattr("lorekeep.integrations.detect.shutil.which", lambda _: None)
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
     import json
@@ -193,22 +187,16 @@ def test_init_auto_wires_detected_agent(tmp_path: Path, monkeypatch):
     assert data["mcp"]["lorekeep"]["type"] == "local"
 
 
-def test_init_auto_wires_installed_agents(tmp_path: Path, monkeypatch):
+def test_init_auto_wires_installed_agents(isolated_home, tmp_path: Path, monkeypatch):
     """init in shell mode scans filesystem and wires all installed agents."""
     home = tmp_path / "home"
-    fake_home = tmp_path / "fakehome"
     project = tmp_path / "project"
     project.mkdir()
-    (fake_home / ".claude").mkdir(parents=True)
-    (fake_home / ".config" / "opencode").mkdir(parents=True)
+    (isolated_home / ".claude").mkdir(parents=True)
+    (isolated_home / ".config" / "opencode").mkdir(parents=True)
 
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
-    monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.chdir(project)
-    monkeypatch.delenv("OPENCODE", raising=False)
-    monkeypatch.delenv("CLAUDECODE", raising=False)
-    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
-    monkeypatch.setattr("lorekeep.integrations.detect.shutil.which", lambda _: None)
 
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
@@ -216,18 +204,29 @@ def test_init_auto_wires_installed_agents(tmp_path: Path, monkeypatch):
     assert (project / "opencode.json").exists()
 
 
-def test_init_no_agents_detected_message(tmp_path: Path, monkeypatch):
+def test_init_inside_one_agent_still_wires_the_others(isolated_home, tmp_path: Path, monkeypatch):
+    """A single graph needs every installed agent wired, not just the active one."""
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    (isolated_home / ".claude").mkdir(parents=True)
+    (isolated_home / ".config" / "opencode").mkdir(parents=True)
+
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    monkeypatch.setenv("OPENCODE", "1")
+    monkeypatch.chdir(project)
+
+    result = runner.invoke(app, ["init", "--yes"])
+    assert result.exit_code == 0, result.stdout
+    assert (project / "opencode.json").exists()
+    assert (project / ".mcp.json").exists(), f"claude was skipped: {result.stdout}"
+
+
+def test_init_no_agents_detected_message(isolated_home, tmp_path: Path, monkeypatch):
     """init reports when no agents are detected."""
     home = tmp_path / "home"
-    fake_home = tmp_path / "fakehome"
-    fake_home.mkdir()
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
-    monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("OPENCODE", raising=False)
-    monkeypatch.delenv("CLAUDECODE", raising=False)
-    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
-    monkeypatch.setattr("lorekeep.integrations.detect.shutil.which", lambda _: None)
 
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
