@@ -283,7 +283,16 @@ def import_memories(
     Returns list of written paths.  Idempotent: skips if a file with the
     same SHA-256 content hash already exists in the destination.
     """
-    memory_dir = session_dir / "memory"
+    return _copy_memory_files(session_dir / "memory", raw_root, namespace, dry_run=dry_run)
+
+
+def _copy_memory_files(
+    memory_dir: Path,
+    raw_root: Path,
+    namespace: str,
+    *,
+    dry_run: bool = False,
+) -> list[Path]:
     if not memory_dir.is_dir():
         return []
 
@@ -313,9 +322,9 @@ def import_memories(
     return written
 
 
-def memories_dir(cwd: Path | None = None) -> Path | None:
+def memories_dir() -> Path | None:
     """Locate the current session's memory directory, if any."""
-    session_dir = find_current_session(cwd)
+    session_dir = find_current_session()
     if session_dir is None:
         return None
     memory_dir = session_dir / "memory"
@@ -326,14 +335,19 @@ def quick_import(
     raw_root: Path,
     *,
     namespace: str = "claude-memory",
+    memory_dir: Path | None = None,
     dry_run: bool = False,
-    cwd: Path | None = None,
 ) -> list[Path]:
-    """Registry-uniform memory import: locate the session, then copy."""
-    session_dir = find_current_session(cwd)
-    if session_dir is None:
+    """Registry-uniform memory import.
+
+    Pass ``memory_dir`` when the caller already located it (the daemon does)
+    to skip a redundant session lookup.
+    """
+    if memory_dir is None:
+        memory_dir = memories_dir()
+    if memory_dir is None:
         return []
-    return import_memories(session_dir, raw_root, namespace, dry_run=dry_run)
+    return _copy_memory_files(memory_dir, raw_root, namespace, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------

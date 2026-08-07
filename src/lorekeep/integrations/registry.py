@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
 
 
@@ -88,6 +89,21 @@ class AgentSpec:
         if not self.importer_module:
             return None
         return importlib.import_module(self.importer_module)
+
+    def config_path(self, target_dir: Path, scope: str = "project") -> Path:
+        """Resolve the real MCP config target.
+
+        The declared ``project_config`` / ``user_config`` strings are data that
+        tests cross-check; resolution goes through the writer because only it
+        applies the agent's own env overrides (``CODEX_HOME``,
+        ``XDG_CONFIG_HOME``).
+        """
+        return self.writer().config_target(target_dir, scope)
+
+    def hook_path(self, target_dir: Path, scope: str = "project") -> Path | None:
+        if not self.supports_hook:
+            return None
+        return self.writer().hook_target(target_dir, scope)
 
 
 _SPECS: tuple[AgentSpec, ...] = (

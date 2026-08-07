@@ -173,3 +173,32 @@ def test_init_rerun_skips_chain(tmp_path: Path, monkeypatch):
 
     mock_popen.assert_not_called()
     assert "already initialized" in result2.stdout.lower()
+
+
+def test_init_rerun_wires_an_agent_installed_later(isolated_home, tmp_path: Path, monkeypatch):
+    """Installing an agent after the first init must not require a manual mcp add."""
+    home, project = _setup_env(tmp_path, monkeypatch)
+    (isolated_home / ".claude").mkdir(parents=True)
+
+    runner.invoke(app, ["init", "--yes", "--no-watch"])
+    assert (project / ".mcp.json").exists()
+    assert not (project / "opencode.json").exists()
+
+    (isolated_home / ".config" / "opencode").mkdir(parents=True)
+    result = runner.invoke(app, ["init", "--yes", "--no-watch"])
+    assert result.exit_code == 0, result.stdout
+    assert (project / "opencode.json").exists(), f"opencode never wired: {result.stdout}"
+
+
+def test_init_rerun_does_not_rewrite_unchanged_wiring(isolated_home, tmp_path: Path, monkeypatch):
+    """Wiring runs every init, so it must be a true no-op when nothing changed."""
+    home, project = _setup_env(tmp_path, monkeypatch)
+    (isolated_home / ".claude").mkdir(parents=True)
+
+    runner.invoke(app, ["init", "--yes", "--no-watch"])
+    before = (project / ".mcp.json").stat().st_mtime_ns
+
+    result = runner.invoke(app, ["init", "--yes", "--no-watch"])
+    assert result.exit_code == 0, result.stdout
+    assert (project / ".mcp.json").stat().st_mtime_ns == before
+    assert "already wired" in result.stdout

@@ -341,28 +341,25 @@ class TestHookErrorSwallowing:
         """Claude import failure → logged, swallowed, codex still tried."""
         monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
         monkeypatch.setattr(
-            "lorekeep.importer.claude.find_current_session",
-            lambda: (_ for _ in ()).throw(RuntimeError("no claude")),
+            "lorekeep.importer.claude.quick_import",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no claude")),
         )
-        # Codex should succeed (no session → returns [])
+        codex_calls = []
         monkeypatch.setattr(
-            "lorekeep.importer.codex.import_memories",
-            lambda raw, ns: [],
+            "lorekeep.importer.codex.quick_import",
+            lambda *a, **k: codex_calls.append(1) or [],
         )
         result = runner.invoke(app, ["hook"])
         assert result.exit_code == 0
+        assert codex_calls, "a failing agent must not block the others"
 
     def test_hook_swallows_codex_error(self, tmp_path: Path, monkeypatch):
         """Codex import failure → logged, swallowed, no crash."""
         monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
-        # Claude returns None → skipped
+        monkeypatch.setattr("lorekeep.importer.claude.quick_import", lambda *a, **k: [])
         monkeypatch.setattr(
-            "lorekeep.importer.claude.find_current_session",
-            lambda: None,
-        )
-        monkeypatch.setattr(
-            "lorekeep.importer.codex.import_memories",
-            lambda raw, ns: (_ for _ in ()).throw(RuntimeError("no codex")),
+            "lorekeep.importer.codex.quick_import",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no codex")),
         )
         result = runner.invoke(app, ["hook"])
         assert result.exit_code == 0
@@ -370,15 +367,25 @@ class TestHookErrorSwallowing:
     def test_hook_imports_files_echoes_total(self, tmp_path: Path, monkeypatch):
         """Successful imports → echoes file count."""
         monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
-        monkeypatch.setattr(
-            "lorekeep.importer.claude.find_current_session",
-            lambda: None,
-        )
+        monkeypatch.setattr("lorekeep.importer.claude.quick_import", lambda *a, **k: [])
         written = [tmp_path / "a.md", tmp_path / "b.md"]
-        monkeypatch.setattr(
-            "lorekeep.importer.codex.import_memories",
-            lambda raw, ns: written,
-        )
+        monkeypatch.setattr("lorekeep.importer.codex.quick_import", lambda *a, **k: written)
         result = runner.invoke(app, ["hook"])
         assert result.exit_code == 0
         assert "imported 2 memory file(s)" in result.stdout
+
+    def test_hook_uses_each_agent_declared_namespace(self, tmp_path: Path, monkeypatch):
+        """Memory lands in the namespace the registry declares, per agent."""
+        monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
+        seen: dict[str, str] = {}
+        monkeypatch.setattr(
+            "lorekeep.importer.claude.quick_import",
+            lambda raw, *, namespace, **k: seen.setdefault("claude", namespace) and [],
+        )
+        monkeypatch.setattr(
+            "lorekeep.importer.codex.quick_import",
+            lambda raw, *, namespace, **k: seen.setdefault("codex", namespace) and [],
+        )
+        result = runner.invoke(app, ["hook"])
+        assert result.exit_code == 0
+        assert seen == {"claude": "claude-memory", "codex": "codex-memory"}

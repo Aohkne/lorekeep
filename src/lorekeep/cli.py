@@ -101,37 +101,31 @@ def version() -> None:
 
 @app.command(hidden=True)
 def hook() -> None:
-    """Session lifecycle hook: quick-import memories from all agents.
+    """Session lifecycle hook: quick-import memories from every agent.
 
-    Agent-agnostic — tries Claude and Codex memory imports (idempotent
-    via manifest). Each is a no-op if nothing changed. Daemon picks up
-    raw/ changes for compile.
+    Registry-driven, so an agent starts contributing the moment it declares
+    an ingest path. Idempotent via SHA-256 manifest — a hook that fires on
+    every turn costs nothing when nothing changed.
     """
+    from lorekeep.integrations.registry import all_specs
+
     p = resolve_paths()
     total = 0
 
-    try:
-        from lorekeep.importer.claude import find_current_session as find_claude
-        from lorekeep.importer.claude import import_memories as import_claude_mem
-        session_dir = find_claude()
-        if session_dir and (session_dir / "memory").is_dir():
-            written = import_claude_mem(session_dir, p["raw"], "claude-memory")
+    for spec in all_specs():
+        if spec.memory is None or spec.memory_ns is None:
+            continue
+        try:
+            written = getattr(spec.importer(), spec.memory.import_fn)(
+                p["raw"], namespace=spec.memory_ns,
+            )
             total += len(written)
-    except Exception as exc:
-        log.warning(
-            "Claude hook import failed error_type=%s", type(exc).__name__,
-            extra={"event": "hook.claude_failed"},
-        )
-
-    try:
-        from lorekeep.importer.codex import import_memories as import_codex_mem
-        written = import_codex_mem(p["raw"], "codex-memory")
-        total += len(written)
-    except Exception as exc:
-        log.warning(
-            "Codex hook import failed error_type=%s", type(exc).__name__,
-            extra={"event": "hook.codex_failed"},
-        )
+        except Exception as exc:
+            log.warning(
+                "hook memory import failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "hook.memory_import_failed"},
+            )
 
     if total:
         log.info(
@@ -1097,9 +1091,11 @@ def init(
                 )
 
     # --- One-click chain: wire → import → compile → daemon -----------------
-    if not config_existed:
-        _auto_wire_agents(p, ns)
+    # Wiring runs on every init: it is free and idempotent, so re-running
+    # init is how you pick up an agent installed after the first run.
+    _auto_wire_agents(p, ns)
 
+    if not config_existed:
         config = load_config(p["config"])
         if _has_provider(config):
             typer.echo("\n  Compiling your docs into the knowledge graph...")
@@ -1301,38 +1297,57 @@ def _write_config(p, model, api_base, api_key_env, api_key, ns):
     p["config"].write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
 
 
-def _auto_wire_agents(p: dict, ns: str) -> None:
-    """Detect coding agents and write their MCP configs automatically.
+def _wire_one(
+    spec, target: Path, ns: str | None, *, scope: str = "project",
+) -> tuple[Path | None, Path | None]:
+    """Write one agent's MCP config + session-end hook.
 
-    If running inside a coding agent (env var set), wires only that agent.
-    Otherwise scans the filesystem for all installed agents and wires each.
+    Returns ``(config_path, hook_path)``, each ``None`` when that file
+    already held the desired wiring.
+    """
+    from lorekeep.integrations.common import resolve_command
+
+    config = load_config(resolve_paths()["config"])
+    command, args = resolve_command(config.install_source)
+    hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
+
+    writer = spec.writer()
+    written = writer.write_config(target, command, args, ns, scope=scope)
+    hooked = None
+    if spec.supports_hook:
+        hooked = writer.write_hook(target, hook_cmd, hook_args, scope=scope)
+    return written, hooked
+
+
+def _auto_wire_agents(p: dict, ns: str, *, scope: str = "project") -> None:
+    """Detect every installed coding agent and write its MCP config.
+
+    Idempotent: a writer that finds the desired entry already present
+    reports ``unchanged`` instead of rewriting the file.
     """
     from lorekeep.integrations.detect import detect_agents
-    from lorekeep.integrations.common import agent_memory_snippet, resolve_command
+    from lorekeep.integrations.common import agent_memory_snippet
+    from lorekeep.integrations.registry import find
 
     detected = detect_agents()
     if not detected:
         typer.echo("\n  No coding agents detected — run `lorekeep mcp add --agent <name>` after install.")
         return
 
-    config = load_config(p["config"])
-    command, args = resolve_command(config.install_source)
-    hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
-
-    writers = _agent_writers()
     target = Path.cwd()
-
     typer.echo(f"\n  Detected agents: {', '.join(detected)}")
     for agent_name in detected:
-        writer = writers.get(agent_name)
-        if not writer:
+        spec = find(agent_name)
+        if spec is None:
             continue
         try:
-            written = writer.write_config(target, command, args, ns)
-            typer.echo(f"  wired {agent_name} -> {written}")
-            if hasattr(writer, "write_hook"):
-                hook_path = writer.write_hook(target, hook_cmd, hook_args)
-                typer.echo(f"  hooked {agent_name} session-end -> {hook_path}")
+            written, hooked = _wire_one(spec, target, ns, scope=scope)
+            typer.echo(
+                f"  wired {agent_name} -> {written}" if written
+                else f"  {agent_name} already wired -> {spec.config_path(target, scope)}"
+            )
+            if spec.supports_hook and hooked:
+                typer.echo(f"  hooked {agent_name} session-end -> {hooked}")
         except Exception as exc:
             log.warning(
                 "agent wiring failed agent=%s error_type=%s",
@@ -1346,35 +1361,32 @@ def _auto_wire_agents(p: dict, ns: str) -> None:
 
 def _agent_writers() -> dict:
     """Return the agent-name → writer-module mapping (lazy import)."""
-    from lorekeep.integrations import claude_code, codex, cursor, opencode
-    return {
-        "claude": claude_code,
-        "cursor": cursor,
-        "codex": codex,
-        "opencode": opencode,
-    }
+    from lorekeep.integrations.registry import all_specs
+    return {spec.name: spec.writer() for spec in all_specs()}
 
 
 def _auto_import_and_compile(p: dict) -> None:
-    """Quick-import Claude memory files, then compile if provider is available."""
-    imported = 0
+    """Quick-import every agent's memory files, then compile if a provider is available."""
+    from lorekeep.integrations.registry import all_specs
 
-    # --- Quick import: Claude memory files (zero LLM cost) ----------------
-    try:
-        from lorekeep.importer.claude import find_current_session, import_memories
-        session_dir = find_current_session()
-        if session_dir is not None and (session_dir / "memory").is_dir():
-            written = import_memories(session_dir, p["raw"], "claude-memory")
-            imported = len(written)
-            if imported:
-                typer.echo(f"  imported {imported} memory file(s) from Claude session")
-    except Exception as exc:
-        log.warning(
-            "automatic memory import failed error_type=%s", type(exc).__name__,
-            extra={"event": "init.import_failed"},
-        )
-        if os.environ.get("LOREKEEP_DEBUG"):
-            typer.echo(f"  import error: {exc}")
+    # --- Quick import: agent-authored memory files (zero LLM cost) ---------
+    for spec in all_specs():
+        if spec.memory is None or spec.memory_ns is None:
+            continue
+        try:
+            written = getattr(spec.importer(), spec.memory.import_fn)(
+                p["raw"], namespace=spec.memory_ns,
+            )
+            if written:
+                typer.echo(f"  imported {len(written)} memory file(s) from {spec.label}")
+        except Exception as exc:
+            log.warning(
+                "automatic memory import failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "init.import_failed"},
+            )
+            if os.environ.get("LOREKEEP_DEBUG"):
+                typer.echo(f"  import error ({spec.name}): {exc}")
 
     # --- Compile (if provider is usable) ----------------------------------
     schema = load_schema(p["schema"])
@@ -1497,7 +1509,7 @@ def backup(
 def import_cmd(
     from_source: str = typer.Option(
         "claude", "--from",
-        help="Source to import from (claude | cursor)",
+        help="Source to import from (claude | codex | cursor | opencode)",
     ),
     quick: bool = typer.Option(
         False, "--quick",
@@ -1530,8 +1542,9 @@ def import_cmd(
       opencode  opencode sessions (SQLite DB). Deep-only — no memory dir.
     """
     from lorekeep.output import ok
-    if from_source not in ("claude", "cursor", "codex", "opencode"):
-        typer.echo(f"unknown source: {from_source} (claude | cursor | codex | opencode)")
+    from lorekeep.integrations.registry import AGENT_NAMES
+    if from_source not in AGENT_NAMES:
+        typer.echo(f"unknown source: {from_source} ({' | '.join(AGENT_NAMES)})")
         raise typer.Exit(code=1)
 
     p = resolve_paths()
@@ -2015,50 +2028,43 @@ def status() -> None:
 
 
 def _discover_watchable_sessions() -> list[tuple[str, Path, Path]]:
-    """Find agent session memory dirs that support quick import.
+    """Find agent memory dirs that support zero-LLM quick import.
 
-    Returns [(agent_name, session_dir, memory_dir), ...].
-    Only Claude + Codex have memory dirs for zero-LLM quick import.
-    Cursor/opencode are deep-only — handled by session-end hooks.
+    Returns [(agent_name, session_dir, memory_dir), ...]. Only agents whose
+    spec declares a memory source appear here — transcript-only agents are
+    handled by the session dump step.
     """
+    from lorekeep.integrations.registry import all_specs
+
     sessions: list[tuple[str, Path, Path]] = []
-
-    try:
-        from lorekeep.importer.claude import find_current_session as find_claude
-        sd = find_claude()
-        if sd and (sd / "memory").is_dir() and any((sd / "memory").glob("*.md")):
-            sessions.append(("claude", sd, sd / "memory"))
-    except Exception as exc:
-        log.warning(
-            "Claude session discovery failed error_type=%s", type(exc).__name__,
-            extra={"event": "daemon.session_discovery_failed"},
-        )
-
-    try:
-        from lorekeep.importer.codex import _codex_home
-        mem_dir = _codex_home() / "memories"
-        if mem_dir.is_dir() and any(mem_dir.glob("*.md")):
-            sessions.append(("codex", mem_dir.parent, mem_dir))
-    except Exception as exc:
-        log.warning(
-            "Codex session discovery failed error_type=%s", type(exc).__name__,
-            extra={"event": "daemon.session_discovery_failed"},
-        )
+    for spec in all_specs():
+        if spec.memory is None:
+            continue
+        try:
+            mem_dir = getattr(spec.importer(), spec.memory.dir_finder)()
+            if mem_dir and any(mem_dir.glob("*.md")):
+                sessions.append((spec.name, mem_dir.parent, mem_dir))
+        except Exception as exc:
+            log.warning(
+                "session discovery failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "daemon.session_discovery_failed"},
+            )
 
     return sessions
 
 
 def _quick_import_session(agent: str, session_dir: Path, memory_dir: Path, raw_dir: Path) -> int:
     """Quick-import memory files for one agent. Returns file count."""
-    if agent == "claude":
-        from lorekeep.importer.claude import import_memories
-        written = import_memories(session_dir, raw_dir, "claude-memory")
-        return len(written)
-    if agent == "codex":
-        from lorekeep.importer.codex import import_memories
-        written = import_memories(raw_dir, "codex-memory")
-        return len(written)
-    return 0
+    from lorekeep.integrations.registry import find
+
+    spec = find(agent)
+    if spec is None or spec.memory is None or spec.memory_ns is None:
+        return 0
+    written = getattr(spec.importer(), spec.memory.import_fn)(
+        raw_dir, namespace=spec.memory_ns, memory_dir=memory_dir,
+    )
+    return len(written)
 
 
 def _on_disk_version() -> str | None:
