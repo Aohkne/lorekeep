@@ -101,38 +101,68 @@ def version() -> None:
 
 @app.command(hidden=True)
 def hook() -> None:
-    """Session lifecycle hook: quick-import memories from every agent.
+    """Session lifecycle hook: ingest memories and transcripts from every agent.
 
     Registry-driven, so an agent starts contributing the moment it declares
     an ingest path. Idempotent via SHA-256 manifest — a hook that fires on
     every turn costs nothing when nothing changed.
     """
+    from lorekeep.importer.session_dump import prune_sessions
     from lorekeep.integrations.registry import all_specs
 
     p = resolve_paths()
-    total = 0
+    acfg = load_config(p["config"]).agents
+    memory_count = 0
+    transcript_count = 0
 
     for spec in all_specs():
-        if spec.memory is None or spec.memory_ns is None:
+        if spec.name not in acfg.enabled:
+            continue
+
+        if spec.memory is not None and spec.memory_ns is not None:
+            try:
+                written = getattr(spec.importer(), spec.memory.import_fn)(
+                    p["raw"], namespace=spec.memory_ns,
+                )
+                memory_count += len(written)
+            except Exception as exc:
+                log.warning(
+                    "hook memory import failed agent=%s error_type=%s",
+                    spec.name, type(exc).__name__,
+                    extra={"event": "hook.memory_import_failed"},
+                )
+
+        if not acfg.watch_transcripts or spec.session is None or spec.session_ns is None:
             continue
         try:
-            written = getattr(spec.importer(), spec.memory.import_fn)(
-                p["raw"], namespace=spec.memory_ns,
+            written = getattr(spec.importer(), spec.session.dump_fn)(
+                p["raw"],
+                namespace=spec.session_ns,
+                max_chars=acfg.transcript_max_chars,
+                max_batches=acfg.transcript_max_batches,
             )
-            total += len(written)
+            transcript_count += len(written)
+            prune_sessions(
+                p["raw"], spec.session_ns,
+                retain=acfg.transcript_retain_sessions,
+            )
         except Exception as exc:
             log.warning(
-                "hook memory import failed agent=%s error_type=%s",
+                "hook transcript dump failed agent=%s error_type=%s",
                 spec.name, type(exc).__name__,
-                extra={"event": "hook.memory_import_failed"},
+                extra={"event": "hook.transcript_dump_failed"},
             )
 
-    if total:
+    if memory_count or transcript_count:
         log.info(
-            "memory hook completed file_count=%s", total,
+            "session hook completed memory_count=%s transcript_count=%s",
+            memory_count, transcript_count,
             extra={"event": "hook.complete"},
         )
-        typer.echo(f"lorekeep: imported {total} memory file(s)")
+        typer.echo(
+            f"lorekeep: imported {memory_count} memory file(s), "
+            f"{transcript_count} transcript file(s)"
+        )
 
 
 def _report_compile_errors(manifest, *, exit_on_total_failure: bool = True) -> None:
@@ -1533,13 +1563,19 @@ def import_cmd(
 ) -> None:
     """Import knowledge from an agent's sessions into raw/.
 
+    This is the manual, LLM-summarizing path. The zero-cost path runs on its
+    own: the session-end hook and `agent watch` dump transcripts straight to
+    `raw/<agent>-session/` for compile to extract.
+
     Sources:
       claude    Claude Code sessions. --quick copies memory/*.md only (no LLM);
                 default (deep) adds LLM-summarized transcript analysis.
-      cursor    Cursor composer conversations (GLOBAL state.vscdb). Deep-only.
+      cursor    Cursor composer conversations (GLOBAL state.vscdb). No memory
+                files, so --quick does not apply.
       codex     Codex CLI rollout transcripts ($CODEX_HOME/sessions/).
                 --quick copies memories/*.md only; default (deep) summarizes.
-      opencode  opencode sessions (SQLite DB). Deep-only — no memory dir.
+      opencode  opencode sessions (SQLite DB). No memory files, so --quick
+                does not apply.
     """
     from lorekeep.output import ok
     from lorekeep.integrations.registry import AGENT_NAMES

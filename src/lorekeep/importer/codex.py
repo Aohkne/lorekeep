@@ -222,6 +222,41 @@ def quick_import(
 
 
 # ---------------------------------------------------------------------------
+# Zero-LLM session dump
+# ---------------------------------------------------------------------------
+
+
+def locate_session(cwd: Path | None = None) -> Path | None:
+    """Rollout file for this project, or None. Uniform registry entry point."""
+    return find_current_session(cwd)
+
+
+def session_key(rollout_path: Path) -> str:
+    return rollout_path.stem
+
+
+def dump_current_session(
+    raw_root: Path,
+    cwd: Path | None = None,
+    *,
+    namespace: str = "codex-session",
+    dry_run: bool = False,
+    **limits,
+) -> list[Path]:
+    """Dump this project's Codex rollout to markdown — no LLM involved."""
+    from lorekeep.importer.session_dump import dump_session_turns
+
+    rollout = locate_session(cwd)
+    if rollout is None:
+        return []
+    return dump_session_turns(
+        parse_rollout(rollout), raw_root,
+        namespace=namespace, session_key=session_key(rollout),
+        dry_run=dry_run, **limits,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Deep session import
 # ---------------------------------------------------------------------------
 

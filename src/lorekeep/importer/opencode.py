@@ -6,7 +6,9 @@ opencode stores all sessions in a single SQLite database:
 Schema: session -> message -> part (JSON in data columns).
 Sessions are linked to projects by worktree path (SHA-1 hashed as project_id).
 
-opencode has no memory/*.md directory — deep-only (like cursor).
+opencode has no memory/*.md directory, so transcripts are its only source.
+They can be dumped to markdown for the compile pipeline (zero LLM cost, the
+default) or summarized through the shared LLM path.
 """
 from __future__ import annotations
 
@@ -142,6 +144,44 @@ def parse_session(session_id: str, db_path: Path | None = None) -> list[Conversa
         return _extract_turns(con, session_id)
     finally:
         con.close()
+
+
+# ---------------------------------------------------------------------------
+# Zero-LLM session dump
+# ---------------------------------------------------------------------------
+
+
+def locate_session(cwd: Path | None = None) -> str | None:
+    """Session id for this project, or None. Uniform registry entry point."""
+    return find_current_session(cwd)
+
+
+def session_key(session_id: str) -> str:
+    return session_id
+
+
+def dump_current_session(
+    raw_root: Path,
+    cwd: Path | None = None,
+    *,
+    namespace: str = "opencode-session",
+    dry_run: bool = False,
+    **limits,
+) -> list[Path]:
+    """Dump this project's opencode session to markdown — no LLM involved.
+
+    This is opencode's only ingest path: it authors no memory files.
+    """
+    from lorekeep.importer.session_dump import dump_session_turns
+
+    session_id = locate_session(cwd)
+    if session_id is None:
+        return []
+    return dump_session_turns(
+        parse_session(session_id), raw_root,
+        namespace=namespace, session_key=session_id,
+        dry_run=dry_run, **limits,
+    )
 
 
 # ---------------------------------------------------------------------------

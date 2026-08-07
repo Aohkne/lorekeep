@@ -389,3 +389,78 @@ class TestHookErrorSwallowing:
         result = runner.invoke(app, ["hook"])
         assert result.exit_code == 0
         assert seen == {"claude": "claude-memory", "codex": "codex-memory"}
+
+
+class TestHookTranscriptDump:
+    """The hook also dumps conversations — cursor/opencode have no other path."""
+
+    @pytest.fixture(autouse=True)
+    def _no_memory(self, isolated_home, monkeypatch):
+        for agent in ("claude", "codex"):
+            monkeypatch.setattr(
+                f"lorekeep.importer.{agent}.quick_import", lambda *a, **k: []
+            )
+
+    def _spy_dumps(self, monkeypatch, seen: dict) -> None:
+        for agent in ("claude", "codex", "cursor", "opencode"):
+            monkeypatch.setattr(
+                f"lorekeep.importer.{agent}.dump_current_session",
+                lambda raw, *a, namespace, _a=agent, **k: seen.setdefault(
+                    _a, {"namespace": namespace, **k}
+                ) and [],
+            )
+
+    def test_every_agent_gets_a_transcript_dump(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
+        seen: dict[str, dict] = {}
+        self._spy_dumps(monkeypatch, seen)
+        result = runner.invoke(app, ["hook"])
+        assert result.exit_code == 0
+        assert set(seen) == {"claude", "codex", "cursor", "opencode"}
+        assert seen["cursor"]["namespace"] == "cursor-session"
+        assert seen["opencode"]["namespace"] == "opencode-session"
+
+    def test_config_caps_are_passed_through(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
+        (tmp_path / "config.yaml").write_text(
+            "agents:\n  transcript_max_batches: 4\n  transcript_max_chars: 1234\n"
+        )
+        seen: dict[str, dict] = {}
+        self._spy_dumps(monkeypatch, seen)
+        result = runner.invoke(app, ["hook"])
+        assert result.exit_code == 0
+        assert seen["cursor"]["max_batches"] == 4
+        assert seen["cursor"]["max_chars"] == 1234
+
+    def test_watch_transcripts_off_skips_the_dump(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
+        (tmp_path / "config.yaml").write_text("agents:\n  watch_transcripts: false\n")
+        seen: dict[str, dict] = {}
+        self._spy_dumps(monkeypatch, seen)
+        result = runner.invoke(app, ["hook"])
+        assert result.exit_code == 0
+        assert seen == {}
+
+    def test_a_failing_dump_does_not_block_the_others(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
+        monkeypatch.setattr(
+            "lorekeep.importer.cursor.dump_current_session",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("locked db")),
+        )
+        opencode_calls: list[int] = []
+        monkeypatch.setattr(
+            "lorekeep.importer.opencode.dump_current_session",
+            lambda *a, **k: opencode_calls.append(1) or [],
+        )
+        result = runner.invoke(app, ["hook"])
+        assert result.exit_code == 0
+        assert opencode_calls
+
+    def test_disabled_agent_is_skipped_entirely(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path))
+        (tmp_path / "config.yaml").write_text("agents:\n  enabled: [codex]\n")
+        seen: dict[str, dict] = {}
+        self._spy_dumps(monkeypatch, seen)
+        result = runner.invoke(app, ["hook"])
+        assert result.exit_code == 0
+        assert set(seen) == {"codex"}

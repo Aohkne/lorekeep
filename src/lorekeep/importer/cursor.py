@@ -8,12 +8,14 @@ Cursor stores conversations GLOBALLY (not per-project) in a SQLite DB:
               conversationMap: { bubbleId: { type/role, text/richText, createdAt } },
               context.folderSelections, createdAt, ... }
 
-This importer extracts every populated composer conversation, parses its
-bubbles into the same ``ConversationTurn`` shape the Claude importer uses,
-and summarizes each via the shared LLM path. It is **deep-only** -- Cursor has
-no equivalent of Claude Code's curated ``memory/*.md``, so there is no quick
-path. Re-uses ``chunk_turns`` / ``summarize_batch`` / the import-manifest
-helpers from :mod:`lorekeep.importer.claude` (DRY).
+This importer extracts every populated composer conversation and parses its
+bubbles into the same ``ConversationTurn`` shape the Claude importer uses.
+From there, two paths: ``dump_current_session`` renders the turns to markdown
+for the compile pipeline to extract (zero LLM cost, the default), and
+``import_cursor`` summarizes them through the shared LLM path. Cursor has no
+equivalent of Claude Code's curated ``memory/*.md``, so transcripts are its
+only source. Re-uses ``chunk_turns`` / ``summarize_batch`` / the
+import-manifest helpers from :mod:`lorekeep.importer.claude` (DRY).
 
 Caveat: Cursor frequently persists only conversation *headers* locally and
 lazy-loads the full transcript from the cloud. On such installs
@@ -211,6 +213,53 @@ def parse_composer_turns(blob: dict) -> list[ConversationTurn]:
 
     _flush()
     return turns
+
+
+# ---------------------------------------------------------------------------
+# Zero-LLM session dump
+# ---------------------------------------------------------------------------
+
+
+def locate_session(cwd: Path | None = None) -> dict | None:
+    """Newest composer conversation, or None.
+
+    Cursor stores conversations in one global DB with no worktree column, so
+    ``cwd`` cannot narrow the search — it is accepted only to keep the registry's
+    locate signature uniform.
+    """
+    db = find_cursor_state_db()
+    if db is None:
+        return None
+    conversations = load_composer_conversations(db)
+    return conversations[0] if conversations else None
+
+
+def session_key(blob: dict) -> str:
+    return str(blob.get("composerId") or "unknown")
+
+
+def dump_current_session(
+    raw_root: Path,
+    cwd: Path | None = None,
+    *,
+    namespace: str = "cursor-session",
+    dry_run: bool = False,
+    **limits,
+) -> list[Path]:
+    """Dump the newest Cursor conversation to markdown — no LLM involved.
+
+    This is Cursor's only ingest path: it authors no memory files.
+    """
+    from lorekeep.importer.session_dump import dump_session_turns
+
+    blob = locate_session(cwd)
+    if blob is None:
+        return []
+    return dump_session_turns(
+        parse_composer_turns(blob), raw_root,
+        namespace=namespace, session_key=session_key(blob),
+        dry_run=dry_run, **limits,
+    )
 
 
 # ---------------------------------------------------------------------------

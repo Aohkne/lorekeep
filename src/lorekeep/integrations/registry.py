@@ -38,14 +38,16 @@ class SessionSource:
 
     Attributes name functions on the agent's importer module:
     ``locate(cwd) -> handle | None``, ``parse(handle) -> list[ConversationTurn]``,
-    ``key(handle) -> str`` (a stable session identifier), and the optional
-    ``deep_fn`` LLM-summarizing path.
+    ``key(handle) -> str`` (a stable session identifier),
+    ``dump_fn(raw_root, cwd, *, namespace, dry_run, **limits) -> list[Path]``
+    (the zero-LLM path), and the optional ``deep_fn`` LLM-summarizing path.
     """
 
     locate: str
     parse: str
     key: str
     handle_kind: str
+    dump_fn: str = "dump_current_session"
     deep_fn: str | None = None
 
 
@@ -124,6 +126,11 @@ _SPECS: tuple[AgentSpec, ...] = (
         memory_ns="claude-memory",
         session_ns="claude-session",
         memory=MemorySource(dir_finder="memories_dir", import_fn="quick_import"),
+        session=SessionSource(
+            locate="locate_session", parse="parse_transcript",
+            key="session_key", handle_kind="file",
+            deep_fn="import_session_deep",
+        ),
     ),
     AgentSpec(
         name="codex",
@@ -143,6 +150,11 @@ _SPECS: tuple[AgentSpec, ...] = (
         memory_ns="codex-memory",
         session_ns="codex-session",
         memory=MemorySource(dir_finder="memories_dir", import_fn="quick_import"),
+        session=SessionSource(
+            locate="locate_session", parse="parse_rollout",
+            key="session_key", handle_kind="file",
+            deep_fn="import_session_deep",
+        ),
     ),
     AgentSpec(
         name="cursor",
@@ -162,6 +174,10 @@ _SPECS: tuple[AgentSpec, ...] = (
         user_hook="~/.cursor/hooks.json",
         importer_module="lorekeep.importer.cursor",
         session_ns="cursor-session",
+        session=SessionSource(
+            locate="locate_session", parse="parse_composer_turns",
+            key="session_key", handle_kind="blob",
+        ),
     ),
     AgentSpec(
         name="opencode",
@@ -178,6 +194,11 @@ _SPECS: tuple[AgentSpec, ...] = (
         user_hook="~/.config/opencode/plugins/lorekeep.ts",
         importer_module="lorekeep.importer.opencode",
         session_ns="opencode-session",
+        session=SessionSource(
+            locate="locate_session", parse="parse_session",
+            key="session_key", handle_kind="id",
+            deep_fn="import_session_deep",
+        ),
     ),
 )
 

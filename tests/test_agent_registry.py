@@ -43,7 +43,10 @@ def test_every_declared_importer_attr_exists(spec):
     if spec.memory:
         names += [spec.memory.dir_finder, spec.memory.import_fn]
     if spec.session:
-        names += [spec.session.locate, spec.session.parse, spec.session.key]
+        names += [
+            spec.session.locate, spec.session.parse,
+            spec.session.key, spec.session.dump_fn,
+        ]
         if spec.session.deep_fn:
             names.append(spec.session.deep_fn)
     for name in names:
@@ -76,7 +79,12 @@ def test_wiring_targets_are_declared(spec):
 @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.name)
 def test_session_handle_kind_is_known(spec):
     if spec.session:
-        assert spec.session.handle_kind in ("dir", "file", "id")
+        assert spec.session.handle_kind in ("dir", "file", "id", "blob")
+
+
+def test_every_agent_has_a_session_source():
+    """Cursor and opencode write no memory files — transcripts are their only path."""
+    assert all(s.session is not None for s in registry.all_specs())
 
 
 def test_find_and_get():

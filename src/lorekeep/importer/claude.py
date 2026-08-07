@@ -208,6 +208,49 @@ def chunk_turns(
 
 
 # ---------------------------------------------------------------------------
+# Zero-LLM session dump
+# ---------------------------------------------------------------------------
+
+
+def locate_session(cwd: Path | None = None) -> Path | None:
+    """Newest transcript JSONL for this project, or None."""
+    project_dir = find_current_session(cwd)
+    if project_dir is None:
+        return None
+    transcripts = sorted(
+        (p for p in project_dir.iterdir() if p.suffix == ".jsonl"),
+        key=lambda p: (p.stat().st_mtime, p.name),
+        reverse=True,
+    )
+    return transcripts[0] if transcripts else None
+
+
+def session_key(transcript_path: Path) -> str:
+    return transcript_path.stem
+
+
+def dump_current_session(
+    raw_root: Path,
+    cwd: Path | None = None,
+    *,
+    namespace: str = "claude-session",
+    dry_run: bool = False,
+    **limits,
+) -> list[Path]:
+    """Dump this project's Claude transcript to markdown — no LLM involved."""
+    from lorekeep.importer.session_dump import dump_session_turns
+
+    transcript = locate_session(cwd)
+    if transcript is None:
+        return []
+    return dump_session_turns(
+        parse_transcript(transcript), raw_root,
+        namespace=namespace, session_key=session_key(transcript),
+        dry_run=dry_run, **limits,
+    )
+
+
+# ---------------------------------------------------------------------------
 # LLM summarization (deep mode)
 # ---------------------------------------------------------------------------
 

@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from lorekeep.pipeline import compile_graph
 from lorekeep.compile.providers import FakeProvider
+from lorekeep.importer.claude import ConversationTurn
+from lorekeep.importer.session_dump import dump_session_turns
 from lorekeep.models import Schema
 
 
@@ -51,3 +53,46 @@ def test_cache_makes_recompile_identical_without_new_llm_call(tmp_path: Path, fi
     compile_graph(raw, tmp_path / "g2", schema, FakeProvider([]), cache)   # no responses!
     assert (tmp_path / "g1/facts.jsonl").read_bytes() == \
            (tmp_path / "g2/facts.jsonl").read_bytes()
+
+
+def test_growing_a_dumped_session_does_not_reextract_earlier_chunks(
+    tmp_path: Path, fixtures: Path
+):
+    """The daemon re-reads a whole conversation each cycle, not a delta.
+
+    If appending a turn changed any earlier file's path or bytes, every cycle
+    would re-bill extraction for the entire session.
+    """
+    def turns(n: int) -> list[ConversationTurn]:
+        return [
+            ConversationTurn(f"question {i} " + "u" * 400, f"answer {i} " + "s" * 400)
+            for i in range(n)
+        ]
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+    cache = tmp_path / "shared.json"
+    canned = json.dumps({"nodes": [{"id": "svc:x", "type": "service", "name": "x"}],
+                         "edges": [], "aliases": {}})
+
+    def extract_calls(provider: FakeProvider) -> int:
+        return sum(1 for c in provider.calls if c[0] == "json")
+
+    dump_session_turns(turns(6), raw, namespace="cursor-session",
+                       session_key="abc", max_chars=2_500)
+    first = FakeProvider([canned] * 50)
+    compile_graph(raw, tmp_path / "g1", schema, first, cache)
+    assert extract_calls(first) > 1
+
+    grown = dump_session_turns(turns(9), raw, namespace="cursor-session",
+                               session_key="abc", max_chars=2_500)
+    assert grown, "appending turns must produce new content to extract"
+
+    second = FakeProvider([canned] * 50)
+    compile_graph(raw, tmp_path / "g2", schema, second, cache)
+    # Each dumped batch is one chunk, so a stable prefix means exactly one
+    # extraction per rewritten file. compile_graph logs provider failures
+    # instead of raising, so counting calls is the only honest assertion.
+    assert extract_calls(second) == len(grown)
+    assert extract_calls(second) < extract_calls(first)
