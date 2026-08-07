@@ -99,6 +99,108 @@ def lint(store: GraphStore) -> LintReport:
     return report
 
 
+# ── Self-heal: autonomous graph maintenance ─────────────────────────────────
+
+@dataclass
+class HealReport:
+    """Result of autonomous self-heal pass.
+
+    Only high-confidence fixes are applied automatically; flagged items
+    are reported but left untouched.
+    """
+    edges_removed: list[str] = field(default_factory=list)
+    edges_deduped: list[str] = field(default_factory=list)
+    flagged: list[dict] = field(default_factory=list)
+
+    @property
+    def changes_made(self) -> bool:
+        return bool(self.edges_removed or self.edges_deduped)
+
+    @property
+    def total_fixes(self) -> int:
+        return len(self.edges_removed) + len(self.edges_deduped)
+
+
+def self_heal(
+    store: GraphStore,
+    schema: Schema | None = None,
+) -> tuple[GraphStore, HealReport]:
+    """Apply high-confidence fixes to the graph.
+
+    Returns a **new** GraphStore with cleaned data plus a HealReport.
+    Does NOT write to disk — the caller decides whether to persist.
+
+    Safe auto-fixes:
+      - Dangling edges (endpoint node missing) → removed
+      - Exact-duplicate edges (same type, from, to, validity) → deduplicated
+
+    Flagged (NOT auto-fixed):
+      - Circular dependencies (A→B→A)
+      - Orphan nodes (zero edges — might be newly imported)
+    """
+    report = HealReport()
+
+    # all_nodes() skips phantom nodes created by dangling edges
+    real_nodes = store.all_nodes()
+    real_ids: set[str] = {n.id for n in real_nodes}
+
+    # ── 1. Remove dangling edges ─────────────────────────────────────────
+    clean_edges: list[Edge] = []
+    for e in store.all_edges():
+        if e.from_ not in real_ids or e.to not in real_ids:
+            report.edges_removed.append(e.id)
+        else:
+            clean_edges.append(e)
+
+    # ── 2. Deduplicate exact-duplicate edges ─────────────────────────────
+    edge_keys: dict[tuple, Edge] = {}
+    for e in clean_edges:
+        key = (e.type, e.from_, e.to, e.valid_from, e.valid_to)
+        if key in edge_keys:
+            report.edges_deduped.append(e.id)
+        else:
+            edge_keys[key] = e
+    clean_edges = list(edge_keys.values())
+
+    # ── 3. Flag circular dependencies ────────────────────────────────────
+    adjacency: dict[str, set[str]] = {}
+    for e in clean_edges:
+        adjacency.setdefault(e.from_, set()).add(e.to)
+    for start in sorted(real_ids):
+        visited: set[str] = set()
+        stack = [start]
+        while stack:
+            current = stack.pop()
+            if current == start and visited:
+                report.flagged.append({
+                    "type": "circular_dependency",
+                    "node": start,
+                    "description": f"Circular dependency detected involving {start}",
+                })
+                break
+            if current in visited:
+                continue
+            visited.add(current)
+            stack.extend(adjacency.get(current, set()))
+
+    # ── 4. Flag orphan nodes (informational — not auto-removed) ───────────
+    nodes_with_edges: set[str] = set()
+    for e in clean_edges:
+        nodes_with_edges.add(e.from_)
+        nodes_with_edges.add(e.to)
+    for n in real_nodes:
+        if n.id not in nodes_with_edges:
+            report.flagged.append({
+                "type": "orphan",
+                "node": n.id,
+                "description": f"Node {n.id} has no edges — might be noise or newly imported",
+            })
+
+    # Build new store with cleaned data (no phantom nodes)
+    healed = GraphStore(real_nodes, clean_edges)
+    return healed, report
+
+
 @dataclass
 class SuggestionReport:
     gaps: list[str] = field(default_factory=list)

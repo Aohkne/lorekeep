@@ -79,5 +79,6 @@ agents:
   transcript_max_chars: 20000      # chars per dumped file
   transcript_retain_sessions: 5    # older sessions are pruned from raw/<agent>-session/
   deep_import: false               # advanced: LLM-summarize transcripts (costs money)
+  self_heal: true                  # daemon auto-removes dangling edges, dedupes edges
 
 install_source: pypi                              # pypi (portable .mcp.json) | local | git+URL | path

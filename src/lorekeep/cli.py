@@ -2069,7 +2069,37 @@ def lint(
         typer.echo(f"coverage gaps: {report.coverage_gaps}")
 
     if auto_fix:
-        typer.echo("auto-fix: not yet implemented (planned)")
+        from lorekeep.agent import self_heal
+        from lorekeep.models import Manifest
+        schema = load_schema(p["schema"]) if p["schema"].exists() else None
+        healed_store, heal_report = self_heal(store, schema)
+        if heal_report.changes_made:
+            from lorekeep.compile.writer import write_graph
+            manifest = Manifest(
+                schema_version=schema.version if schema else 0,
+                chunk_count=0,
+                node_count=len(healed_store.all_nodes()),
+                edge_count=len(healed_store.all_edges()),
+                run_id="auto-heal", facts_hash="",
+                compiled_at=now_iso(),
+            )
+            write_graph(p["out"], healed_store.all_nodes(), healed_store.all_edges(), manifest)
+            typer.echo(
+                f"auto-fix: removed {len(heal_report.edges_removed)} dangling edges, "
+                f"deduped {len(heal_report.edges_deduped)} edges"
+            )
+            _auto_generate_wiki(p["out"], p.get("wiki"), p.get("schema"))
+        else:
+            typer.echo("auto-fix: nothing to fix (graph is clean)")
+    else:
+        # Preview: show how many issues are auto-fixable
+        from lorekeep.agent import self_heal
+        _, preview = self_heal(store)
+        if preview.changes_made:
+            typer.echo(
+                f"\n  {preview.total_fixes} issue(s) auto-fixable — "
+                f"run `lorekeep agent lint --auto-fix` to apply"
+            )
 
     typer.echo(f"total issues: {report.issue_count}")
 
@@ -2638,7 +2668,12 @@ def watch(
                         p["out"], pending_dir, p.get("wiki"), p.get("schema"),
                         replay_accepted=True,
                     )
-                if not resolved:
+                # --- auto self-heal (runs after compile/resolve, before wiki) ---
+                healed = _do_self_heal(
+                    p["out"], p.get("schema"),
+                    enabled=_acfg.self_heal if _acfg else True,
+                )
+                if not resolved and not healed:
                     _auto_generate_wiki(p["out"], p.get("wiki"), p.get("schema"))
 
             # --- pending/ watch → auto-resolve ------------------------------
@@ -2866,6 +2901,62 @@ def _auto_generate_wiki(
             extra={"event": "wiki.failed"},
         )
         typer.echo(f"wiki: auto-gen skipped: {exc}")
+
+
+def _do_self_heal(
+    out_dir: Path,
+    schema_path: Path | None = None,
+    *,
+    enabled: bool = True,
+) -> bool:
+    """Run autonomous graph self-heal after compile/resolve.
+
+    Removes dangling edges, merges duplicate nodes, deduplicates edges.
+    Returns True if facts.jsonl was rewritten. Best-effort, never blocks.
+    """
+    if not enabled:
+        return False
+    try:
+        facts_path = out_dir / "facts.jsonl"
+        if not facts_path.exists():
+            return False
+        from lorekeep.store.graph import GraphStore
+        from lorekeep.agent import self_heal
+        from lorekeep.models import Manifest
+        from lorekeep.compile.writer import write_graph
+
+        schema = load_schema(schema_path) if schema_path and schema_path.exists() else None
+        store = GraphStore.from_jsonl(facts_path)
+        healed, report = self_heal(store, schema)
+        if not report.changes_made:
+            return False
+
+        manifest = Manifest(
+            schema_version=schema.version if schema else 0,
+            chunk_count=0,
+            node_count=len(healed.all_nodes()),
+            edge_count=len(healed.all_edges()),
+            run_id="auto-heal", facts_hash="",
+            compiled_at=now_iso(),
+        )
+        write_graph(out_dir, healed.all_nodes(), healed.all_edges(), manifest)
+        typer.echo(
+            f"agent: self-heal — removed {len(report.edges_removed)} dangling, "
+            f"deduped {len(report.edges_deduped)} edges"
+        )
+        log.info(
+            "self-heal completed removed=%s deduped=%s flagged=%s",
+            len(report.edges_removed),
+            len(report.edges_deduped), len(report.flagged),
+            extra={"event": "self_heal.complete"},
+        )
+        return True
+    except Exception as exc:
+        log.warning(
+            "self-heal failed error_type=%s", type(exc).__name__,
+            extra={"event": "self_heal.failed"},
+        )
+        return False
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ class GraphStore:
         return None
 
     def all_nodes(self) -> list[Node]:
-        return [d["node"] for _, d in self._G.nodes(data=True)]
+        return [d["node"] for _, d in self._G.nodes(data=True) if "node" in d]
 
     def all_edges(self) -> list[Edge]:
         return [d["edge"] for _, _, d in self._G.edges(data=True, keys=False)]
