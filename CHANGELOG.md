@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.21.0 (2026-08-07)
+
+## What's Changed
+* feat: autonomous multi-agent knowledge aggregation by @manhhailua in https://github.com/manhhailua/lorekeep/pull/190
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.20.0...v0.21.0
+
 ## 0.20.0 (2026-08-07)
 
 ## What's Changed
