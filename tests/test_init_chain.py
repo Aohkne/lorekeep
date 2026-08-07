@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
 from typer.testing import CliRunner
 
 from lorekeep.cli import app
@@ -10,20 +11,18 @@ from lorekeep.cli import app
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _isolate(isolated_home):
+    """Every test here runs `init`, which auto-wires agents by reading HOME."""
+
+
 def _setup_env(tmp_path: Path, monkeypatch):
     home = tmp_path / "home"
     project = tmp_path / "project"
-    fake_home = tmp_path / "fakehome"
     project.mkdir()
-    fake_home.mkdir()
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
-    monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.setenv("LOREKEEP_DEV", "0")
     monkeypatch.chdir(project)
-    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
-    monkeypatch.setattr("lorekeep.integrations.detect.shutil.which", lambda _: None)
-    monkeypatch.delenv("OPENCODE", raising=False)
-    monkeypatch.delenv("CLAUDECODE", raising=False)
     return home, project
 
 

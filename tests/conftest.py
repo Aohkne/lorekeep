@@ -20,6 +20,32 @@ def fixtures() -> Path:
     return Path(__file__).parent / "fixtures"
 
 
+# Env vars that make an agent, its home, or its session store resolve to a
+# real location on the developer's machine.
+_AGENT_ENV_VARS = (
+    "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "OPENCODE", "CURSOR_DEBUG",
+    "CODEX_SANDBOX", "CODEX_HOME", "CURSOR_STATE_DB",
+    "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+)
+
+
+@pytest.fixture
+def isolated_home(monkeypatch, tmp_path) -> Path:
+    """Point HOME / Path.home() at a temp dir and blank PATH lookups.
+
+    Any test touching integrations, detect, or wiring MUST request this,
+    otherwise it reads — or writes! — the developer's real ~/.claude.json.
+    """
+    home = tmp_path / "fakehome"
+    home.mkdir(exist_ok=True)
+    for var in _AGENT_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr("pathlib.Path.home", lambda: home)
+    monkeypatch.setattr("lorekeep.integrations.detect.shutil.which", lambda _: None)
+    return home
+
+
 CANNED_EXTRACTION = json.dumps({
     "nodes": [
         {"id": "svc:payments-api", "type": "service", "name": "payments-api",
