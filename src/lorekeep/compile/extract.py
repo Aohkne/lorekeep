@@ -145,29 +145,120 @@ def _parse_date(v: Any) -> date | None:
         return datetime.fromisoformat(v).date()
 
 
+def _strip_trailing_commas(s: str) -> str:
+    """Remove trailing commas before closing braces/brackets.
+
+    Many LLMs (DeepSeek, Qwen, some Ollama models) emit JSON with trailing
+    commas like {"nodes": [...],} which is invalid JSON but trivially fixable.
+    """
+    return re.sub(r",(\s*[}\]])", r"\1", s)
+
+
+def _find_balanced_json(raw: str, start_from: int = 0) -> str | None:
+    """Find the first balanced JSON object in *raw* using a brace counter.
+
+    More reliable than a greedy regex: handles nested objects, strings
+    containing braces, and trailing prose. Returns None if no balanced
+    object is found. Scans starting from *start_from*.
+    """
+    start = raw.find("{", start_from)
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start:i + 1]
+    return None
+
+
 def _extract_json(raw: str, chunk: DocChunk) -> str:
     """Best-effort recover a JSON object from LLM output.
 
     response_format=json_object usually yields clean JSON, but some models wrap
-    output in ```json fences or prepend prose. Strip fences, then fall back to
-    the first balanced {...} span. Raises ValueError (with chunk src) if the
-    output still can't be parsed, so the pipeline reports a clear failure.
+    output in fences, prepend prose, or emit trailing commas. This function
+    tries, in order:
+
+    1. Direct parse (fast path for well-formed output)
+    2. Strip markdown code fences + language tags, then parse
+    3. Fix trailing commas, then parse
+    4. Balanced-brace scan for the first JSON object, then parse
+    5. Balanced-brace scan + trailing-comma fix (last resort)
+
+    Raises ValueError (with chunk src) if all strategies fail.
     """
     s = raw.strip()
-    if s.startswith("```"):
-        s = s.strip("`")
-        brace = s.find("{")
-        if brace != -1:
-            s = s[brace:]
+
+    # 1. Fast path: clean JSON
     try:
         json.loads(s)
         return s
     except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
-        if m:
-            json.loads(m.group(0))      # validate; raises if malformed
-            return m.group(0)
-        raise ValueError(f"LLM returned non-JSON for {chunk.src}")
+        pass
+
+    # 2. Strip markdown fences (```json, ```, etc.)
+    fence_match = re.match(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", s, re.DOTALL)
+    if fence_match:
+        s2 = fence_match.group(1).strip()
+        try:
+            json.loads(s2)
+            return s2
+        except json.JSONDecodeError:
+            s = s2  # Use de-fenced version for subsequent strategies
+
+    # 3. Fix trailing commas
+    s3 = _strip_trailing_commas(s)
+    if s3 != s:
+        try:
+            json.loads(s3)
+            return s3
+        except json.JSONDecodeError:
+            pass
+
+    # 4. Balanced-brace scan (handles prose prefix/suffix, nested objects)
+    # Try each balanced match in order — prose like "for {project}:" may
+    # produce a match that isn't valid JSON.
+    offset = 0
+    while True:
+        balanced = _find_balanced_json(s, offset)
+        if balanced is None:
+            break
+        try:
+            json.loads(balanced)
+            return balanced
+        except json.JSONDecodeError:
+            pass
+        # Try with trailing-comma fix
+        fixed = _strip_trailing_commas(balanced)
+        try:
+            json.loads(fixed)
+            return fixed
+        except json.JSONDecodeError:
+            pass
+        # Move past this match and try the next
+        offset = s.find(balanced, offset) + len(balanced)
+
+    raise ValueError(
+        f"LLM returned non-JSON for {chunk.src}: "
+        f"output starts with {raw[:200]!r}"
+    )
 
 
 def parse_response(
