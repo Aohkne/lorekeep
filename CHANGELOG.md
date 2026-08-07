@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0 (2026-08-07)
+
+## What's Changed
+* feat: hardened daemon lifecycle — auto-upgrade, wiki, SIGTERM, PID by @manhhailua in https://github.com/manhhailua/lorekeep/pull/184
+* test: fill daemon lifecycle test coverage gaps by @manhhailua in https://github.com/manhhailua/lorekeep/pull/186
+* test: comprehensive coverage fill for agent, journal, cli, output by @manhhailua in https://github.com/manhhailua/lorekeep/pull/187
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.19.2...v0.20.0
+
 ## 0.19.2 (2026-08-06)
 
 ## What's Changed
