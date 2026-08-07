@@ -65,4 +65,19 @@ bugreport:
   token_env: LOREKEEP_GITHUB_TOKEN
   labels: [auto-reported]
 
+# ── coding agents ────────────────────────────────────────────────────────────
+# Lorekeep aggregates knowledge from every coding agent on this machine into one
+# graph.  The daemon re-detects installed agents each cycle and writes their MCP
+# config + session-end hook, so installing an agent later needs no manual step.
+agents:
+  auto_wire: true                  # let the daemon wire newly installed agents
+  wire_scope: user                 # user (every project) | project (this dir only)
+  wire_interval_seconds: 900       # how often to re-check; writes are no-ops when unchanged
+  enabled: [claude, codex, cursor, opencode]   # narrow this to opt an agent out
+  watch_transcripts: true          # dump conversations to raw/<agent>-session/ (no LLM)
+  transcript_max_batches: 20       # per session; caps how much of a long chat is kept
+  transcript_max_chars: 20000      # chars per dumped file
+  transcript_retain_sessions: 5    # older sessions are pruned from raw/<agent>-session/
+  deep_import: false               # advanced: LLM-summarize transcripts (costs money)
+
 install_source: pypi                              # pypi (portable .mcp.json) | local | git+URL | path

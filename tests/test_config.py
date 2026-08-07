@@ -101,3 +101,43 @@ def test_build_provider_wires_timeout_and_retries(monkeypatch):
 
     assert captured["timeout_seconds"] == 45
     assert captured["max_retries"] == 1
+
+
+# ── agents section ────────────────────────────────────────────────────────
+
+
+def test_agents_defaults_are_autonomous():
+    """A config with no agents section still wires and ingests from every agent."""
+    agents = Config().agents
+    assert agents.auto_wire is True
+    assert agents.wire_scope == "user"
+    assert agents.watch_transcripts is True
+    assert agents.deep_import is False
+    assert agents.enabled == ["claude", "codex", "cursor", "opencode"]
+
+
+def test_agents_section_is_read_from_yaml(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "agents:\n"
+        "  auto_wire: false\n"
+        "  wire_scope: project\n"
+        "  enabled: [codex]\n"
+        "  transcript_max_batches: 3\n"
+    )
+    agents = load_config(cfg).agents
+    assert agents.auto_wire is False
+    assert agents.wire_scope == "project"
+    assert agents.enabled == ["codex"]
+    assert agents.transcript_max_batches == 3
+    assert agents.watch_transcripts is True        # unspecified keys keep defaults
+
+
+@pytest.mark.parametrize(
+    "key", ["wire_interval_seconds", "transcript_max_batches",
+            "transcript_max_chars", "transcript_retain_sessions"],
+)
+def test_agents_rejects_non_positive_limits(key: str):
+    """A zero cap would mean 'dump nothing' or 'poll continuously' — reject it."""
+    with pytest.raises(ValueError):
+        Config.model_validate({"agents": {key: 0}})

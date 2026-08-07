@@ -50,12 +50,28 @@ class BugReportConfig(BaseModel):
     labels: list[str] = Field(default_factory=lambda: ["auto-reported"])
 
 
+class AgentsConfig(BaseModel):
+    """Detection, wiring, and session ingest for coding agents."""
+    auto_wire: bool = True                   # daemon re-wires detected agents each cycle
+    wire_scope: str = "user"                 # user | project
+    wire_interval_seconds: int = Field(default=900, gt=0)
+    enabled: list[str] = Field(
+        default_factory=lambda: ["claude", "codex", "cursor", "opencode"]
+    )
+    watch_transcripts: bool = True           # zero-LLM dump → raw/<agent>-session/
+    transcript_max_batches: int = Field(default=20, gt=0)
+    transcript_max_chars: int = Field(default=20_000, gt=0)
+    transcript_retain_sessions: int = Field(default=5, gt=0)
+    deep_import: bool = False                # advanced opt-in: LLM summarization
+
+
 class Config(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
     ns: NsConfig = Field(default_factory=NsConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     bugreport: BugReportConfig = Field(default_factory=BugReportConfig)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     install_source: str | None = None      # pypi | local | git+URL | path
 
 
