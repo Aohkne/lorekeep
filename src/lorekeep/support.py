@@ -137,11 +137,11 @@ def build_report() -> str:
     recent_events = _recent_events(paths["logs"] / "lorekeep.log")
     recent_block = "\n".join(recent_events) if recent_events else "No warning/error events found."
 
+    def cell(value: Any) -> str:
+        return redact_text(value, home=home).replace("|", "\\|")
+
     def table(items: list[tuple[str, Any]]) -> str:
-        return "\n".join(
-            f"| {redact_text(k)} | {redact_text(v, home=home).replace('|', '\\|')} |"
-            for k, v in items
-        )
+        return "\n".join(f"| {redact_text(k)} | {cell(v)} |" for k, v in items)
 
     return (
         "# Lorekeep support report\n\n"
