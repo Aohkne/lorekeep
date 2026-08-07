@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.0 (2026-08-07)
+
+## What's Changed
+* feat(agent): autonomous self-heal for graph integrity (#37) by @manhhailua in https://github.com/manhhailua/lorekeep/pull/194
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.21.1...v0.22.0
+
 ## 0.21.1 (2026-08-07)
 
 ## What's Changed
