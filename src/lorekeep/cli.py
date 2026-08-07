@@ -900,6 +900,40 @@ def config_set(
     typer.echo(f"  {key} = {value}")
 
 
+def _validate_scope(scope: str) -> str:
+    """Reject anything but the two real scopes, in one place."""
+    if scope not in ("project", "user"):
+        typer.echo(f"unknown scope: {scope} (choose project|user)")
+        raise typer.Exit(code=1)
+    return scope
+
+
+def _wire_scope(acfg) -> str:
+    """The configured wiring scope. ``wire_scope`` is a plain str, so check it."""
+    if acfg.wire_scope not in ("project", "user"):
+        typer.echo(
+            f"config error: agents.wire_scope is {acfg.wire_scope!r} — fix with "
+            "`lorekeep config set agents.wire_scope user`",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return acfg.wire_scope
+
+
+def _resolve_agent_arg(agent: str):
+    """Look up one :class:`AgentSpec` by name, exiting 1 on an unknown name.
+
+    Shared by ``mcp add`` and ``agent wire`` so the two cannot drift.
+    """
+    from lorekeep.integrations.registry import AGENT_NAMES, find
+
+    spec = find(agent)
+    if spec is None:
+        typer.echo(f"unknown agent: {agent} (choose {'|'.join(AGENT_NAMES)})")
+        raise typer.Exit(code=1)
+    return spec
+
+
 @mcp_app.command("add")
 def mcp_add(
     agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode"),
@@ -914,22 +948,17 @@ def mcp_add(
     command, args = resolve_command(config.install_source)
     hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
 
-    if scope not in ("project", "user"):
-        typer.echo(f"unknown scope: {scope} (choose project|user)")
-        raise typer.Exit(code=1)
-    writers = _agent_writers()
-    if agent not in writers:
-        typer.echo(f"unknown agent: {agent} (choose claude|cursor|codex|opencode)")
-        raise typer.Exit(code=1)
+    _validate_scope(scope)
+    spec = _resolve_agent_arg(agent)
 
-    writer = writers[agent]
+    writer = spec.writer()
     target = Path.cwd()
     written = writer.write_config(target, command, args, ns, scope=scope)
     if written is None:
         typer.echo(f"{agent} config unchanged -> {writer.config_target(target, scope)}")
     else:
         typer.echo(f"wrote {agent} config -> {written}")
-    if hasattr(writer, "write_hook"):
+    if spec.supports_hook:
         hook_path = writer.write_hook(target, hook_cmd, hook_args, scope=scope)
         if hook_path is None:
             typer.echo(f"session-end hook unchanged -> {writer.hook_target(target, scope)}")
@@ -1387,12 +1416,6 @@ def _auto_wire_agents(p: dict, ns: str, *, scope: str = "project") -> None:
             typer.echo(f"  {agent_name}: failed ({exc})")
 
     typer.echo("\n  " + agent_memory_snippet().replace("\n", "\n  ").strip())
-
-
-def _agent_writers() -> dict:
-    """Return the agent-name → writer-module mapping (lazy import)."""
-    from lorekeep.integrations.registry import all_specs
-    return {spec.name: spec.writer() for spec in all_specs()}
 
 
 def _auto_import_and_compile(p: dict) -> None:
@@ -2061,6 +2084,208 @@ def status() -> None:
     typer.echo(f"namespaces: {dash.namespace_count} ({', '.join(dash.namespaces)})")
     typer.echo(f"lint issues: {dash.lint_issues}")
     typer.echo(f"pending journals: {dash.pending_journals}")
+
+
+def _tilde(path: Path | None) -> str:
+    """Render a path with ``~`` so a report row fits a terminal."""
+    if path is None:
+        return "—"
+    home, text = str(Path.home()), str(path)
+    return "~" + text[len(home):] if text.startswith(home) else text
+
+
+def _is_wired(path: Path | None) -> bool:
+    """Does this config/hook file already mention lorekeep?
+
+    A substring probe, not a parse: the four agents use three file formats, and
+    a report must not fail because one of them is mid-write.
+    """
+    if path is None or not path.is_file():
+        return False
+    try:
+        return "lorekeep" in path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def _daemon_pid(p: dict) -> int | None:
+    """PID of the live daemon, or ``None``. Read-only — signal 0 never kills."""
+    try:
+        pid = int((p["home"] / ".daemon.pid").read_text().strip())
+    except (OSError, ValueError):
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except OSError:
+        pass                    # alive, just not ours to signal
+    return pid
+
+
+def _agent_report(scope: str) -> list[dict]:
+    """One row per known agent: installed, has data, wired, hooked, ingest paths."""
+    from lorekeep.integrations.detect import detect_installed_agents
+    from lorekeep.integrations.registry import all_specs
+
+    installed = set(detect_installed_agents())
+    target = Path.cwd()
+    rows = []
+    for spec in all_specs():
+        config_path = spec.config_path(target, scope)
+        hook_path = spec.hook_path(target, scope)
+        ingest = [n for n, src in (("memory", spec.memory), ("transcript", spec.session)) if src]
+        rows.append({
+            "name": spec.name,
+            "label": spec.label,
+            "installed": spec.name in installed,
+            # Install markers and the paths importers actually read drift apart
+            # (a stale ~/.cursor outlives an uninstall), so report them apart.
+            "session_data": any(Path(m).expanduser().exists() for m in spec.data_markers),
+            "config": str(config_path),
+            "wired": _is_wired(config_path),
+            "hook": str(hook_path) if hook_path else None,
+            "hooked": _is_wired(hook_path),
+            "ingest": ingest,
+        })
+    return rows
+
+
+@agent_app.command("detect")
+def agent_detect(
+    json_out: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
+    """Report which coding agents are installed, active, and wired.
+
+    A report, not a check: exits 0 even when nothing is found. `doctor` is the
+    command that fails.
+    """
+    from lorekeep.integrations.detect import detect_active_agent
+    from lorekeep.integrations.registry import find
+
+    p = resolve_paths()
+    acfg = load_config(p["config"]).agents
+    scope = _wire_scope(acfg)
+    active = detect_active_agent()
+    pid = _daemon_pid(p)
+    rows = _agent_report(scope)
+
+    if json_out:
+        spec = find(active) if active else None
+        typer.echo(json.dumps({
+            "active": active,
+            "active_env": next(
+                (v for v in (spec.active_env if spec else ()) if os.environ.get(v)), None,
+            ),
+            "scope": scope,
+            "enabled": acfg.enabled,
+            "daemon": {"running": pid is not None, "pid": pid},
+            "agents": rows,
+        }, indent=2))
+        return
+
+    if active:
+        spec = find(active)
+        env = next((v for v in (spec.active_env if spec else ()) if os.environ.get(v)), None)
+        typer.echo(f"active: {active}" + (f" ({env})" if env else ""))
+    else:
+        typer.echo("active: none (not running inside a coding agent)")
+    typer.echo(f"daemon: running (PID {pid})" if pid else "daemon: not running")
+    typer.echo("")
+
+    header = ("agent", "installed", "session data", f"wired ({scope})", "hook", "ingest")
+    yn = {True: "yes", False: "no"}
+    table = [header] + [(
+        r["name"], yn[r["installed"]], yn[r["session_data"]],
+        _tilde(Path(r["config"])) if r["wired"] else "—",
+        yn[r["hooked"]] if r["hook"] else "n/a",
+        " + ".join(r["ingest"]) or "—",
+    ) for r in rows]
+    widths = [max(len(row[i]) for row in table) for i in range(len(header))]
+    for row in table:
+        typer.echo("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
+
+    # An installed, wired agent that config excludes contributes nothing. That
+    # is exactly the silent surprise this command exists to make visible.
+    muted = [r["name"] for r in rows if r["installed"] and r["name"] not in acfg.enabled]
+    if muted:
+        typer.echo(f"\nnote: {', '.join(muted)} installed but excluded by agents.enabled")
+    if not any(r["installed"] for r in rows):
+        typer.echo("\nno coding agents found — lorekeep has nothing to aggregate yet")
+
+
+@agent_app.command("wire")
+def agent_wire(
+    agent: str = typer.Option(None, "--agent", help="Wire one agent (default: all detected)"),
+    scope: str = typer.Option(None, "--scope", help="project | user (default: agents.wire_scope)"),
+    ns: str = typer.Option(None, "--ns", help="Namespace to scope the agents to"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report targets without writing"),
+    force: bool = typer.Option(False, "--force", help="Include undetected agents"),
+) -> None:
+    """Write MCP config + session-end hooks for detected agents.
+
+    Idempotent: a target already holding the right wiring reports ``unchanged``
+    and keeps its mtime. That is what makes it safe for the daemon to call this
+    every cycle, and it is why `--force` widens the roster rather than
+    rewriting files.
+    """
+    from lorekeep.integrations.detect import detect_agents
+    from lorekeep.integrations.registry import AGENT_NAMES, find
+
+    p = resolve_paths()
+    config = load_config(p["config"])
+    scope = _validate_scope(scope) if scope else _wire_scope(config.agents)
+
+    if agent:
+        specs = [_resolve_agent_arg(agent)]          # explicit name beats both filters
+    else:
+        names = AGENT_NAMES if force else detect_agents()
+        specs = [s for s in map(find, names) if s and s.name in config.agents.enabled]
+
+    if not specs:
+        typer.echo("no coding agents detected — install one, or pass --force")
+        return
+
+    target = Path.cwd()
+    namespace = ns or config.ns.personal_namespace
+    typer.echo(f"scope: {scope}   namespace: {namespace}")
+    failed = False
+
+    for spec in specs:
+        config_path = spec.config_path(target, scope)
+        hook_path = spec.hook_path(target, scope)
+
+        if dry_run:
+            for label, path in (("config", config_path), ("hook", hook_path)):
+                if path is None:
+                    continue
+                state = "already wired" if _is_wired(path) else "would write"
+                typer.echo(f"{spec.name}: {label} -> {_tilde(path)} ({state})")
+            continue
+
+        try:
+            written, hooked = _wire_one(spec, target, namespace, scope=scope)
+        except Exception as exc:
+            failed = True
+            log.warning(
+                "agent wiring failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "wire.failed"},
+            )
+            typer.echo(f"{spec.name}: failed ({type(exc).__name__}: {exc})")
+            continue
+
+        typer.echo(
+            f"{spec.name}: wired -> {_tilde(written)}" if written
+            else f"{spec.name}: unchanged -> {_tilde(config_path)}"
+        )
+        if hooked:
+            typer.echo(f"{spec.name}: hooked -> {_tilde(hooked)}")
+        elif hook_path:
+            typer.echo(f"{spec.name}: hook unchanged -> {_tilde(hook_path)}")
+
+    if failed:
+        raise typer.Exit(code=1)
 
 
 def _discover_watchable_sessions() -> list[tuple[str, Path, Path]]:
