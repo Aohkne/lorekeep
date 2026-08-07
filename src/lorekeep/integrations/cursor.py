@@ -1,45 +1,63 @@
-"""Cursor MCP config writer (.cursor/mcp.json) + sessionEnd hook writer."""
+"""Cursor MCP config + sessionEnd hook writer.
+
+Project scope writes under ``.cursor/``; user scope writes under ``~/.cursor/``.
+"""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
+from lorekeep.integrations.common import merge_json_config
 
-def write_config(target_dir: Path, command: str, args: list[str], ns: str | None) -> Path:
+
+def _cursor_dir(target_dir: Path, scope: str) -> Path:
+    if scope == "user":
+        return Path("~/.cursor").expanduser()
+    return Path(target_dir) / ".cursor"
+
+
+def config_target(target_dir: Path, scope: str = "project") -> Path:
+    return _cursor_dir(target_dir, scope) / "mcp.json"
+
+
+def hook_target(target_dir: Path, scope: str = "project") -> Path:
+    return _cursor_dir(target_dir, scope) / "hooks.json"
+
+
+def write_config(
+    target_dir: Path,
+    command: str,
+    args: list[str],
+    ns: str | None = None,
+    *,
+    scope: str = "project",
+) -> Path | None:
     entry = {"command": command, "args": args, "env": {"LOREKEEP_AGENT": "cursor"}}
     if ns:
         entry["env"]["LOREKEEP_NS"] = ns
-    d = Path(target_dir) / ".cursor"
-    d.mkdir(parents=True, exist_ok=True)
-    path = d / "mcp.json"
-    existing = {}
-    if path.exists():
-        existing = json.loads(path.read_text())
-    servers = existing.get("mcpServers", {})
-    servers["lorekeep"] = entry
-    path.write_text(json.dumps({"mcpServers": servers}, indent=2))
-    return path
+
+    def mutate(data: dict) -> None:
+        data.setdefault("mcpServers", {})["lorekeep"] = entry
+
+    return merge_json_config(config_target(target_dir, scope), mutate)
 
 
-def write_hook(target_dir: Path, command: str, args: list[str]) -> Path:
-    """Write a sessionEnd hook to .cursor/hooks.json.
+def write_hook(
+    target_dir: Path,
+    command: str,
+    args: list[str],
+    *,
+    scope: str = "project",
+) -> Path | None:
+    """Write a sessionEnd hook to hooks.json.
 
     Cursor's hook format uses a single command string (shell form).
     """
     cmd_str = " ".join([command, *args])
-    path = Path(target_dir) / ".cursor" / "hooks.json"
-    existing = {}
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
 
-    hooks = existing.get("hooks", {})
-    hooks["sessionEnd"] = [{"command": cmd_str, "timeout": 30}]
-    existing["version"] = existing.get("version", 1)
-    existing["hooks"] = hooks
+    def mutate(data: dict) -> None:
+        data["version"] = data.get("version", 1)
+        data.setdefault("hooks", {})["sessionEnd"] = [{"command": cmd_str, "timeout": 30}]
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(existing, indent=2))
-    return path
+    return merge_json_config(
+        hook_target(target_dir, scope), mutate, reset_if_corrupt=True,
+    )
