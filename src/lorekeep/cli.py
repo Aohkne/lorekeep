@@ -1418,6 +1418,46 @@ def _auto_wire_agents(p: dict, ns: str, *, scope: str = "project") -> None:
     typer.echo("\n  " + agent_memory_snippet().replace("\n", "\n  ").strip())
 
 
+def _sync_agent_wiring(
+    *, scope: str, ns: str, enabled: list[str],
+    backoff: dict[str, float], now: float,
+) -> list[tuple[str, Path]]:
+    """Wire every detected agent, returning only the targets that changed.
+
+    A steady state is silent: the writers report ``unchanged`` without touching
+    a file, which is what makes this safe to run on a timer forever. An agent
+    whose target cannot be written — read-only ``~``, a config another process
+    left unparseable — is backed off for an hour rather than retried, and
+    logged, on every pass.
+    """
+    from lorekeep.integrations.detect import detect_agents
+    from lorekeep.integrations.registry import find
+
+    target = Path.cwd()
+    changed: list[tuple[str, Path]] = []
+
+    for name in detect_agents():
+        if name not in enabled or now < backoff.get(name, 0.0):
+            continue
+        spec = find(name)
+        if spec is None:
+            continue
+        try:
+            written, hooked = _wire_one(spec, target, ns, scope=scope)
+        except Exception as exc:
+            backoff[name] = now + 3600
+            log.warning(
+                "agent wiring failed agent=%s error_type=%s retry_after_seconds=3600",
+                name, type(exc).__name__,
+                extra={"event": "daemon.wire_failed"},
+            )
+            continue
+        backoff.pop(name, None)
+        changed += [(name, path) for path in (written, hooked) if path]
+
+    return changed
+
+
 def _auto_import_and_compile(p: dict) -> None:
     """Quick-import every agent's memory files, then compile if a provider is available."""
     from lorekeep.integrations.registry import all_specs
@@ -2328,6 +2368,58 @@ def _quick_import_session(agent: str, session_dir: Path, memory_dir: Path, raw_d
     return len(written)
 
 
+def _discover_session_transcripts(cwd: Path | None = None) -> list[tuple[str, object]]:
+    """Find the live session handle for every agent that has one.
+
+    Returns [(agent_name, handle), ...]. The handle stays opaque here — whether
+    it is a transcript path, a DB blob, or a session id is the agent's business,
+    and the registry names the functions that understand it.
+    """
+    from lorekeep.integrations.registry import all_specs
+
+    found: list[tuple[str, object]] = []
+    for spec in all_specs():
+        if spec.session is None:
+            continue
+        try:
+            handle = getattr(spec.importer(), spec.session.locate)(cwd)
+            if handle is not None:
+                found.append((spec.name, handle))
+        except Exception as exc:
+            log.warning(
+                "transcript discovery failed agent=%s error_type=%s",
+                spec.name, type(exc).__name__,
+                extra={"event": "daemon.transcript_discovery_failed"},
+            )
+    return found
+
+
+def _dump_session_transcript(agent: str, handle: object, raw_dir: Path, acfg) -> int:
+    """Dump one agent's conversation to raw/ markdown. Returns file count.
+
+    Zero LLM cost — compile extracts from the markdown like any other doc. This
+    is the only ingest path cursor and opencode have.
+    """
+    from lorekeep.importer.session_dump import dump_session_turns, prune_sessions
+    from lorekeep.integrations.registry import find
+
+    spec = find(agent)
+    if spec is None or spec.session is None or spec.session_ns is None:
+        return 0
+
+    importer = spec.importer()
+    written = dump_session_turns(
+        getattr(importer, spec.session.parse)(handle),
+        raw_dir,
+        namespace=spec.session_ns,
+        session_key=getattr(importer, spec.session.key)(handle),
+        max_chars=acfg.transcript_max_chars,
+        max_batches=acfg.transcript_max_batches,
+    )
+    prune_sessions(raw_dir, spec.session_ns, retain=acfg.transcript_retain_sessions)
+    return len(written)
+
+
 def _on_disk_version() -> str | None:
     """Read lorekeep's version from installed package metadata on disk.
 
@@ -2377,7 +2469,7 @@ def watch(
     typer.echo(f"agent watch: monitoring raw={raw_dir}, pending={pending_dir}, interval={interval}s")
     typer.echo("agent: auto-compile (raw/) and auto-resolve (pending/) enabled")
     if watch_sessions:
-        typer.echo("agent: session watch enabled (Claude + Codex memory dirs)")
+        typer.echo("agent: session watch enabled (all agents: memory + transcripts)")
     typer.echo("agent: MCP server lazy-reloads facts.jsonl — no reconnect needed")
     log.info(
         "daemon watch started interval=%s session_watch=%s",
@@ -2406,6 +2498,15 @@ def watch(
 
     # --- Capture startup version for auto-restart-on-upgrade -----------------
     startup_version = _on_disk_version()
+
+    # --- Load agents config for auto-wire + transcript dump ------------------
+    try:
+        _acfg = load_config(p["config"]).agents
+    except Exception:
+        _acfg = None  # config may be missing in minimal homes
+    wire_backoff: dict[str, float] = {}
+    last_wire_check = 0.0
+    first_pass = True
 
     last_raw_mtime = 0.0
     last_raw_count = -1
@@ -2453,6 +2554,25 @@ def watch(
                 typer.echo(f"agent: upgraded {startup_version} → {current_version}, restarting...")
                 pid_file.unlink(missing_ok=True)
                 os.execv(sys.argv[0], sys.argv)
+
+            # --- auto-wire agents (root cause #4: re-detect every cycle) -----
+            now_ts = time.monotonic()
+            if _acfg and _acfg.auto_wire and (
+                first_pass or now_ts - last_wire_check >= _acfg.wire_interval_seconds
+            ):
+                last_wire_check = now_ts
+                try:
+                    for name, path in _sync_agent_wiring(
+                        scope=_acfg.wire_scope, ns=load_config(p["config"]).ns.personal_namespace,
+                        enabled=_acfg.enabled, backoff=wire_backoff, now=now_ts,
+                    ):
+                        typer.echo(f"agent: wired {name} → {path}")
+                        log.info("agent wired agent=%s", name, extra={"event": "daemon.agent_wired"})
+                except Exception as exc:
+                    log.warning(
+                        "auto-wire failed error_type=%s", type(exc).__name__,
+                        extra={"event": "daemon.auto_wire_failed"},
+                    )
 
             # Re-check existence each cycle (raw/ or pending/ may be created after start)
             has_raw = raw_dir.exists()
@@ -2544,14 +2664,18 @@ def watch(
                     prev = session_state.get(agent_name, 0.0)
                     last_import = session_import_time.get(agent_name, 0.0)
 
-                    if (mem_mtime > prev and prev > 0
-                            and now - last_import >= 30):
+                    # Bug 1 fix: first-sight import (prev was 0.0 → blocked import forever).
+                    first_sight = agent_name not in session_state
+                    if (first_sight or mem_mtime > prev) and now - last_import >= 30:
                         typer.echo(f"agent: {agent_name} memory changed ({len(mem_files)} files) — importing...")
                         try:
                             count = _quick_import_session(agent_name, session_dir, memory_dir, raw_dir)
+                            # Bug 2 fix: always advance import time (not just when count > 0).
+                            session_import_time[agent_name] = now
+                            # Bug 3 fix: only update state on success.
+                            session_state[agent_name] = mem_mtime
                             if count:
                                 typer.echo(f"agent: {agent_name} import done — {count} files → raw/{agent_name}-memory/")
-                                session_import_time[agent_name] = now
                         except Exception as exc:
                             log.exception(
                                 "session import failed agent=%s error_type=%s",
@@ -2559,8 +2683,33 @@ def watch(
                                 extra={"event": "daemon.session_import_failed"},
                             )
                             typer.echo(f"agent: {agent_name} import error: {exc}")
+                        continue  # state was set in the try block above
                     session_state[agent_name] = mem_mtime
 
+                # --- transcript dump → raw/<agent>-session/ -----------------
+                if _acfg and _acfg.watch_transcripts:
+                    tk = f"transcript"
+                    transcript_last = session_import_time.get(tk, 0.0)
+                    if now - transcript_last >= 30:
+                        session_import_time[tk] = now
+                        try:
+                            transcripts = _discover_session_transcripts()
+                            for agent_name, handle in transcripts:
+                                count = _dump_session_transcript(agent_name, handle, raw_dir, _acfg)
+                                if count:
+                                    typer.echo(f"agent: {agent_name} transcript dump — {count} files → raw/{agent_name}-session/")
+                                    log.info(
+                                        "transcript dumped agent=%s file_count=%s",
+                                        agent_name, count,
+                                        extra={"event": "daemon.transcript_dumped"},
+                                    )
+                        except Exception as exc:
+                            log.warning(
+                                "transcript dump failed error_type=%s", type(exc).__name__,
+                                extra={"event": "daemon.transcript_dump_failed"},
+                            )
+
+            first_pass = False
             time.sleep(interval)
         except KeyboardInterrupt:
             log.info("daemon watch stopped", extra={"event": "daemon.stop"})
