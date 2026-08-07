@@ -265,3 +265,24 @@ def test_prune_refuses_agent_authored_namespaces(tmp_path):
 
 def test_prune_on_missing_dir_is_harmless(tmp_path):
     assert prune_sessions(tmp_path, "cursor-session", retain=2) == []
+
+
+def test_stale_batches_cleaned_on_shrink(tmp_path):
+    """When batch count shrinks, old batch files are removed."""
+    # Simulate a prior 6-batch dump by writing stale files
+    dest_dir = tmp_path / "claude-session"
+    dest_dir.mkdir(parents=True)
+    for i in range(1, 7):
+        (dest_dir / f"old-session-{i:03d}.md").write_text(f"# Old batch {i}")
+
+    # New dump produces only 1 batch
+    turns = _turns(1)
+    dump_session_turns(
+        turns, tmp_path, namespace="claude-session",
+        session_key="old-session", max_chars=10000,
+    )
+
+    # Stale files 002-006 should be cleaned up
+    remaining = sorted(dest_dir.glob("old-session-*.md"))
+    assert len(remaining) == 1  # only the new batch 001
+    assert remaining[0].name == "old-session-001.md"

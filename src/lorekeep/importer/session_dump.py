@@ -159,6 +159,18 @@ def dump_session_turns(
         dest.write_text(rendered, encoding="utf-8")
         written.append(dest)
 
+    # Clean up stale batches when batch count shrinks (truncation, rotation).
+    # Without this, a 6-batch dump followed by a 3-batch re-dump leaves
+    # files 004-006 with old turns that compile ingests as current facts.
+    if not dry_run and dest_dir.exists():
+        for stale in dest_dir.glob(f"{key}-*.md"):
+            try:
+                idx = int(stale.stem.rsplit("-", 1)[-1])
+            except (ValueError, IndexError):
+                continue
+            if idx > len(batches):
+                stale.unlink(missing_ok=True)
+
     if not dry_run:
         manifest[manifest_key] = digest
         save_import_manifest(raw_root, namespace, manifest)
