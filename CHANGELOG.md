@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.24.0 (2026-08-08)
+
+## What's Changed
+* feat: persist agent insights with provenance (#36) by @manhhailua in https://github.com/manhhailua/lorekeep/pull/202
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.23.2...v0.24.0
+
 ## 0.23.2 (2026-08-08)
 
 ## What's Changed
