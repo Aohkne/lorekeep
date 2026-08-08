@@ -51,6 +51,7 @@ DEFAULT_SCHEMA_V3 = {
         "decision": {"props": {"title": "string", "status": "string", "decided_on": "string"}},
         "team": {"props": {"name": "string", "org": "string"}},
         "document": {"props": {"title": "string", "kind": "string"}},
+        "insight": {"props": {"title": "string", "insight_type": "string", "body": "string"}},
     },
     "edge_types": {
         # entity-centric (team)
@@ -73,8 +74,8 @@ DEFAULT_SCHEMA_V3 = {
         "prefers": {"from": "person", "to": "preference"},
         # generic / doc
         "relates_to": {
-            "from": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
-            "to": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
+            "from": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document", "insight"],
+            "to": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document", "insight"],
         },
         "documents": {
             "from": "document",
@@ -100,6 +101,7 @@ _NODE_DISPLAY = {
     "decision": ("Decision", "Decisions", "title"),
     "team": ("Team", "Teams", "name"),
     "document": ("Document", "Documents", "title"),
+    "insight": ("Insight", "Insights", "title"),
 }
 
 _EDGE_DISPLAY = {
@@ -124,7 +126,7 @@ _EDGE_DISPLAY = {
 
 DEFAULT_SCHEMA = {
     **DEFAULT_SCHEMA_V3,
-    "version": 4,
+    "version": 5,
     "common_node_props": {
         "summary": "string",
         "description": "string",

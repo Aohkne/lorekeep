@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "common_node_props": {
     "summary": "string",
     "description": "string"
@@ -19,7 +19,8 @@
     "project": {"props": {"name": "string", "status": "string", "start_date": "string"}, "label": "Project", "plural": "Projects", "display_prop": "name"},
     "decision": {"props": {"title": "string", "status": "string", "decided_on": "string"}, "label": "Decision", "plural": "Decisions", "display_prop": "title"},
     "team": {"props": {"name": "string", "org": "string"}, "label": "Team", "plural": "Teams", "display_prop": "name"},
-    "document": {"props": {"title": "string", "kind": "string"}, "label": "Document", "plural": "Documents", "display_prop": "title"}
+    "document": {"props": {"title": "string", "kind": "string"}, "label": "Document", "plural": "Documents", "display_prop": "title"},
+    "insight": {"props": {"title": "string", "insight_type": "string", "body": "string"}, "label": "Insight", "plural": "Insights", "display_prop": "title"}
   },
   "edge_types": {
     "depends_on": {"from": "service", "to": "service", "props": {}, "label": "Depends on", "inverse_label": "Depended on by"},
@@ -38,8 +39,8 @@
     "collaborates_with": {"from": "person", "to": "person", "props": {}, "label": "Collaborates with", "inverse_label": "Collaborates with"},
     "prefers": {"from": "person", "to": "preference", "props": {}, "label": "Prefers", "inverse_label": "Preferred by"},
     "relates_to": {
-      "from": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
-      "to": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
+      "from": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document", "insight"],
+      "to": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document", "insight"],
       "props": {},
       "label": "Relates to",
       "inverse_label": "Relates to"

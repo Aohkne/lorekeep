@@ -27,7 +27,7 @@ def test_init_creates_home(tmp_path: Path, monkeypatch):
     assert (home / "graph").is_dir()
     import json
     schema = json.loads((home / "schema.json").read_text())
-    assert schema["version"] == 4
+    assert schema["version"] == 5
 
 
 def test_init_creates_about_template(tmp_path: Path, monkeypatch):

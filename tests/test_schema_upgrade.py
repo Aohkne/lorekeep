@@ -40,7 +40,7 @@ def test_upgrade_stock_v3_creates_v3_backup(tmp_path):
 
     assert result["changed"] is True
     assert result["from"] == 3
-    assert result["to"] == 4
+    assert result["to"] == 5
     assert json.loads(path.read_text()) == DEFAULT_SCHEMA
     assert json.loads((tmp_path / "schema.v3.backup.json").read_text()) == DEFAULT_SCHEMA_V3
 
@@ -88,5 +88,5 @@ def test_schema_upgrade_cli_upgrades_existing_home(tmp_path, monkeypatch):
     result = CliRunner().invoke(app, ["schema", "upgrade"])
 
     assert result.exit_code == 0, result.output
-    assert "v2" in result.output and "v4" in result.output
+    assert "v2" in result.output and "v5" in result.output
     assert json.loads((home / "schema.json").read_text()) == DEFAULT_SCHEMA
