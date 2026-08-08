@@ -1,34 +1,69 @@
 # Lorekeep documentation
 
-Lorekeep is a **second brain for code**: a living temporal knowledge graph that coding agents both **read and contribute to** — aggregating what you and your agents learn across devices, the services you build, and your team, served over MCP with per-namespace permission and zero marginal LLM cost for agent contributions.
+This index covers the behavior shipped by the current source tree. Architecture
+pages describe implemented behavior unless a paragraph is explicitly marked
+**Planned**. Unshipped directions live in the [roadmap](ROADMAP.md); old design
+and implementation plans are historical material, not a runtime contract.
 
-- New here? Start with the **[Getting started guide](guides/getting-started.md)** (install → compile → serve → backup in 10 minutes), or the terse **[Quickstart](../README.md#quickstart)** in the project README.
-- Want the why and how? Read **[Architecture overview](architecture/overview.md)**.
-- Where it's heading? Read the **[Roadmap](ROADMAP.md)** (second-brain direction: multi-agent, multi-device, software connectors, proactive agent, team server, retrieval).
-
-## Architecture
-
-Concepts and design — how the system fits together.
-
-- [**Overview**](architecture/overview.md) — append-and-resolve model, three write paths, architecture diagram, key decisions, tech stack.
-- [Data model](architecture/data-model.md) — `facts.jsonl` format, journal format, `pending/` directory, schema, repository layout, components.
-- [Pipeline](architecture/pipeline.md) — three write paths (raw/ compile, agent propose, import) → resolve → `facts.jsonl`.
-- [Journal](architecture/journal.md) — agent-driven knowledge accumulation: append-only, confidence-gated, zero LLM cost.
-- [Agent](architecture/agent.md) — autonomous agent: daemon, trigger model, lint, resolve, suggest, cost profile.
-- [Permission model](architecture/permission.md) — namespace visibility rules, deny-by-default, the single `ScopedGraph` chokepoint.
-- [Temporal model](architecture/temporal.md) — `valid_from`/`valid_to`, `at_time` / `history` / `changes`.
-- [Serve & MCP](architecture/serve-mcp.md) — 7-tool surface, passive resources, lazy-reload, journal-based writes, agent integration, sync.
-- [Testing & evaluation](architecture/evaluation.md) — the three-tier eval strategy and scope.
+New to Lorekeep? Use the [getting-started guide](guides/getting-started.md) or the
+short [project quickstart](../README.md#quickstart).
 
 ## Guides
 
-How to use it.
+- [Getting started](guides/getting-started.md) — install, initialize, compile,
+  wire an agent, validate, and run the watcher.
+- [Compiling and resolving](guides/compile.md) — cached LLM extraction,
+  confidence-gated journal merge, manifest diagnostics, and wiki generation.
+- [Importing agent sessions](guides/import.md) — Claude Code, Cursor, Codex, and
+  opencode; automatic zero-LLM capture versus optional deep import.
+- [Serving the graph](guides/serve.md) — seven MCP tools, passive resources,
+  namespace scope, agent instructions, and lazy reload.
+- [Browsing the wiki](guides/wiki.md) — human-readable Obsidian/Tolaria output.
+- [Data home and paths](guides/data-home.md) — env, custom home, dev mode, and
+  platform defaults.
+- [Backing up and syncing](guides/backup.md) — private Git remote, journals,
+  restore, sequential multi-device sync, and conflict recovery.
+- [Runtime logging and bug reports](guides/runtime-logging.md) — logs, support
+  bundle, automatic issue reporting, and first-response diagnostics.
 
-- [**Getting started**](guides/getting-started.md) — install → compile → serve → backup in 10 minutes. Start here.
-- [Importing agent sessions](guides/import.md) — Claude Code + Cursor + Codex + opencode → `raw/`.
-- [Compiling the knowledge graph](guides/compile.md) — `raw/*.md` → `facts.jsonl` + resolve pending.
-- [Serving the graph to coding agents](guides/serve.md) — wire Claude Code / Cursor / Codex / opencode over MCP, write tools, daemon.
-- [Browsing the wiki](guides/wiki.md) — browse the graph in Obsidian: `wiki --open`, graph view, tags, Dataview queries.
-- [Data home & path resolution](guides/data-home.md) — env / `LOREKEEP_HOME` / dev mode / XDG.
-- [Runtime logging & bug reports](guides/runtime-logging.md) — rotating logs, privacy policy, support reports and bundles.
-- [Backing up the data home](guides/backup.md) — `lorekeep backup` to a private git repo: setup, restore, multi-device conflicts.
+## Architecture
+
+- [Overview](architecture/overview.md) — phase boundary and component flow.
+- [Data model](architecture/data-model.md) — facts, manifest, journals, schema,
+  and derived artifacts.
+- [Pipeline](architecture/pipeline.md) — raw compile, session capture, journal
+  writes, resolve, and atomic publication.
+- [Journal](architecture/journal.md) — namespace routing, confidence gates,
+  replay, provenance, locking, and multi-device implications.
+- [Autonomous agent](architecture/agent.md) — the event-driven watcher,
+  self-heal, wiring, services, and one-shot graph analysis.
+- [Permission](architecture/permission.md) — deny-by-default `ScopedGraph` rules.
+- [Temporal model](architecture/temporal.md) — validity windows and queries.
+- [Serve and MCP](architecture/serve-mcp.md) — exact seven-tool contract and
+  three passive resources.
+- [Testing and evaluation](architecture/evaluation.md) — offline test strategy,
+  shipped evals, and planned tiers.
+
+## Reference
+
+- [CLI reference](reference/cli.md) — generated from the Typer application; CI
+  fails when the committed reference drifts.
+- [Roadmap](ROADMAP.md) — future directions and honest current gaps.
+- [CLI consistency review](cli-consistency-review.md) — historical record of a
+  previous surface-reduction pass; not current reference documentation.
+- [Historical implementation material](superpowers/README.md) — archived specs
+  and plans retained for design provenance.
+
+## Documentation contract
+
+Active Markdown is checked in tests for valid local links/anchors and removed
+command names. The CLI reference is generated by:
+
+```bash
+uv run python scripts/generate_cli_reference.py
+uv run python scripts/generate_cli_reference.py --check
+```
+
+When behavior changes, update source tests and the relevant guide/architecture
+page in the same PR. Keep future behavior in the roadmap rather than describing
+it as if the runtime already implements it.

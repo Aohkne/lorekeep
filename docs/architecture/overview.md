@@ -1,134 +1,156 @@
 # Architecture overview
 
-> Adapted from the original design spec.
+Lorekeep treats raw Markdown, schema, and journals as durable knowledge inputs
+and `facts.jsonl` as a deterministic compiled graph. Coding agents query the
+graph through MCP and can append proposals to journals, but they never mutate
+the served graph directly.
 
-Lorekeep builds a **living temporal knowledge graph** that coding agents both **read and contribute to** — served over the **Model Context Protocol (MCP)**. It applies Andrej Karpathy's "LLM Knowledge Base" idea — treat raw docs as source code and the compiled graph as the executable — with three additions the open-source landscape does not provide together:
+This document describes current implementation. Future connectors, scheduled
+curation, conflict-free multi-device reconciliation, and authenticated team
+hosting are in the [roadmap](../ROADMAP.md).
 
-1. **Agent-driven knowledge accumulation** — agents propose facts during conversation at zero marginal LLM cost.
-2. **Strictly file-based storage** (`facts.jsonl` + `pending/` journals), for privacy and portability.
-3. **Namespace-scoped permission**, for team-level use rather than a single local user.
+## Phase boundary
 
-The system has two phases: **compile** (offline, curator-side) and **serve** (runtime, per device). Raw docs are compiled offline; agents propose facts at runtime through journal-based write tools; a periodic resolve pass merges all sources into `facts.jsonl` without additional LLM calls. This keeps the graph continuously up-to-date while strictly controlling API cost.
+Lorekeep separates expensive/authoritative construction from lightweight scoped
+querying:
 
-## North star
+```text
+COMPILE / CURATE
+  raw Markdown ──> chunk ──> schema-constrained LLM extraction ──> resolve
+  journals ─────────────────> confidence gate + deterministic merge ─┘
+                                                        │
+                                                        v
+                                           facts.jsonl + manifest
+                                                        │
+                                                        └──> wiki Markdown
 
-Lorekeep is a **second brain for code**: one knowledge graph that aggregates what you and your coding agents learn across devices, the services you build and operate, and your team — and that grows itself proactively. The payoff is that an agent (and you) reasons about a domain **systematically and with complete information** — not to maximize memory-recall benchmark scores. Memory benchmarks (LoCoMo, LongMemEval) are parity checks, not the objective. The real measures are completeness, coherence, temporal correctness, and reasoning support (see [evaluation](evaluation.md)). See the [Roadmap](../ROADMAP.md) for the direction.
-
-## Architecture
-
-```
-                    KNOWLEDGE SOURCES (three write paths)
-                    ═══════════════════════════════════════
-
-  1. raw/<ns>/*.md ──► ingest ──► extract(LLM) ──┐
-     (curator docs, provenance-rich)              │
-                                                  │
-  2. Agent propose ──► MCP write tools ──► ───────┤
-     (runtime, ZERO LLM cost)                     │
-     propose_change / review_note                  │
-                                                  │
-  3. Import sessions ──► import --from claude ──►─┘
-     (agent history → raw/ → compile)              │
-                                                   │
-                    ┌──────────────────────────────┘
-                    ▼
-            pending/<ns>/journal.jsonl          append-only, per-namespace
-            pending/<agent>/journal.jsonl       append-only, per-agent
-                    │
-                    ▼ (trigger: N writes OR T minutes)
-    ┌───────────────────────────────────────────┐
-    │           RESOLVE  (pure logic, ZERO LLM)  │
-    │  load facts.jsonl + all journals           │
-    │  dedup → merge → sort → validate           │
-    │  priority: raw/ > import > agent-propose   │
-    │  atomic os.replace                        │
-    └───────────────┬───────────────────────────┘
-                    │
-                    ▼
-              facts.jsonl                       THE store (sorted, byte-stable)
-                    │
-                    ├──► wiki/*.md               human view (Obsidian-compatible)
-                    │     atomic swap, regen on
-                    │     every facts mutation
-                    │
-                    ▼  (git / S3 sync)
-    ┌───────────────────────────────────────────┐
-    │        SERVE + QUERY (runtime, per device) │
-    │  facts.jsonl ──load──► GraphStore          │
-    │  (networkx DiGraph, temporal)              │
-    │       ──► ScopedGraph (ns filter)          │
-    │            ──► MCP tools ──► agent          │
-    │            ◄── MCP write tools (journal)    │
-    └───────────────────────────────────────────┘
-
-                    AUTONOMOUS AGENT (daemon)
-                    ═════════════════════════════════════════
-
-    lorekeep agent watch:
-      ├── watch raw/ → auto-compile on change
-      ├── nightly lint → semantic health check
-      ├── periodic resolve → merge pending journals
-      ├── periodic import → agent sessions → raw/
-      └── suggest → propose improvements, gaps
+SERVE / USE
+  facts.jsonl ──> GraphStore ──> ScopedGraph ──> seven MCP tools
+       ^                                             │
+       └──── atomic resolve <──── journal append <───┘
 ```
 
-The system has three write paths feeding into a single resolve step, then a read+write serve layer. The compile chain (`ingest → extract`), journals (`agent propose`), and import chain (`import → raw/`) all converge at `resolve`. The serve chain (`store → perm → mcp_server`) handles both read queries and write proposals.
+Compile-time extraction is the only normal path that needs a dedicated LLM
+request. Runtime reads, journal appends, resolve, wiki, lint, status, permission,
+and temporal filtering are local deterministic operations. Manual deep session
+import and `agent ingest` are explicit additional provider-using operations.
 
-## Key decisions
+## Durable and derived state
 
-| # | Decision | Rationale |
+| State | Role | Backup expectation |
 |---|---|---|
-| D1 | **Append-and-resolve** | Three write paths converge into one resolve; no concurrent write conflicts because journals are append-only per-agent. |
-| D2 | **Agent propose = zero LLM cost** | Coding agents already run LLM to synthesize answers. Proposing a fact is just formatting existing output — no additional LLM call. |
-| D3 | **Resolve = pure logic** | Dedup, merge, sort, validate — all Python, zero LLM. Periodic batch (N writes or T minutes) so facts.jsonl is always current. |
-| D4 | Per-namespace coarse permission | Derives from directory tree; file-native; maps to filesystem/git. |
-| D5 | Python + FastMCP | Richest LLM/markdown/MCP ecosystem; compile-heavy logic favors Python. |
-| D6 | Mid-org target (≈5k facts, 5–15 teams) | Karpathy sweet-spot; FTS/grep sufficient, no embeddings needed yet. |
-| D7 | Temporal knowledge graph | Facts carry `valid_from`/`valid_to`; supports "what was true at T", history, diffs. |
-| D8 | Durable sources as sync unit | Git syncs raw docs, schema, and agent journals; each device deterministically rebuilds `facts.jsonl`. |
-| D9 | Query via networkx in-memory; optional local FTS cache | Store is the sync unit; no rebuild-on-sync; cache is local-only, derived. |
-| D10 | stdio-first transport | Every coding agent spawns the local server reading the repo's `facts.jsonl`; zero servers, max privacy. |
-| D11 | Extract LLM pluggable, default API, ollama option | Quality by default; data leaves only at compile time; ollama for strict privacy. |
+| `raw/<ns>/*.md` | Human/agent-authored source | durable |
+| `schema.json` | Ontology/extraction contract | durable |
+| `pending/<ns>/journal.jsonl` | Proposed/accepted/review history | durable and private |
+| `config.yaml` | Local provider, scope, automation settings | local; may contain secrets |
+| `graph/facts.jsonl` | Sorted served graph | derived |
+| `graph/manifest.json` | Compile/resolve diagnostics | derived |
+| `wiki/` | Human-readable full-graph projection | derived |
+| `cache.json`, `fts.sqlite` | Extraction and search caches | derived/local |
 
-## Background
+The backup Git repository ignores config and derived graph/wiki/cache artifacts.
+Each device rebuilds the graph and replays accepted journals after synchronizing
+durable inputs.
 
-**Karpathy "LLM Knowledge Bases"** frames raw research/docs as **source code** and a compiled, structured wiki as the **executable**. Knowledge is processed at compile time, not re-processed per query. The key insight extension: the coding agent itself is already an LLM — its conversation output is knowledge that should accumulate, not disappear into chat history. Lorekeep captures this by letting agents propose facts at zero marginal cost, merging them into the graph via periodic resolve.
+## Three knowledge-entry paths
 
-**OSS gap:**
+### Raw compile
 
-| Requirement | file-based | temporal KG | agent-driven write | team permission | MCP |
-|---|---|---|---|---|---|
-| Obsidian + MCP | ✅ | ❌ | ❌ | ❌ | ✅ |
-| mcp-knowledge-graph | ✅ | ❌ | ❌ | ❌ (local) | ✅ |
-| mem0 / cognee | ❌ (DB) | partial | ❌ | partial (DB) | ✅ |
+Handwritten docs and automatic transcript/memory captures live under
+`raw/<ns>/`. Ingest produces chunks with line provenance; extraction emits
+schema-constrained candidates; resolve normalizes ids/aliases and quarantines
+invalid facts; the writer publishes sorted JSONL atomically.
 
-No existing project covers *strictly-file + temporal graph + agent-driven write + namespace permission + MCP*. Lorekeep fills that intersection.
+### Structured agent proposal
 
-## Tech stack
+`propose_change`, `review_note`, and conversational `agent ingest` append
+namespace-enforced `JournalEntry` records. Resolve applies confidence/schema
+gates, stamps agent/device/time provenance, and merges accepted entries. This
+path uses no new LLM for MCP writes because the calling coding agent already
+formed the proposal.
 
-Python 3.11+ · FastMCP · networkx · pydantic (fact/schema models) · pyyaml (config) · mistune (markdown) · sqlite3 FTS5 (stdlib) · litellm (provider abstraction: OpenAI / Anthropic / DashScope/Qwen / Ollama) · uv for packaging/publish (`uvx lorekeep`).
+### Session import/capture
 
-## Open questions / risks
+Hooks and the watcher convert agent memory/transcript sources into deterministic
+raw Markdown without a second LLM. Manual `lorekeep import` can instead run a
+provider-backed deep summary. Both feed the ordinary raw compile path.
 
-- **Extraction quality vs privacy (D11):** the default API provider sees raw docs at compile time. Acceptable because compile is curator-run and the stored artifact is pure-file; strict-privacy deployments switch to Ollama (lower quality, GPU cost).
-- **Entity resolution correctness:** alias → canonical id merging is the riskiest compile logic; backed by strong fixtures and a quarantine/review path.
-- **Cross-namespace edge UX:** the strict endpoint rule hides cross-team edges unless both sides are allowed; the `public` namespace mitigates.
-- **Determinism vs LLM non-determinism:** LLM extraction is variable; determinism comes from per-chunk hash caching of extraction output, not re-running the LLM. See [pipeline](pipeline.md).
-- **Agent trust:** agent-proposed facts enter `pending/` not `facts.jsonl` directly; confidence scoring + resolve priority + quarantine path limit risk. See [journal](journal.md).
+## Serve layering
 
-## References
+`GraphStore` owns pure graph behavior over `networkx.MultiDiGraph`: lookup,
+search, traversal, statistics, snapshots, history, and changes. It knows nothing
+about MCP or permission.
 
-- Karpathy "LLM Knowledge Bases" — compiler analogy (source code vs executable).
-- `mcp-knowledge-graph` (Anthropic reference), `mem0`, `cognee`, **Zep (temporal KG)** — landscape comparison.
-- MCP specification — tool/resource model, stdio and streamable-HTTP transports.
+`ScopedGraph` wraps it as the single permission chokepoint. Effective namespaces
+are configured scope plus `public`; edges require their own namespace and both
+endpoints to be visible. Every MCP read routes through this wrapper.
 
-## Next
+`mcp_server` owns protocol schemas, graph/schema/manifest/FTS loading, passive
+resources, lazy mtime reload, and journal validation/routing. The public surface
+is fixed at seven tools and three resources.
 
-- [Data model](data-model.md) — `facts.jsonl` format, journal format, schema, repository layout.
-- [Pipeline](pipeline.md) — three write paths → resolve → facts.jsonl.
-- [Journal](journal.md) — agent-driven knowledge accumulation (append-only, pending, resolve).
-- [Agent](agent.md) — autonomous agent trigger model, operations, and scheduling.
-- [Permission model](permission.md) — namespace visibility rules.
-- [Temporal model](temporal.md) — time-aware queries.
-- [Serve & MCP](serve-mcp.md) — the read + write query layer.
-- [Testing & evaluation](evaluation.md) — the three-tier eval strategy.
+## Publication and reload safety
+
+- `facts.jsonl` and `manifest.json` are written through sibling temp files and
+  `os.replace`, so readers do not observe a partially truncated graph.
+- Facts are sorted and JSON keys are stable; unchanged effective inputs produce
+  byte-identical `facts.jsonl`.
+- Wiki publication builds replacement pages separately, preserves vault-local
+  settings/log, and rolls back attempted page changes on publish failure.
+- The MCP server checks `facts.jsonl` mtime on each query and rebuilds graph,
+  manifest, schema, and FTS state when it changes.
+- Journal append and status rewrite use cross-process locks; full resolve holds a
+  separate transaction lock around read→merge→write→status.
+
+## Automation boundary
+
+`agent watch` is a polling event loop, not a general scheduler. It currently
+reacts to:
+
+- raw file count/mtime and schema mtime;
+- pending journal mtime;
+- supported memory/transcript sources;
+- newly detected clients requiring idempotent wiring;
+- package version changes; and
+- configured backup remote state.
+
+After compile it can replay journals, run deterministic self-heal, regenerate
+the wiki, and synchronize backup. `agent lint`, `suggest`, `status`, `profile`,
+and `contribution` are one-shot commands. There is no nightly/weekly task queue
+or autonomous schema evolution.
+
+## Security boundaries
+
+- Extraction providers see raw chunk text at compile/deep-import time. Use a
+  local provider when raw content cannot leave the device.
+- API keys live in environment variables or local gitignored config, never in
+  generated facts/support bundles.
+- Namespace permission controls MCP reads/writes; the local wiki is an unscoped
+  full-graph view and must remain private.
+- Agent confidence is an input to resolve, not proof. Curated `src`, manifest
+  review/quarantine, and journal provenance remain necessary for audit.
+- Git backup is private and sequential; it is transport, not an authorization or
+  conflict-free collaboration layer.
+
+## Current design decisions
+
+| Decision | Reason |
+|---|---|
+| File-backed durable inputs | Inspectable, portable, Git-friendly ownership |
+| Compile once, query locally | Avoid re-processing all knowledge per question |
+| Append then resolve | Isolate concurrent proposals from the served graph |
+| Namespace chokepoint | Prevent accidental query/edge leakage |
+| Temporal facts | Preserve history rather than overwrite it |
+| Stdio-first local MCP | Broad coding-agent support and minimal infrastructure |
+| Compact tool surface | Lower tool-selection ambiguity; compose richer queries |
+| Deterministic derived graph | Reviewable rebuilds and device parity |
+
+## Related
+
+- [Data model](data-model.md)
+- [Pipeline](pipeline.md)
+- [Journal](journal.md)
+- [Autonomous agent](agent.md)
+- [Permission](permission.md)
+- [Temporal model](temporal.md)
+- [Serve and MCP](serve-mcp.md)

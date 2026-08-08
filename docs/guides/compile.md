@@ -1,142 +1,193 @@
-# Compiling the knowledge graph
+# Compiling and resolving the knowledge graph
 
-Knowledge enters Lorekeep through three paths. This guide covers the curator-side compile path; agents contribute knowledge at runtime through [write tools](serve.md).
+Lorekeep has two related write operations:
 
-## 1. Add raw docs
+- `compile` rebuilds the graph from raw Markdown with cached LLM extraction,
+  replays/merges journals, and regenerates the wiki;
+- `resolve` merges journal changes into the existing graph without an LLM call.
 
-Drop markdown under `raw/<namespace>/`:
+Use `compile` after raw/schema changes and `resolve` when only agent proposals
+changed.
 
+## Add raw documents
+
+Place Markdown under `raw/<namespace>/` in the resolved data home:
+
+```text
+raw/
+├── me/profile.md
+├── backend/payments.md
+└── public/glossary.md
 ```
-raw/backend/payments.md
-raw/frontend/web.md
-```
 
-The first directory under `raw/` becomes the fact's `ns` (e.g. `backend`, `frontend`).
+The first path segment becomes the extraction namespace. `public` is visible to
+every scope; other namespaces are visible only when the MCP server was configured
+for them.
 
-## 2. Configure a provider
+## Configure a provider
 
 ```bash
-cp .lorekeep/config.yaml.example .lorekeep/config.yaml
-# edit model as needed (native providers need no api_base)
+lorekeep config set provider.model deepseek/deepseek-chat
+lorekeep config set provider.api_key_env DEEPSEEK_API_KEY
+export DEEPSEEK_API_KEY=...
 ```
 
-For strict privacy, use a local model:
+Model values require a LiteLLM provider prefix. Native providers normally need
+no `api_base`. For a strict-local setup:
 
 ```yaml
 provider:
-  model: ollama/llama3                      # default http://localhost:11434; set api_base only for a non-default host
+  model: ollama/llama3
   timeout_seconds: 120
   max_retries: 2
 ```
 
-## 3. Compile
+Use the [validated config example](../../.lorekeep/config.yaml.example) for more
+providers and daemon settings.
+
+## Run the all-in-one compile
+
+Installed tool:
+
+```bash
+lorekeep compile
+```
+
+Source checkout:
 
 ```bash
 uv run lorekeep compile
 ```
 
-Produces `graph/facts.jsonl` + `graph/manifest.json` + auto-generates `wiki/`
-(Obsidian-compatible markdown, with each page replaced atomically). If `pending/`
-journals exist, compile also merges them via `_do_auto_resolve` — in that
-case wiki regenerates once from the resolved facts (never double).
-Re-running is idempotent: unchanged input yields byte-identical files
-(extraction is cached under `.lorekeep/cache.json`).
+The command performs these stages:
 
-Schema v4 enriches facts during this existing LLM pass; it does **not** add a
-second wiki-time LLM call. Each node is asked for a source-grounded `summary`
-and optional longer `description`, and each edge for a concrete
-`props.description` explaining the relationship. Prose stays in the source
-language. `resolve` deterministically merges complementary descriptions and
-coalesces duplicate logical edges before the wiki is projected.
+1. **Ingest** — parse each Markdown file into bounded `DocChunk` values carrying
+   `path:line` provenance.
+2. **Extract** — call the provider with a schema-constrained prompt for nodes,
+   edges, aliases, temporal fields, grounded summaries, and relationship
+   descriptions.
+3. **Resolve candidates** — normalize aliases/ids, merge complementary props,
+   validate schema/endpoints, and quarantine malformed or dangling facts.
+4. **Publish graph** — atomically write sorted `graph/facts.jsonl` and
+   `graph/manifest.json`.
+5. **Replay journals** — merge pending and previously accepted journal entries
+   so a raw rebuild does not erase agent-contributed facts.
+6. **Generate wiki** — project the final graph once into the human-readable
+   `wiki/` vault.
 
-`manifest.json` records `content_quality` coverage for labels, summaries,
-descriptions, relationship explanations, generic edges, and duplicate display
-labels. Missing prose produces a warning but does not discard an otherwise
-valid fact or make a partial compile fail.
+`facts.jsonl` is sorted and byte-identical for unchanged effective inputs.
+`manifest.json` contains run diagnostics and a fresh `compiled_at`, while
+`wiki/log.md` is append-only, so those files are not the determinism target.
 
-Each LLM request defaults to a 120-second timeout and two retries. Override
-`provider.timeout_seconds` or `provider.max_retries` when the configured
-endpoint needs a different policy. If every attempt fails, Lorekeep records
-that chunk in `manifest.json` and continues producing a partial graph.
+## Incremental extraction cache
 
-**What compile does not do:** compile processes only `raw/`. Agent-proposed
-facts in `pending/` journals are merged by `resolve` (see step 5).
-Compile does re-merge pending journals as a convenience, but standalone
-`resolve` is needed if you add journals after compile.
+The extraction cache key includes normalized chunk content, the complete schema
+contract, prompt version, and model. An unchanged chunk returns cached extraction
+output and makes no new provider request. Editing one chunk or changing the
+schema/model invalidates only the relevant cache entries.
 
-## 4. Resolve pending facts (manual)
+Do not delete `cache.json` merely to switch providers; the model fingerprint
+already triggers the required extraction.
 
-```bash
-uv run lorekeep resolve
-```
+## Human-readable content quality
 
-Merges all pending agent-proposed facts from `pending/` journals into `facts.jsonl`.
-Facts are gated by confidence: high (≥0.8) auto-merge, medium (0.5-0.8) merge
-with review flag, low (<0.5) quarantine. Wiki regenerates only if facts
-actually changed (`merge_count > 0` or `flagged_count > 0`).
+Stock schema v4 asks the existing compile call for:
 
-Resolve also runs automatically: the daemon (`lorekeep agent watch`) detects
-new pending entries on every poll cycle (default 60s interval).
+- node display name/title and concise summary;
+- optional grounded description;
+- a concrete description for each relationship; and
+- human forward/inverse relation labels supplied by the schema.
 
-## Upgrade an existing ontology
+Wiki generation itself is deterministic and does not call an LLM. It can only
+render prose present in `facts.jsonl`, so old graphs need schema upgrade plus a
+recompile—not just `lorekeep wiki`—to gain richer content.
 
-Before recompiling an existing stock v2/v3 data home:
+The manifest records `content_quality` coverage for names, summaries,
+descriptions, relationship explanations, generic relations, and duplicate
+display labels. Low coverage produces CLI warnings but does not discard an
+otherwise valid fact.
 
-```bash
-uv run lorekeep schema upgrade --dry-run
-uv run lorekeep schema upgrade
-uv run lorekeep compile
-```
+## Partial and total failures
 
-The upgrade writes a versioned backup such as `schema.v3.backup.json`, is
-idempotent, and leaves custom schemas untouched unless `--force` is explicit.
-Historical facts still render, but only recompilation can add grounded summaries
-and edge explanations that were absent from the old graph.
+Extraction is skip-and-log per chunk:
 
-## 5. Full pipeline (compile + resolve)
+- a recoverable chunk failure is recorded in `manifest.errors`; other chunks
+  continue and the partial graph remains valid;
+- an authentication/network-style fatal provider error short-circuits remaining
+  chunks to avoid repeated identical failures;
+- if non-empty input produces no nodes because all chunks failed, the CLI exits
+  non-zero;
+- malformed facts and invalid/dangling edges are quarantined during resolve.
 
-```bash
-uv run lorekeep compile && uv run lorekeep resolve
-```
+Inspect the CLI output, `manifest.json`, and runtime log. Use `lorekeep support`
+when preparing a bug report; do not attach raw documents or configuration.
 
-Or let the daemon handle it:
-
-```bash
-uv run lorekeep agent watch    # watches raw/ + pending/ → auto-compile + resolve
-```
-
-## 6. Evaluate construction quality
-
-Author gold facts under `tests/fixtures/gold/<name>.facts.jsonl`, then:
+## Merge journals without recompiling raw docs
 
 ```bash
-uv run lorekeep eval
+lorekeep resolve
 ```
 
-Reports extraction P/R/F1, entity-resolution F1, and graph-structure metrics.
-Snapshots to `.lorekeep/eval/results.json`.
+Resolve loads the current graph plus every `pending/**/journal.jsonl`, orders
+entries deterministically, applies schema validation and confidence gates, then
+atomically writes the graph and updates journal statuses:
 
-## 7. Validate
+| Confidence | Behavior |
+|---|---|
+| `>= 0.8` | Merge |
+| `>= 0.5` and `< 0.8` | Merge and flag in the manifest for review |
+| `< 0.5` | Quarantine; do not add to the graph |
+
+Accepted facts retain agent, device, confidence, and proposal-time provenance.
+Wiki regeneration runs only when a merge/flag changes visible facts.
+
+The watcher polls journals and invokes the same merge logic after their mtime
+changes. Its current journal-status bookkeeping differs from the manual command
+for medium/rejected entries; see [Pipeline: status updates and replay](../architecture/pipeline.md#status-updates-and-replay).
+There is no separate 50-entry/five-minute scheduler.
+
+## Conversational ingest
+
+For one raw file that you want to review interactively before journaling:
 
 ```bash
-uv run lorekeep doctor
+lorekeep agent ingest raw/backend/payments.md
+lorekeep resolve
 ```
 
-Verifies graph loads with no dangling edges, schema is valid, MCP tools
-respond, and provider is reachable.
+`agent ingest` calls the configured LLM, shows extracted facts, asks for approval
+(unless `--yes`), and writes approved facts to the namespace journal with
+confidence `1.0`. It does not modify `facts.jsonl` directly.
 
-## How agents contribute knowledge
+## Upgrade an older stock schema
 
-Agents propose facts at runtime through MCP write tools (see [serve.md](serve.md)).
-These are appended to `pending/<ns>/journal.jsonl` at **zero LLM cost** — the
-agent already ran the LLM for the conversation. Facts become searchable after
-the next resolve.
+```bash
+lorekeep schema upgrade --dry-run
+lorekeep schema upgrade
+lorekeep compile
+```
 
-## Next: serve to agents
+The upgrade preserves a versioned schema backup and is idempotent. Stock v2/v3
+schemas upgrade to schema v4; custom older schemas require explicit `--force`.
+Review custom changes before forcing an upgrade.
 
-See [serve.md](serve.md) to expose the graph to Claude Code / Cursor / Codex over MCP,
-or [wiki.md](wiki.md) to browse the graph as Obsidian markdown.
+## Validate
 
-## Data home
+```bash
+lorekeep doctor
+lorekeep agent lint
+```
 
-See [data-home.md](data-home.md) for the 4-tier path resolution (env > `LOREKEEP_HOME` > dev mode > XDG) and `lorekeep init`.
+`doctor` is the structural/install gate: graph, schema, MCP response, and optional
+provider ping. `agent lint` is graph-health analysis: contradictions, orphans,
+staleness, endpoint issues, and coverage gaps. `agent lint --auto-fix` applies
+the currently supported deterministic self-heal operations and regenerates the
+wiki when facts change.
+
+## Related
+
+- [Pipeline architecture](../architecture/pipeline.md)
+- [Journal architecture](../architecture/journal.md)
+- [Serving over MCP](serve.md)
+- [Browsing the wiki](wiki.md)
+- [Data home and paths](data-home.md)

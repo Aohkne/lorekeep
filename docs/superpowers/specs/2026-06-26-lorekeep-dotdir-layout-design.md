@@ -1,5 +1,9 @@
 # Design: Consolidate data home into `.lorekeep/` + manual backup CLI
 
+> **Historical design (2026-06-26).** This captures the state and decisions at
+> design time; later watcher, wiki, journal, logging, and backup changes are not
+> reflected below. Start at [the current docs index](../../README.md).
+
 **Date:** 2026-06-26
 **Status:** Approved (approach A)
 **Author:** manhpt1

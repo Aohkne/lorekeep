@@ -1,56 +1,116 @@
-# Data home & path resolution
+# Data home and path resolution
 
-Lorekeep resolves its data home with a 4-tier precedence (high → low). All commands (`compile`, `serve`, `doctor`, …) use the same resolution, in `src/lorekeep/paths.py` — pure logic, no I/O.
+Every CLI, daemon, and MCP process calls the same pure `resolve_paths()` logic.
+Precedence is high to low:
 
+1. explicit per-path environment override;
+2. `LOREKEEP_HOME`;
+3. development mode; and
+4. platform directories from `platformdirs`.
+
+## Path map
+
+| Logical path | Environment override | Home-relative default |
+|---|---|---|
+| raw Markdown | `LOREKEEP_RAW` | `raw/` |
+| graph output | `LOREKEEP_OUT` | `graph/` |
+| extraction cache | `LOREKEEP_CACHE` | `cache.json` |
+| schema | `LOREKEEP_SCHEMA` | `schema.json` |
+| config | `LOREKEEP_CONFIG` | `config.yaml` |
+| journals | `LOREKEEP_PENDING` | `pending/` |
+| generated wiki | `LOREKEEP_WIKI` | `wiki/` |
+| runtime logs | `LOREKEEP_LOGS` | `logs/` |
+
+Per-path overrides take precedence independently; setting `LOREKEEP_RAW` does
+not relocate the other paths.
+
+## Installed platform mode
+
+With no override/home/dev marker, Lorekeep uses `platformdirs`:
+
+- config lives in the platform user config directory;
+- raw, graph, schema, pending, wiki, cache, and logs live in the platform user
+  data directory.
+
+Typical Linux paths are:
+
+```text
+~/.config/lorekeep/config.yaml
+~/.local/share/lorekeep/
+├── schema.json
+├── raw/
+├── graph/
+├── pending/
+├── wiki/
+├── logs/
+└── cache.json
 ```
-1. explicit per-path env   LOREKEEP_RAW / LOREKEEP_OUT / LOREKEEP_CACHE / LOREKEEP_SCHEMA / LOREKEEP_CONFIG / LOREKEEP_LOGS
-2. LOREKEEP_HOME            → <home>/{config.yaml, schema.json, raw/, graph/, logs/, cache.json}
-3. dev mode                 .lorekeep/ present in CWD, or LOREKEEP_DEV=1 → <cwd>/.lorekeep/{...}
-4. XDG (default)            ~/.config/lorekeep (config) + ~/.local/share/lorekeep (data)
-```
 
-`lorekeep init` bootstraps whichever home resolves, writing default `config.yaml` + `schema.json` and creating `raw/` + `graph/` (it preserves existing config/schema). Runtime commands create `logs/` lazily.
-
-## Installed use (recommended)
+Bootstrap and inspect the paths printed by the command:
 
 ```bash
-uvx lorekeep init          # bootstrap ~/.config/lorekeep + ~/.local/share/lorekeep
-# add docs under ~/.local/share/lorekeep/raw/<ns>/
-uvx lorekeep compile
-uvx lorekeep mcp add --agent claude --ns <ns>
-uvx lorekeep doctor
+lorekeep init
+lorekeep agent profile
 ```
 
-## Local dev (repo co-located data)
+Do not assume Linux paths on macOS or Windows; use the output or set an explicit
+home.
 
-From a Lorekeep source checkout (`.lorekeep/` present → auto dev mode):
+## Explicit home
+
+`LOREKEEP_HOME` makes config and data use one directory:
 
 ```bash
-uv run lorekeep compile      # reads .lorekeep/raw/, writes .lorekeep/graph/
+LOREKEEP_HOME=~/knowledge/work lorekeep init --no-watch
+LOREKEEP_HOME=~/knowledge/work lorekeep compile
+LOREKEEP_HOME=~/knowledge/work lorekeep serve
+```
+
+This is useful for a separate knowledge base, portable private backup clone, or
+isolated smoke test. Agent MCP configuration must include the same environment
+when it should serve that home.
+
+## Development mode
+
+When the current directory contains `.lorekeep/`, or `LOREKEEP_DEV=1`, all
+home-relative paths resolve under `<cwd>/.lorekeep/`:
+
+```bash
+uv run lorekeep compile
+uv run lorekeep doctor
 uv run lorekeep serve
 ```
 
-Force dev mode anywhere: `LOREKEEP_DEV=1 uv run lorekeep …`.
+The Lorekeep source checkout includes this marker, so development commands use
+the repository-local data home without migrating installed XDG data.
 
-## Custom knowledge base
+## Per-path overrides
 
-```bash
-LOREKEEP_HOME=~/kb-work uvx lorekeep init
-LOREKEEP_HOME=~/kb-work uvx lorekeep compile
-```
-
-## Per-path overrides (power users / tests)
-
-Pin individual paths without changing the home:
+Power users and tests can pin only the required paths:
 
 ```bash
-LOREKEEP_RAW=./my-raw LOREKEEP_OUT=./my-graph uv run lorekeep compile
+LOREKEEP_RAW=./fixtures/raw \
+LOREKEEP_OUT=/tmp/lorekeep-graph \
+LOREKEEP_CACHE=/tmp/lorekeep-cache.json \
+uv run lorekeep compile
 ```
 
-This is how the test suite isolates each run.
+Relative override values are interpreted relative to the process working
+directory after `Path.expanduser`; they are not automatically made relative to
+`LOREKEEP_HOME`.
+
+## Initialization side effects
+
+`resolve_paths()` itself performs no I/O. `init` creates config/schema/raw/graph/
+pending as needed and preserves existing config/schema. Wiki and logs are
+created lazily by compile/wiki and runtime logging. In first-run setup, profile
+files, agent configuration/hooks, imported memory files, compiled artifacts, and
+a background watcher may also be created as described in
+[Getting started](getting-started.md).
 
 ## Related
 
-- [Compiling the graph](compile.md)
-- [Serving the graph to agents](serve.md)
-- Architecture: [overview](../architecture/overview.md)
+- [Getting started](getting-started.md)
+- [Compile and resolve](compile.md)
+- [Serving over MCP](serve.md)
+- [Backing up and syncing](backup.md)
