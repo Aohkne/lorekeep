@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.23.0 (2026-08-08)
+
+## What's Changed
+* feat(mcp)!: replace tools with compact surface by @manhhailua in https://github.com/manhhailua/lorekeep/pull/196
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.22.0...v0.23.0
+
 ## 0.22.0 (2026-08-07)
 
 ## What's Changed
