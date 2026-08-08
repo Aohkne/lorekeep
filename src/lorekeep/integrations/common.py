@@ -14,17 +14,13 @@ log = logging.getLogger("lorekeep.integrations")
 def resolve_command(
     install_source: str | None,
     subcommand: list[str] | None = None,
-    *,
-    profile: str = "core",
 ) -> tuple[str, list[str]]:
     """Return (command, args) to launch a lorekeep subcommand.
 
     Defaults to ``serve --transport stdio``.  Pass ``subcommand`` for others
     (e.g. ``["hook"]``).
     """
-    cmd_args = subcommand or [
-        "serve", "--transport", "stdio", "--profile", profile,
-    ]
+    cmd_args = subcommand or ["serve", "--transport", "stdio"]
     if not install_source or install_source == "pypi":
         return ("uvx", ["lorekeep", *cmd_args])
     if install_source == "local":

@@ -20,7 +20,7 @@ uvx lorekeep agent watch &
 
 ```json
 {"mcpServers": {"lorekeep": {"command": "uvx",
-  "args": ["lorekeep", "serve", "--transport", "stdio", "--profile", "core"],
+  "args": ["lorekeep", "serve", "--transport", "stdio"],
   "env": {"LOREKEEP_NS": "<ns>"}}}}
 ```
 
@@ -42,7 +42,7 @@ LOREKEEP_HOME=~/kb-work uvx lorekeep init
 LOREKEEP_HOME=~/kb-work uvx lorekeep compile
 ```
 
-## Core profile (7 tools, scoped)
+## MCP surface (7 tools, scoped)
 
 The default surface is deliberately small:
 
@@ -58,10 +58,10 @@ Use `temporal_query(mode="at_time", params={"time": ...})`,
 `temporal_query(mode="history", params={"id": ...})`, or
 `temporal_query(mode="changes", params={"from_time": ..., "to_time": ...})`.
 
-### `context(section="meta", topic="")` — scope awareness
+### `context(section="status", topic="")` — scope awareness
 
 Agents call `context()` to load ontology/scope/status together, or request only
-the `meta` section to decide whether to query the graph or work from memory:
+the `status` section to decide whether to query the graph or work from memory:
 
 ```json
 {
@@ -116,20 +116,6 @@ resolve pass.
 
 Both derive namespace from the verified server scope; agents cannot write into
 another namespace by placing `ns` in a fact payload.
-
-### Full compatibility profile
-
-For an existing prompt that still calls the old 14 names:
-
-```bash
-uvx lorekeep mcp add --agent claude --ns <ns> --profile full
-# or for a manual server:
-uvx lorekeep serve --profile full
-```
-
-Set `agents.mcp_profile: full` in `config.yaml` if daemon auto-wiring should
-preserve that choice. The `full` profile exposes the core tools plus the old
-temporal, context, and write aliases; `core` remains the recommended default.
 
 **Confidence guidance for agents:**
 - ≥ 0.8: explicit claim with source citation. "The codebase shows service X uses database Y."

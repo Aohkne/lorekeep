@@ -73,7 +73,6 @@ agents:
   auto_wire: true                  # let the daemon wire newly installed agents
   wire_scope: user                 # user (every project) | project (this dir only)
   wire_interval_seconds: 900       # how often to re-check; writes are no-ops when unchanged
-  mcp_profile: core                # core (7 tools) | full (core + legacy aliases)
   enabled: [claude, codex, cursor, opencode]   # narrow this to opt an agent out
   watch_transcripts: true          # dump conversations to raw/<agent>-session/ (no LLM)
   transcript_max_batches: 20       # per session; caps how much of a long chat is kept

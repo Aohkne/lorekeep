@@ -1,4 +1,4 @@
-"""Compact MCP profile registration and routing tests."""
+"""Compact MCP surface registration and routing tests."""
 from __future__ import annotations
 
 import asyncio
@@ -11,9 +11,8 @@ import pytest
 import lorekeep.mcp_server as ms
 
 
-def _tool_map(profile: str) -> dict:
-    server = ms.create_mcp(profile)
-    return {tool.name: tool for tool in asyncio.run(server.list_tools())}
+def _tool_map() -> dict:
+    return {tool.name: tool for tool in asyncio.run(ms.mcp.list_tools())}
 
 
 def _setup(tmp_path: Path, fixtures: Path, *, pending: bool = False) -> Path | None:
@@ -39,10 +38,13 @@ def _entries(pending: Path) -> list[dict]:
     return result
 
 
-def test_core_profile_exposes_exactly_seven_composable_tools():
-    tools = _tool_map("core")
+def test_server_exposes_exactly_seven_composable_tools():
+    tools = _tool_map()
 
-    assert tuple(tools) == ms.CORE_TOOL_NAMES
+    assert tuple(tools) == (
+        "search", "get_node", "neighbors", "temporal_query", "context",
+        "propose_change", "review_note",
+    )
     assert len(tools) == 7
     assert set(tools["temporal_query"].inputSchema["properties"]["mode"]["enum"]) == {
         "at_time", "history", "changes",
@@ -52,38 +54,8 @@ def test_core_profile_exposes_exactly_seven_composable_tools():
     }
 
 
-def test_module_level_server_is_stably_core(monkeypatch):
-    monkeypatch.setenv("LOREKEEP_MCP_PROFILE", "full")
-
-    names = [tool.name for tool in asyncio.run(ms.mcp.list_tools())]
-
-    assert tuple(names) == ms.CORE_TOOL_NAMES
-
-
-def test_full_profile_keeps_every_legacy_name_plus_compact_tools():
-    tools = _tool_map("full")
-
-    assert set(ms.LEGACY_TOOL_NAMES) <= set(tools)
-    assert set(ms.CORE_TOOL_NAMES) <= set(tools)
-    assert tuple(tools) == ms.FULL_TOOL_NAMES
-
-
-def test_core_profile_materially_reduces_tool_schema_footprint():
-    full = _tool_map("full")
-
-    def encoded_size(names: tuple[str, ...]) -> int:
-        payload = [
-            full[name].model_dump(mode="json", by_alias=True, exclude_none=True)
-            for name in names
-        ]
-        return len(json.dumps(payload, separators=(",", ":")))
-
-    assert encoded_size(ms.CORE_TOOL_NAMES) < encoded_size(ms.LEGACY_TOOL_NAMES) * 0.8
-
-
-def test_profiles_publish_passive_context_as_resources():
-    server = ms.create_mcp("core")
-    resources = asyncio.run(server.list_resources())
+def test_server_publishes_passive_context_as_resources():
+    resources = asyncio.run(ms.mcp.list_resources())
 
     assert {str(resource.uri) for resource in resources} == {
         "lorekeep://schema",
@@ -95,25 +67,16 @@ def test_profiles_publish_passive_context_as_resources():
 
 def test_passive_resources_return_scoped_json(tmp_path: Path, fixtures: Path):
     _setup(tmp_path, fixtures)
-    server = ms.create_mcp("core")
 
-    schema_payload = asyncio.run(server.read_resource("lorekeep://schema"))[0]
+    schema_payload = asyncio.run(ms.mcp.read_resource("lorekeep://schema"))[0]
     namespaces_payload = asyncio.run(
-        server.read_resource("lorekeep://namespaces")
+        ms.mcp.read_resource("lorekeep://namespaces")
     )[0]
-    status_payload = asyncio.run(server.read_resource("lorekeep://status"))[0]
+    status_payload = asyncio.run(ms.mcp.read_resource("lorekeep://status"))[0]
 
     assert "service" in json.loads(schema_payload.content)["node_types"]
     assert json.loads(namespaces_payload.content) == ["backend", "public"]
     assert json.loads(status_payload.content)["nodes"] >= 1
-
-
-def test_profile_validation_and_environment(monkeypatch):
-    monkeypatch.setenv("LOREKEEP_MCP_PROFILE", "FULL")
-    assert ms.normalize_mcp_profile() == "full"
-    assert ms.normalize_mcp_profile("core") == "core"
-    with pytest.raises(ValueError, match="choose core\\|full"):
-        ms.create_mcp("wide")
 
 
 def test_temporal_query_routes_all_modes(tmp_path: Path, fixtures: Path):
@@ -160,7 +123,7 @@ def test_context_combines_schema_scope_and_freshness(tmp_path: Path, fixtures: P
 
     assert "service" in result["schema"]["node_types"]
     assert result["namespaces"] == ["backend", "public"]
-    assert result["meta"]["coverage"]["matching_nodes"] >= 1
+    assert result["status"]["coverage"]["matching_nodes"] >= 1
     assert "error" in ms.context("unknown")
 
 

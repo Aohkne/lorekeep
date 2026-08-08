@@ -1,4 +1,4 @@
-"""Unit tests for the 5 MCP write tools (journal-based)."""
+"""Unit tests for compact journal-based MCP writes."""
 import json
 import shutil
 import tempfile
@@ -32,10 +32,34 @@ def _journal_entries(pending: Path) -> list[dict]:
     return entries
 
 
-# ── propose_fact ──────────────────────────────────────────────────────────
+def _create(fact: dict, confidence: float) -> dict:
+    return ms.propose_change("create", fact, confidence)
 
 
-def test_propose_fact_writes_journal(fixtures: Path):
+def _link(from_id: str, to_id: str, edge_type: str, confidence: float) -> dict:
+    return ms.propose_change(
+        "link",
+        {"from_id": from_id, "to_id": to_id, "edge_type": edge_type},
+        confidence,
+    )
+
+
+def _update(id: str, props: dict, confidence: float) -> dict:
+    return ms.propose_change("update", {"id": id, "props": props}, confidence)
+
+
+def _contradiction(fact_a: str, fact_b: str, description: str) -> dict:
+    return ms.review_note("contradiction", description, [fact_a, fact_b])
+
+
+def _improvement(description: str) -> dict:
+    return ms.review_note("improvement", description)
+
+
+# ── create operation ─────────────────────────────────────────────────────
+
+
+def test_create_writes_journal(fixtures: Path):
     d, pending = _setup(fixtures, ["backend"])
     fact = {
         "kind": "node",
@@ -43,7 +67,7 @@ def test_propose_fact_writes_journal(fixtures: Path):
         "type": "service",
         "props": {"name": "new-service"},
     }
-    r = ms.propose_fact(fact, confidence=0.9)
+    r = _create(fact, confidence=0.9)
     assert r["accepted"] is True
     assert r["status"] == "pending"
 
@@ -54,14 +78,14 @@ def test_propose_fact_writes_journal(fixtures: Path):
     assert entries[0]["confidence"] == 0.9
 
 
-def test_propose_fact_rejects_invalid_node_type(fixtures: Path):
+def test_create_rejects_invalid_node_type(fixtures: Path):
     _setup(fixtures, ["backend"])
     fact = {"kind": "node", "id": "x", "type": "nonexistent", "props": {}}
-    r = ms.propose_fact(fact, confidence=0.9)
+    r = _create(fact, confidence=0.9)
     assert "error" in r
 
 
-def test_propose_fact_strips_caller_ns(fixtures: Path):
+def test_create_strips_caller_ns(fixtures: Path):
     d, pending = _setup(fixtures, ["backend"])
     fact = {
         "kind": "node",
@@ -70,24 +94,24 @@ def test_propose_fact_strips_caller_ns(fixtures: Path):
         "ns": ["evil"],
         "props": {},
     }
-    ms.propose_fact(fact, confidence=0.9)
+    _create(fact, confidence=0.9)
     entries = _journal_entries(pending)
     assert "evil" not in entries[0]["fact"].get("ns", [])
 
 
-def test_propose_fact_without_pending_dir(fixtures: Path):
+def test_create_without_pending_dir(fixtures: Path):
     _setup(fixtures, ["backend"], with_pending=False)
     fact = {"kind": "node", "id": "x", "type": "service", "props": {}}
-    r = ms.propose_fact(fact, confidence=0.9)
+    r = _create(fact, confidence=0.9)
     assert "error" in r
 
 
-# ── link_facts ────────────────────────────────────────────────────────────
+# ── link operation ───────────────────────────────────────────────────────
 
 
-def test_link_facts_writes_journal(fixtures: Path):
+def test_link_writes_journal(fixtures: Path):
     d, pending = _setup(fixtures, ["backend"])
-    r = ms.link_facts("svc:payments-api", "svc:auth", "depends_on", confidence=0.85)
+    r = _link("svc:payments-api", "svc:auth", "depends_on", confidence=0.85)
     assert r["accepted"] is True
 
     entries = _journal_entries(pending)
@@ -99,32 +123,32 @@ def test_link_facts_writes_journal(fixtures: Path):
     assert fact["type"] == "depends_on"
 
 
-def test_link_facts_rejects_unknown_from(fixtures: Path):
+def test_link_rejects_unknown_from(fixtures: Path):
     _setup(fixtures, ["backend"])
-    r = ms.link_facts("svc:nonexistent", "svc:auth", "depends_on", confidence=0.8)
+    r = _link("svc:nonexistent", "svc:auth", "depends_on", confidence=0.8)
     assert "error" in r
 
 
-def test_link_facts_rejects_unknown_edge_type(fixtures: Path):
+def test_link_rejects_unknown_edge_type(fixtures: Path):
     _setup(fixtures, ["backend"])
-    r = ms.link_facts("svc:payments-api", "svc:auth", "bogus_type", confidence=0.8)
+    r = _link("svc:payments-api", "svc:auth", "bogus_type", confidence=0.8)
     assert "error" in r
 
 
-def test_link_facts_rejects_invalid_endpoint_types(fixtures: Path):
+def test_link_rejects_invalid_endpoint_types(fixtures: Path):
     _setup(fixtures, ["backend"])
-    result = ms.link_facts(
+    result = _link(
         "team:backend", "svc:auth", "depends_on", confidence=0.8,
     )
     assert "invalid endpoints" in result["error"]
 
 
-# ── flag_contradiction ───────────────────────────────────────────────────
+# ── contradiction review ─────────────────────────────────────────────────
 
 
-def test_flag_contradiction_writes_journal(fixtures: Path):
+def test_contradiction_writes_journal(fixtures: Path):
     d, pending = _setup(fixtures, ["backend"])
-    r = ms.flag_contradiction("svc:payments-api", "svc:auth", "mutually exclusive configs")
+    r = _contradiction("svc:payments-api", "svc:auth", "mutually exclusive configs")
     assert r["accepted"] is True
     assert "contradiction" in r["id"]
 
@@ -133,18 +157,18 @@ def test_flag_contradiction_writes_journal(fixtures: Path):
     assert entries[0]["confidence"] == 0.0
 
 
-def test_flag_contradiction_without_pending_dir(fixtures: Path):
+def test_contradiction_without_pending_dir(fixtures: Path):
     _setup(fixtures, ["backend"], with_pending=False)
-    r = ms.flag_contradiction("svc:payments-api", "svc:auth", "test")
+    r = _contradiction("svc:payments-api", "svc:auth", "test")
     assert "error" in r
 
 
-# ── update_fact ───────────────────────────────────────────────────────────
+# ── update operation ─────────────────────────────────────────────────────
 
 
-def test_update_fact_writes_journal(fixtures: Path):
+def test_update_writes_journal(fixtures: Path):
     d, pending = _setup(fixtures, ["backend"])
-    r = ms.update_fact("svc:payments-api", {"lang": "rust"}, confidence=0.8)
+    r = _update("svc:payments-api", {"lang": "rust"}, confidence=0.8)
     assert r["accepted"] is True
 
     entries = _journal_entries(pending)
@@ -152,13 +176,13 @@ def test_update_fact_writes_journal(fixtures: Path):
     assert entries[0]["fact"]["props"]["lang"] == "rust"
 
 
-def test_update_fact_rejects_unknown_id(fixtures: Path):
+def test_update_rejects_unknown_id(fixtures: Path):
     _setup(fixtures, ["backend"])
-    r = ms.update_fact("svc:nonexistent", {"lang": "rust"}, confidence=0.8)
+    r = _update("svc:nonexistent", {"lang": "rust"}, confidence=0.8)
     assert "error" in r
 
 
-def test_update_fact_rejects_hidden_id(fixtures: Path):
+def test_update_rejects_hidden_id(fixtures: Path):
     d, pending = _setup(fixtures, ["backend"])
     hidden = {
         "kind": "node", "id": "svc:secret", "type": "service",
@@ -174,18 +198,18 @@ def test_update_fact_rejects_hidden_id(fixtures: Path):
         pending_dir=pending,
     )
 
-    result = ms.update_fact("svc:secret", {"lang": "rust"}, confidence=0.8)
+    result = _update("svc:secret", {"lang": "rust"}, confidence=0.8)
 
     assert "error" in result
     assert _journal_entries(pending) == []
 
 
-# ── suggest_improvement ──────────────────────────────────────────────────
+# ── improvement review ───────────────────────────────────────────────────
 
 
-def test_suggest_improvement_writes_journal(fixtures: Path):
+def test_improvement_writes_journal(fixtures: Path):
     d, pending = _setup(fixtures, ["backend"])
-    r = ms.suggest_improvement("Add documentation for auth flow")
+    r = _improvement("Add documentation for auth flow")
     assert r["accepted"] is True
     assert "suggestion" in r["id"]
 
@@ -194,105 +218,105 @@ def test_suggest_improvement_writes_journal(fixtures: Path):
     assert entries[0]["fact"]["type"] == "note"
 
 
-def test_suggest_improvement_without_pending_dir(fixtures: Path):
+def test_improvement_without_pending_dir(fixtures: Path):
     _setup(fixtures, ["backend"], with_pending=False)
-    r = ms.suggest_improvement("test suggestion")
+    r = _improvement("test suggestion")
     assert "error" in r
 
 
-# ── propose_fact edge validation ──────────────────────────────────────────
+# ── create edge validation ───────────────────────────────────────────────
 
 
-def test_propose_fact_no_schema(fixtures: Path):
-    """propose_fact returns error when no schema is loaded."""
+def test_create_no_schema(fixtures: Path):
+    """Create returns an error when no schema is loaded."""
     d = Path(tempfile.mkdtemp())
     shutil.copy(fixtures / "gold/payments.facts.jsonl", d / "facts.jsonl")
     ms.configure(graph_dir=d, allowed_ns=["backend"], schema_path=None,
                  pending_dir=d / "pending")
     fact = {"kind": "node", "id": "x", "type": "service", "props": {}}
-    r = ms.propose_fact(fact, confidence=0.9)
+    r = _create(fact, confidence=0.9)
     assert "error" in r and "schema" in r["error"]
 
 
-def test_propose_fact_edge_valid(fixtures: Path):
+def test_create_edge_valid(fixtures: Path):
     """A valid edge proposal passes all validation checks."""
     d, pending = _setup(fixtures, ["backend"])
     fact = {
         "kind": "edge", "id": "e_test_edge", "type": "depends_on",
         "from": "svc:payments-api", "to": "svc:auth", "props": {},
     }
-    r = ms.propose_fact(fact, confidence=0.85)
+    r = _create(fact, confidence=0.85)
     assert r["accepted"] is True
 
 
-def test_propose_fact_edge_unknown_type(fixtures: Path):
+def test_create_edge_unknown_type(fixtures: Path):
     _setup(fixtures, ["backend"])
     fact = {
         "kind": "edge", "id": "e_bad", "type": "bogus_edge",
         "from": "svc:payments-api", "to": "svc:auth", "props": {},
     }
-    r = ms.propose_fact(fact, confidence=0.8)
+    r = _create(fact, confidence=0.8)
     assert "error" in r and "unknown edge type" in r["error"]
 
 
-def test_propose_fact_edge_endpoint_not_found(fixtures: Path):
+def test_create_edge_endpoint_not_found(fixtures: Path):
     _setup(fixtures, ["backend"])
     fact = {
         "kind": "edge", "id": "e_orphan", "type": "depends_on",
         "from": "svc:nonexistent", "to": "svc:auth", "props": {},
     }
-    r = ms.propose_fact(fact, confidence=0.8)
-    assert "error" in r and "endpoint" in r["error"]
+    r = _create(fact, confidence=0.8)
+    assert "error" in r and "from node" in r["error"]
 
 
-def test_propose_fact_edge_invalid_endpoints(fixtures: Path):
+def test_create_edge_invalid_endpoints(fixtures: Path):
     """depends_on requires service→service, not team→service."""
     _setup(fixtures, ["backend"])
     fact = {
         "kind": "edge", "id": "e_wrong", "type": "depends_on",
         "from": "team:backend", "to": "svc:auth", "props": {},
     }
-    r = ms.propose_fact(fact, confidence=0.8)
+    r = _create(fact, confidence=0.8)
     assert "error" in r and "invalid endpoints" in r["error"]
 
 
-def test_propose_fact_unknown_kind(fixtures: Path):
+def test_create_unknown_kind(fixtures: Path):
     _setup(fixtures, ["backend"])
     fact = {"kind": "bogus", "id": "x", "type": "service", "props": {}}
-    r = ms.propose_fact(fact, confidence=0.8)
+    r = _create(fact, confidence=0.8)
     assert "error" in r and "unknown fact kind" in r["error"]
 
 
-# ── link_facts edge cases ─────────────────────────────────────────────────
+# ── link edge cases ──────────────────────────────────────────────────────
 
 
-def test_link_facts_unknown_to(fixtures: Path):
-    """link_facts rejects when the 'to' node doesn't exist."""
+def test_link_unknown_to(fixtures: Path):
+    """Link rejects when the 'to' node does not exist."""
     _setup(fixtures, ["backend"])
-    r = ms.link_facts("svc:payments-api", "svc:nonexistent", "depends_on",
-                      confidence=0.8)
+    r = _link("svc:payments-api", "svc:nonexistent", "depends_on",
+              confidence=0.8)
     assert "error" in r and "to node" in r["error"]
 
 
-def test_link_facts_no_schema(fixtures: Path):
-    """link_facts returns error when no schema is loaded."""
+def test_link_no_schema(fixtures: Path):
+    """Link returns an error when no schema is loaded."""
     d = Path(tempfile.mkdtemp())
     shutil.copy(fixtures / "gold/payments.facts.jsonl", d / "facts.jsonl")
     ms.configure(graph_dir=d, allowed_ns=["backend"], schema_path=None,
                  pending_dir=d / "pending")
-    r = ms.link_facts("svc:payments-api", "svc:auth", "depends_on",
-                      confidence=0.8)
+    r = _link("svc:payments-api", "svc:auth", "depends_on",
+              confidence=0.8)
     assert "error" in r and "schema" in r["error"]
 
 
-# ── update_fact on edge ───────────────────────────────────────────────────
+# ── update edge ──────────────────────────────────────────────────────────
 
 
-def test_update_fact_edge(fixtures: Path):
-    """update_fact can update an edge's props, not just a node's."""
+def test_update_edge(fixtures: Path):
+    """Update can replace an edge's props, not just a node's."""
     d, pending = _setup(fixtures, ["backend"])
     # e_dep_1 is an existing edge in the payments fixture
-    r = ms.update_fact("e_dep_1", {"weight": "critical"}, confidence=0.9)
+    r = _update("e_dep_1", {"weight": "critical"}, confidence=0.9)
     assert r["accepted"] is True
     entries = _journal_entries(pending)
     assert len(entries) == 1

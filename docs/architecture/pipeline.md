@@ -63,9 +63,8 @@ propose_change(
 # → ZERO additional LLM cost (agent already ran LLM for the conversation)
 ```
 
-Core write tools are `propose_change` and `review_note`; the `full` profile
-retains the old names as compatibility aliases. See [serve & MCP](serve-mcp.md)
-for details.
+The write tools are `propose_change` and `review_note`. See
+[serve & MCP](serve-mcp.md) for details.
 
 ## Path 3: import sessions
 

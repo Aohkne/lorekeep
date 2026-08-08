@@ -113,7 +113,6 @@ def test_agents_defaults_are_autonomous():
     assert agents.wire_scope == "user"
     assert agents.watch_transcripts is True
     assert agents.deep_import is False
-    assert agents.mcp_profile == "core"
     assert agents.enabled == ["claude", "codex", "cursor", "opencode"]
 
 
@@ -123,24 +122,15 @@ def test_agents_section_is_read_from_yaml(tmp_path: Path):
         "agents:\n"
         "  auto_wire: false\n"
         "  wire_scope: project\n"
-        "  mcp_profile: full\n"
         "  enabled: [codex]\n"
         "  transcript_max_batches: 3\n"
     )
     agents = load_config(cfg).agents
     assert agents.auto_wire is False
     assert agents.wire_scope == "project"
-    assert agents.mcp_profile == "full"
     assert agents.enabled == ["codex"]
     assert agents.transcript_max_batches == 3
     assert agents.watch_transcripts is True        # unspecified keys keep defaults
-
-
-def test_agents_rejects_unknown_mcp_profile():
-    with pytest.raises(ValueError):
-        Config.model_validate({"agents": {"mcp_profile": "wide"}})
-
-
 @pytest.mark.parametrize(
     "key", ["wire_interval_seconds", "transcript_max_batches",
             "transcript_max_chars", "transcript_retain_sessions"],

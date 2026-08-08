@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -65,7 +64,6 @@ class AgentsConfig(BaseModel):
     transcript_retain_sessions: int = Field(default=5, gt=0)
     deep_import: bool = False                # advanced opt-in: LLM summarization
     self_heal: bool = True                   # daemon auto-heals graph after compile
-    mcp_profile: Literal["core", "full"] = "core"  # compact default; full keeps aliases
 
 
 class Config(BaseModel):

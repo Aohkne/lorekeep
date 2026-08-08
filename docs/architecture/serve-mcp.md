@@ -9,13 +9,11 @@ The serve chain loads `facts.jsonl` once and exposes it to coding agents over MC
 - **Transport:** stdio (default, for coding agents); streamable HTTP is a phase-2 team-server option.
 - **Load:** `facts.jsonl` loaded into an in-memory `GraphStore` (networkx `MultiDiGraph`); optional FTS cache rebuilt lazily.
 - **Auth → ns:** reads `LOREKEEP_NS` / config at startup; every tool call is scoped through `ScopedGraph`.
-- **Profiles:** `core` is the default 7-tool surface; `full` adds every legacy
-  alias for migration and debugging. Select with `--profile`,
-  `LOREKEEP_MCP_PROFILE`, or `agents.mcp_profile` for automatic wiring.
+- **Surface:** exactly 7 composable tools plus 3 passive context resources.
 - **Lazy-reload:** every query stats `facts.jsonl`'s mtime; if it changed (after compile or resolve) the graph is rebuilt automatically. Connect the server once — graph updates are visible without reconnecting. Reconnect is only needed for code or scope (`.mcp.json` `LOREKEEP_NS`) changes.
 - **Journals:** write tools append to `pending/<ns>/journal.jsonl`; facts enter the graph on the next resolve pass, not immediately. This avoids write conflicts and keeps the read path fast.
 
-## Core profile (7 tools, scoped)
+## MCP surface (7 tools, scoped)
 
 | Tool | Purpose |
 |---|---|
@@ -40,18 +38,6 @@ giving the model more action choices:
 - `lorekeep://status`
 
 `context()` is the fallback for clients that do not surface resources.
-
-### Full compatibility profile
-
-`lorekeep serve --profile full` publishes the 7 compact tools and all 14 old
-names. The aliases route to the same permission and journal implementation:
-
-| Legacy names | Compact replacement |
-|---|---|
-| `at_time`, `history`, `changes` | `temporal_query` |
-| `schema`, `list_namespaces`, `meta` | `context` or resources |
-| `propose_fact`, `link_facts`, `update_fact` | `propose_change` |
-| `flag_contradiction`, `suggest_improvement` | `review_note` |
 
 ## Journal-based writes
 
@@ -104,7 +90,7 @@ MCP server lazy-reloads on next query → fact is now searchable
 
 ## Coding-agent integration
 
-`lorekeep mcp add --agent {claude|cursor|codex|opencode} [--scope project|user] [--ns <ns>] [--profile core|full]` writes the correct config and prints an agent-memory snippet to paste into `CLAUDE.md` / `.cursorrules` / `AGENTS.md`.
+`lorekeep mcp add --agent {claude|cursor|codex|opencode} [--scope project|user] [--ns <ns>]` writes the correct config and prints an agent-memory snippet to paste into `CLAUDE.md` / `.cursorrules` / `AGENTS.md`.
 
 > **Install source.** The snippets use `uvx lorekeep`, which assumes the package is on PyPI. `mcp add` detects `install_source` from `.lorekeep/config.yaml` so the emitted config matches the deployment (PyPI `uvx`, `git+https`, or a local `uv tool install .`).
 
@@ -115,7 +101,7 @@ MCP server lazy-reloads on next query → fact is now searchable
   "mcpServers": {
     "lorekeep": {
       "command": "uvx",
-      "args": ["lorekeep", "serve", "--transport", "stdio", "--profile", "core"],
+      "args": ["lorekeep", "serve", "--transport", "stdio"],
       "env": { "LOREKEEP_NS": "backend" }
     }
   }

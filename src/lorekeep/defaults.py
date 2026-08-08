@@ -210,7 +210,6 @@ agents:
   auto_wire: true
   wire_scope: user
   wire_interval_seconds: 900
-  mcp_profile: core
   enabled: [claude, codex, cursor, opencode]
   watch_transcripts: true
   transcript_max_batches: 20

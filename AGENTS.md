@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Lorekeep compiles a team's raw markdown docs into a **temporal knowledge graph** (`facts.jsonl`) and exposes it to coding agents (Claude Code, Cursor, Codex, opencode) over MCP, with per-namespace permission. The default `core` MCP profile has 7 composable tools plus passive context resources; the `full` profile retains all legacy aliases. Agent writes are confidence-gated journals merged on resolve. Knowledge is processed once at compile time, not re-RAG'd per query.
+Lorekeep compiles a team's raw markdown docs into a **temporal knowledge graph** (`facts.jsonl`) and exposes it to coding agents (Claude Code, Cursor, Codex, opencode) over MCP, with per-namespace permission. The MCP surface has 7 composable tools plus passive context resources. Agent writes are confidence-gated journals merged on resolve. Knowledge is processed once at compile time, not re-RAG'd per query.
 
 ## Commands
 
@@ -27,8 +27,8 @@ uv run lorekeep <command>                    # run the CLI in dev mode
 | `init` | Bootstrap data home (config + schema + raw/graph dirs) |
 | `compile` | `raw/*.md` → `graph/facts.jsonl` + `manifest.json` + `wiki/` (runs the LLM pipeline, auto-generates wiki) |
 | `wiki` | Regenerate `wiki/` from `facts.jsonl` (Obsidian-compatible markdown) |
-| `serve [--transport stdio\|http] [--profile core\|full]` | Run the MCP server (`core`: 7 tools; `full`: core + legacy aliases) |
-| `mcp add --agent claude\|cursor\|codex\|opencode --ns NS [--profile core\|full]` | Write agent MCP config |
+| `serve [--transport stdio\|http]` | Run the MCP server (7 tools + passive resources) |
+| `mcp add --agent claude\|cursor\|codex\|opencode --ns NS` | Write agent MCP config |
 | `config show` | Print config.yaml |
 | `config set <key> <value>` | Set nested config value (dot notation) |
 | `import --from claude\|cursor\|codex\|opencode` | Import agent sessions into `raw/` |
@@ -58,7 +58,7 @@ Pydantic, all `frozen=True`, `extra="forbid"`. `Node` / `Edge` are the two `kind
 - **`perm/ns.py` `ScopedGraph`** — the **single permission chokepoint**. Wraps a `GraphStore` and filters *every* query. Deny-by-default: `effective_ns = allowed ∪ {public}`; a node is visible iff `ns ∩ effective_ns ≠ ∅`; an edge iff **both** endpoints visible **and** `edge.ns ∩ effective_ns ≠ ∅` (an edge never leaks a neighbor the caller can't see). **Any new query path must go through `ScopedGraph`, not `GraphStore` directly.**
 
 ### Serve (`mcp_server.py`)
-`FastMCP` defaults to 7 tools: `search`, `get_node`, `neighbors`, `temporal_query`, `context`, `propose_change`, `review_note`. Schema, visible namespaces, and status also have passive resources (`lorekeep://schema`, `lorekeep://namespaces`, `lorekeep://status`). `create_mcp(profile)` builds an isolated registry: `core` exposes exactly 7 tools; `full` adds all 14 legacy names. Module-global `ScopedGraph` is set by `configure()`; `_require()` lazy-reloads when `facts.jsonl` mtime changes. `_manifest` loads `manifest.json` for freshness/coverage. Tools remain plain directly callable functions — **tests invoke them directly, no MCP transport**. Any new compact wrapper must route through an existing scoped function, never `GraphStore` directly. The writer uses atomic `os.replace` so lazy-reload never reads a half-written file.
+`FastMCP` exposes exactly 7 tools: `search`, `get_node`, `neighbors`, `temporal_query`, `context`, `propose_change`, `review_note`. Schema, visible namespaces, and status also have passive resources (`lorekeep://schema`, `lorekeep://namespaces`, `lorekeep://status`). Module-global `ScopedGraph` is set by `configure()`; `_require()` lazy-reloads when `facts.jsonl` mtime changes. `_manifest` loads `manifest.json` for freshness/coverage. Tools remain plain directly callable functions — **tests invoke them directly, no MCP transport**. Every query must pass through `ScopedGraph`, never `GraphStore` directly. The writer uses atomic `os.replace` so lazy-reload never reads a half-written file.
 
 ### Wiki (`wiki.py`)
 Pure JSONL → markdown transform (no LLM). `generate_wiki(graph_dir, wiki_dir)` reads `facts.jsonl` via `GraphStore` → entity pages (`entities/<type>/<slug>.md` with YAML frontmatter, wikilinks, props table), `index.md` (catalog), `overview.md` (stats dashboard), `log.md` (append-only, preserved across regen). Builds into `.wiki-build.tmp` then `os.rename` swaps into place (atomic). `_slug()` replaces `:`/`/` with `-`; collisions raise `ValueError`. YAML scalars quoted via `json.dumps` so IDs like `svc:payments-api` parse correctly. Props table escapes `\|`, collapses newlines, serializes non-strings. Regenerates on every `facts.jsonl` mutation: `compile` (single regen — `_do_auto_resolve` returns bool, compile skips if resolve already regend), `resolve` (gated on merge/flag), daemon auto-resolve (on actual merge). Best-effort — never blocks compile or resolve.
@@ -74,7 +74,7 @@ Polls every 60s. `_discover_watchable_sessions()` finds Claude `memory/` + Codex
 
 ## Configuration & keys
 
-`config.yaml` (precedence: explicit `LOREKEEP_*` env > `LOREKEEP_HOME` > dev marker > XDG). **API keys never go in committed files** — use `provider.api_key_env` (name of an env var); inline `provider.api_key` is allowed only in the gitignored local config. Serve-time scope comes from `LOREKEEP_NS` (comma-separated) env or `config.ns.default`. Auto-wired agents use `agents.mcp_profile` (`core` by default); a manual server can use `--profile` or `LOREKEEP_MCP_PROFILE`. Template: `.lorekeep/config.yaml.example`.
+`config.yaml` (precedence: explicit `LOREKEEP_*` env > `LOREKEEP_HOME` > dev marker > XDG). **API keys never go in committed files** — use `provider.api_key_env` (name of an env var); inline `provider.api_key` is allowed only in the gitignored local config. Serve-time scope comes from `LOREKEEP_NS` (comma-separated) env or `config.ns.default`. Template: `.lorekeep/config.yaml.example`.
 
 ### Backup
 
@@ -100,6 +100,6 @@ The startup update script already runs `uv sync`; the toolchain (Python 3.11+ vi
 Non-obvious caveats for running/testing here:
 
 - **No API key needed for tests.** Tests inject `FakeProvider` via `patch_make_provider` / `patch_make_import_provider` conftest fixtures. For manual smoke testing, configure a real provider in `config.yaml`. To avoid polluting the repo's `.lorekeep/` data home, run demos against a throwaway data home: `LOREKEEP_HOME=/tmp/lk uv run lorekeep <cmd>`.
-- **End-to-end smoke flow** (offline): `init` → drop a markdown file under `.lorekeep/raw/<ns>/` → `compile` → `doctor`. Then query the graph by calling the `mcp_server.py` tools directly after `ms.configure(graph_dir=..., allowed_ns=[...], schema_path=...)` — the read tools (`search`, `get_node`, `neighbors`, `at_time`, `history`, `list_namespaces`) are plain functions, no MCP transport required. `search` returns a list of node-id strings; `get_node` returns a dict; `neighbors`/`at_time`/`changes` return `{"nodes": [...], "edges": [...]}`.
+- **End-to-end smoke flow** (offline): `init` → drop a markdown file under `.lorekeep/raw/<ns>/` → `compile` → `doctor`. Then query the graph by calling the `mcp_server.py` tools directly after `ms.configure(graph_dir=..., allowed_ns=[...], schema_path=...)`. `search` returns node ids; `get_node` returns a node; `neighbors` and `temporal_query` return scoped graph data; `context` returns ontology, namespaces, and status.
 - **`lorekeep serve` blocks on stdio** waiting for an MCP client — it won't return on its own. To just confirm it boots, run it under `timeout` with stdin closed (`timeout 3 uv run lorekeep serve --transport stdio </dev/null`); a clean timeout with no error output means success.
 - **`tests/test_mcp_reload.py::test_lazy_reload_on_facts_change` is timing-flaky** — lazy-reload triggers off `facts.jsonl` mtime, and the test can rewrite the file within one mtime tick on fast filesystems, so it intermittently fails then passes on re-run. Treat an isolated failure of just this test as a flake, not a regression.

@@ -29,8 +29,8 @@ Everything below is implemented today and is what the roadmap builds on:
 - **Subject-aware ontology v2** — work-context node types + cross-namespace edges;
   the `me` namespace is subject-centric (altitude rule: tokens → attributes), team
   namespaces are entity-centric. ScopedGraph gates visibility per namespace.
-- **MCP, compact profiles** — 7 composable core tools plus passive context
-  resources; an opt-in full profile retains legacy aliases. Agents read at
+- **MCP, compact surface** — 7 composable tools plus passive context
+  resources. Agents read at
   query time and propose facts through journals (zero marginal LLM cost).
 - **Three write paths → one resolve** — `raw/` compile, agent propose, session
   import — converge into a pure-logic resolve step.
