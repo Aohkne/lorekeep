@@ -6,7 +6,7 @@ from lorekeep.config import Config
 
 def test_default_schema_is_valid_json_v4():
     d = DEFAULT_SCHEMA
-    assert d["version"] == 5
+    assert d["version"] == 4
     assert "service" in d["node_types"]
     assert "person" in d["node_types"]
     assert "domain" in d["node_types"]          # replaced concept
@@ -26,12 +26,6 @@ def test_default_schema_is_valid_json_v4():
     assert d["node_types"]["decision"]["display_prop"] == "title"
     assert d["edge_types"]["depends_on"]["label"] == "Depends on"
     assert d["edge_types"]["depends_on"]["inverse_label"] == "Depended on by"
-    # insight node type (schema v5 — agent-synthesized knowledge)
-    assert "insight" in d["node_types"]
-    assert d["node_types"]["insight"]["display_prop"] == "title"
-    assert d["node_types"]["insight"]["plural"] == "Insights"
-    assert "insight" in d["edge_types"]["relates_to"]["from"]
-    assert "insight" in d["edge_types"]["relates_to"]["to"]
     json.dumps(d)  # serializable
 
 
