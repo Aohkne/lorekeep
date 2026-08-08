@@ -367,6 +367,18 @@ def merge_journals(
             result.quarantined.append((entry, "low confidence"))
             continue
 
+        # Stamp agent provenance onto the fact so it survives the merge.
+        # Compiled facts have src=["path:line", ...]; agent-proposed facts
+        # carry their metadata here instead.
+        fact = fact.model_copy(update={
+            "provenance": {
+                "agent": entry.agent,
+                "confidence": entry.confidence,
+                "proposed_at": entry.proposed_at,
+                **({"device": entry.device} if entry.device else {}),
+            },
+        })
+
         if schema is not None and fact.kind == "node":
             if not schema.is_valid_node_type(fact.type):
                 result.quarantined.append((entry, f"unknown node type: {fact.type}"))

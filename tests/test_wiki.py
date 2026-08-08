@@ -742,7 +742,7 @@ class TestHumanReadableProjection:
         assert "## Goals and projects" in index
         assert "## People and teams" in index
         assert "Graph schema is out of date" in index
-        assert "schema v3" in index and "schema is v4" in index
+        assert "schema v3" in index and "schema is v5" in index
         assert "## Goals" in catalog
         assert "## People" in catalog
         assert "[[person-manh|Mạnh]] — Người duy trì Lorekeep." in catalog
