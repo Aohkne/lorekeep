@@ -2685,7 +2685,7 @@ def watch(
                     p["out"], p.get("schema"),
                     enabled=_acfg.self_heal if _acfg else True,
                 )
-                if not resolved and not healed:
+                if not resolved or healed:
                     _auto_generate_wiki(p["out"], p.get("wiki"), p.get("schema"))
 
             # --- pending/ watch → auto-resolve ------------------------------
