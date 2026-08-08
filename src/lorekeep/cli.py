@@ -9,11 +9,10 @@ from pathlib import Path
 
 import typer
 
-# Suppress IncompleteFieldDefinitionWarning from pydantic-settings: the MCP
-# library's Settings class has a forward reference (lifespan -> FastMCP[...])
-# that can't be resolved at class-definition time. This is an upstream bug in
-# the mcp package, not something lorekeep can fix. The warning is harmless —
-# lorekeep never reads the lifespan setting from env/config sources.
+# TODO(upstream): remove once the mcp package resolves the forward reference
+# in FastMCP.Settings.lifespan. Track: https://github.com/jlowin/fastmcp/issues
+# When the warning disappears on a fresh `lorekeep doctor` after an mcp
+# upgrade, delete this block.
 try:
     from pydantic_settings.sources.utils import IncompleteFieldDefinitionWarning
     warnings.filterwarnings("ignore", category=IncompleteFieldDefinitionWarning)
