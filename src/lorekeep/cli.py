@@ -4,9 +4,21 @@ from __future__ import annotations
 import json
 import logging
 import os
+import warnings
 from pathlib import Path
 
 import typer
+
+# Suppress IncompleteFieldDefinitionWarning from pydantic-settings: the MCP
+# library's Settings class has a forward reference (lifespan -> FastMCP[...])
+# that can't be resolved at class-definition time. This is an upstream bug in
+# the mcp package, not something lorekeep can fix. The warning is harmless —
+# lorekeep never reads the lifespan setting from env/config sources.
+try:
+    from pydantic_settings.sources.utils import IncompleteFieldDefinitionWarning
+    warnings.filterwarnings("ignore", category=IncompleteFieldDefinitionWarning)
+except ImportError:
+    pass
 
 from lorekeep import __version__
 from lorekeep.compile.providers import LiteLLMProvider
