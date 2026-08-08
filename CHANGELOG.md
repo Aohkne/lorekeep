@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.24.1 (2026-08-08)
+
+## What's Changed
+* revert: remove insight node type, keep provenance by @manhhailua in https://github.com/manhhailua/lorekeep/pull/204
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.24.0...v0.24.1
+
 ## 0.24.0 (2026-08-08)
 
 ## What's Changed
