@@ -4,9 +4,20 @@ from __future__ import annotations
 import json
 import logging
 import os
+import warnings
 from pathlib import Path
 
 import typer
+
+# TODO(upstream): remove once the mcp package resolves the forward reference
+# in FastMCP.Settings.lifespan. Track: https://github.com/jlowin/fastmcp/issues
+# When the warning disappears on a fresh `lorekeep doctor` after an mcp
+# upgrade, delete this block.
+try:
+    from pydantic_settings.sources.utils import IncompleteFieldDefinitionWarning
+    warnings.filterwarnings("ignore", category=IncompleteFieldDefinitionWarning)
+except ImportError:
+    pass
 
 from lorekeep import __version__
 from lorekeep.compile.providers import LiteLLMProvider
@@ -2674,7 +2685,7 @@ def watch(
                     p["out"], p.get("schema"),
                     enabled=_acfg.self_heal if _acfg else True,
                 )
-                if not resolved and not healed:
+                if not resolved or healed:
                     _auto_generate_wiki(p["out"], p.get("wiki"), p.get("schema"))
 
             # --- pending/ watch → auto-resolve ------------------------------
