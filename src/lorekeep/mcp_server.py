@@ -5,6 +5,7 @@ Writes append to pending/<ns>/journal.jsonl and enter the graph on resolve.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -31,6 +32,20 @@ _scope: ScopedGraph | None = None
 _schema: Schema | None = None
 _manifest: Manifest | None = None
 _fts: FTSIndex | None = None
+
+
+def _close_fts() -> None:
+    """Close the FTS sqlite connection if open (atexit + pre-rebuild)."""
+    global _fts
+    if _fts is not None:
+        try:
+            _fts.close()
+        except Exception:
+            pass
+        _fts = None
+
+
+atexit.register(_close_fts)
 
 
 def configure(graph_dir, allowed_ns, schema_path=None, fts_path=None, pending_dir=None) -> None:
@@ -67,6 +82,7 @@ def _rebuild() -> None:
         Manifest.from_json(manifest_path.read_text(encoding="utf-8"))
         if manifest_path.exists() else None
     )
+    _close_fts()
     try:
         _fts = FTSIndex(_state["fts_path"])
         _fts.build(store.all_nodes())
