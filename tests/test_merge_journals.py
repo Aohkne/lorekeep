@@ -118,6 +118,54 @@ def test_accepted_entries_can_be_replayed_after_raw_compile():
     assert r.merge_count == 0
 
 
+# ── Agent provenance ─────────────────────────────────────────────────────
+
+
+def test_provenance_stamped_on_new_node_from_journal():
+    """JournalEntry metadata survives into the merged Node.provenance field."""
+    entry = _entry(_node_fact(), confidence=0.9)
+    entry = entry.model_copy(update={"agent": "claude-code", "device": "laptop"})
+    r = merge_journals([], [], [entry])
+    node = [n for n in r.nodes if n.id == "svc:new"][0]
+    assert node.provenance is not None
+    assert node.provenance["agent"] == "claude-code"
+    assert node.provenance["confidence"] == 0.9
+    assert node.provenance["proposed_at"] == "2026-06-28T00:00:00Z"
+    assert node.provenance["device"] == "laptop"
+
+
+def test_provenance_stamped_on_edge_from_journal():
+    """JournalEntry metadata survives into the merged Edge.provenance field."""
+    nodes = [_node(), _node(id="svc:b")]
+    entry = _entry(_edge_fact(), confidence=0.85)
+    entry = entry.model_copy(update={"agent": "cursor"})
+    r = merge_journals(nodes, [], [entry])
+    edge = [e for e in r.edges if e.type == "depends_on"][0]
+    assert edge.provenance is not None
+    assert edge.provenance["agent"] == "cursor"
+    assert edge.provenance["confidence"] == 0.85
+
+
+def test_provenance_none_for_existing_curator_nodes():
+    """Curator (compiled) nodes that don't come through the journal have no provenance."""
+    curator_node = _node()
+    r = merge_journals([curator_node], [], [])
+    node = [n for n in r.nodes if n.id == "svc:a"][0]
+    assert node.provenance is None
+
+
+def test_provenance_skips_empty_device():
+    """Device is omitted from provenance when blank (not stored as empty string)."""
+    entry = _entry(_node_fact(), confidence=0.9)
+    r = merge_journals([], [], [entry])
+    node = [n for n in r.nodes if n.id == "svc:new"][0]
+    assert node.provenance is not None
+    assert "device" not in node.provenance
+
+
+# ── Replay / merge interactions ─────────────────────────────────────────
+
+
 def test_replay_does_not_overwrite_fresh_curator_properties():
     raw = Node(
         id="svc:new", type="service", ns=("backend",),

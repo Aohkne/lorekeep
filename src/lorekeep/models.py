@@ -42,6 +42,7 @@ class Node(BaseModel):
     valid_to: date | None = None
     props: dict[str, Any] = Field(default_factory=dict)
     src: tuple[str, ...] = Field(default_factory=tuple)
+    provenance: dict[str, Any] | None = None
 
     def to_json_line(self) -> str:
         d = self.model_dump(mode="json", by_alias=True)
@@ -60,6 +61,7 @@ class Edge(BaseModel):
     valid_to: date | None = None
     props: dict[str, Any] = Field(default_factory=dict)
     src: tuple[str, ...] = Field(default_factory=tuple)
+    provenance: dict[str, Any] | None = None
 
     def to_json_line(self) -> str:
         d = self.model_dump(mode="json", by_alias=True)
