@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.23.1 (2026-08-08)
+
+## What's Changed
+* fix(mcp): close FTS sqlite connection to prevent ResourceWarning by @manhhailua in https://github.com/manhhailua/lorekeep/pull/198
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.23.0...v0.23.1
+
 ## 0.23.0 (2026-08-08)
 
 ## What's Changed
