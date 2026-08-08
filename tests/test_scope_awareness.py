@@ -1,4 +1,4 @@
-"""Tests for scope-awareness: meta tool, graph stats, compiled_at."""
+"""Tests for scope-awareness: context tool, graph stats, compiled_at."""
 from __future__ import annotations
 
 import json
@@ -8,9 +8,13 @@ from pathlib import Path
 import pytest
 
 from lorekeep.models import Edge, Manifest, Node, now_iso
-from lorekeep.mcp_server import configure, meta
+from lorekeep.mcp_server import configure, context
 from lorekeep.perm.ns import ScopedGraph
 from lorekeep.store.graph import GraphStore
+
+
+def mcp_status(topic: str = "") -> dict:
+    return context("status", topic)["status"]
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
@@ -179,20 +183,20 @@ class TestScopedGraphStats:
         assert s["edges"] == 0
 
 
-# ── MCP meta() tool ────────────────────────────────────────────────────────
+# ── MCP context() status ──────────────────────────────────────────────────
 
 
 class TestMetaTool:
     def test_meta_basic(self, graph_dir, tmp_path):
         configure(graph_dir=graph_dir, allowed_ns=["backend", "frontend"])
-        result = meta()
+        result = mcp_status()
         assert result["nodes"] == 5
         assert result["edges"] == 1
         assert result["pending"] == 0
 
     def test_meta_compile_info(self, graph_dir):
         configure(graph_dir=graph_dir, allowed_ns=["backend"])
-        result = meta()
+        result = mcp_status()
         assert result["compile"]["run_id"] == "test123"
         assert result["compile"]["compiled_at"] is not None
         assert result["compile"]["merged_count"] == 2
@@ -200,14 +204,14 @@ class TestMetaTool:
 
     def test_meta_ns_filtered(self, graph_dir):
         configure(graph_dir=graph_dir, allowed_ns=["frontend"])
-        result = meta()
+        result = mcp_status()
         assert result["nodes"] == 1
         assert result["provenance"]["curator"] == 1
 
     def test_meta_topic(self, graph_dir):
         configure(graph_dir=graph_dir, allowed_ns=["backend", "frontend"])
         configure(graph_dir=graph_dir, allowed_ns=["backend", "frontend"])
-        result = meta(topic="payment")
+        result = mcp_status(topic="payment")
         assert result["coverage"]["matching_nodes"] == 1
         assert "svc:payments-api" in result["coverage"]["node_ids"]
 
@@ -221,7 +225,7 @@ class TestMetaTool:
         ))
         (g / "manifest.json").unlink()
         configure(graph_dir=g, allowed_ns=["backend"])
-        result = meta()
+        result = mcp_status()
         assert "compile" not in result or result.get("compile", {}).get("compiled_at") is None
 
     def test_meta_pending_count(self, graph_dir, tmp_path):
@@ -244,12 +248,12 @@ class TestMetaTool:
             ),
             "backend",
         )
-        result = meta()
+        result = mcp_status()
         assert result["pending"] == 1
 
     def test_meta_provenance(self, graph_dir):
         configure(graph_dir=graph_dir, allowed_ns=["backend", "frontend"])
-        result = meta()
+        result = mcp_status()
         assert result["provenance"]["curator"] == 4
         assert result["provenance"]["agent"] == 1
 
@@ -258,7 +262,7 @@ class TestMetaTool:
         g.mkdir()
         (g / "facts.jsonl").write_text("")
         configure(graph_dir=g, allowed_ns=["backend"])
-        result = meta()
+        result = mcp_status()
         assert result["nodes"] == 0
         assert result["pending"] == 0
 

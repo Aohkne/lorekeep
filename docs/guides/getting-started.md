@@ -143,12 +143,10 @@ uvx lorekeep mcp add --agent opencode --ns backend
 
 Supported agents: `claude`, `cursor`, `codex`, `opencode`.
 
-Restart the agent → the 14 Lorekeep tools (9 read: `search`, `get_node`,
-`neighbors`, `at_time`, `history`, `changes`, `list_namespaces`, `schema`, `meta`;
-5 write: `propose_fact`, `link_facts`, `flag_contradiction`, `update_fact`,
-`suggest_improvement`) are
-available, scoped to `backend` (+ `public`). See
-[Serving the graph](serve.md).
+Restart the agent → the 7-tool MCP surface (`search`, `get_node`, `neighbors`,
+`temporal_query`, `context`, `propose_change`, `review_note`) is available,
+scoped to `backend` (+ `public`). Schema, namespaces, and status are also
+available as passive MCP resources. See [Serving the graph](serve.md).
 
 ## 7. Keep the graph current (daemon)
 

@@ -14,7 +14,7 @@ def test_serve_invokes_mcp_run(tmp_path: Path, fixtures: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
     monkeypatch.setenv("LOREKEEP_NS", "teams/backend")
 
-    # Patch mcp.run to a no-op so the CLI returns without blocking on stdio.
+    # Patch MCP server to a no-op so CLI does not block on stdio.
     import lorekeep.mcp_server as ms
     ran = {"ok": False}
 

@@ -12,9 +12,8 @@ PATH 1 — raw/ compile (curator, LLM-powered)
   raw/<ns>/*.md ──► ingest ──► extract(LLM) ──┐
                                                │
 PATH 2 — agent propose (runtime, ZERO LLM)     │
-  coding agent ──► propose_fact() ──► ─────────┤
-                  link_facts()                 │
-                  flag_contradiction()         │
+  coding agent ──► propose_change() ──► ───────┤
+                  review_note()                │
                                                │
 PATH 3 — import (curator, LLM-summarize)       │
   agent sessions ──► import ──► raw/ ──► ──────┘
@@ -49,21 +48,23 @@ Coding agents propose facts during conversation through MCP write tools. Each pr
 ```python
 # Agent-side (Claude Code): agent discovers checkout service during conversation
 # It calls the MCP tool (ns is server-enforced, not caller-provided):
-propose_fact({
-    "fact": {
+propose_change(
+    operation="create",
+    payload={
         "kind": "node",
         "id": "svc:checkout",
         "type": "service",
         "props": {"lang": "rust"}
     },
-    "confidence": 0.85
-})
+    confidence=0.85,
+)
 # Server derives ns from LOREKEEP_NS, strips fact.ns if present
 # → appended to pending/backend/journal.jsonl
 # → ZERO additional LLM cost (agent already ran LLM for the conversation)
 ```
 
-Write tools available: `propose_fact`, `link_facts`, `flag_contradiction`, `update_fact`, `suggest_improvement`. See [serve & MCP](serve-mcp.md) for details.
+The write tools are `propose_change` and `review_note`. See
+[serve & MCP](serve-mcp.md) for details.
 
 ## Path 3: import sessions
 

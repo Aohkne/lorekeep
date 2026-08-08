@@ -9,35 +9,41 @@ The serve chain loads `facts.jsonl` once and exposes it to coding agents over MC
 - **Transport:** stdio (default, for coding agents); streamable HTTP is a phase-2 team-server option.
 - **Load:** `facts.jsonl` loaded into an in-memory `GraphStore` (networkx `MultiDiGraph`); optional FTS cache rebuilt lazily.
 - **Auth → ns:** reads `LOREKEEP_NS` / config at startup; every tool call is scoped through `ScopedGraph`.
+- **Surface:** exactly 7 composable tools plus 3 passive context resources.
 - **Lazy-reload:** every query stats `facts.jsonl`'s mtime; if it changed (after compile or resolve) the graph is rebuilt automatically. Connect the server once — graph updates are visible without reconnecting. Reconnect is only needed for code or scope (`.mcp.json` `LOREKEEP_NS`) changes.
 - **Journals:** write tools append to `pending/<ns>/journal.jsonl`; facts enter the graph on the next resolve pass, not immediately. This avoids write conflicts and keeps the read path fast.
 
-## Read tools (9 tools, scoped)
+## MCP surface (7 tools, scoped)
 
 | Tool | Purpose |
 |---|---|
 | `search(query, limit)` | Text search (FTS if cached, else scan) within ns scope. |
 | `get_node(id)` | Node + props + provenance `src`. |
 | `neighbors(id, edge_type?, depth?)` | Traverse (both directions, depth ≤ 5), ns-scoped. |
-| `at_time(time)` | Snapshot of facts valid at `time`. |
-| `history(id)` | Temporal versions of an entity + touching edges. |
-| `changes(from_t, to_t)` | Edges whose window began/ended in the range. |
-| `list_namespaces()` | Namespaces visible to this caller. |
-| `schema()` | Available node/edge types. |
+| `temporal_query(mode, params)` | `at_time`, `history`, or `changes` behind one typed temporal verb. |
+| `context(section?, topic?)` | Schema, visible namespaces, graph coverage, provenance, and freshness. |
+| `propose_change(operation, payload, confidence)` | Create a fact, link nodes, or replace a fact's props through the pending journal. |
+| `review_note(kind, description, fact_ids?)` | Record a contradiction or improvement for curator review. |
 
-Every read tool is auto-scoped by `allowed_ns`. See [permission](permission.md) and [temporal](temporal.md) for the filtering these tools apply.
+Every read path is scoped by `allowed_ns`. See [permission](permission.md) and
+[temporal](temporal.md) for the filtering these tools apply.
 
-## Write tools (5 tools, journal-based)
+### Passive MCP resources
 
-Write tools **do not mutate** `facts.jsonl` directly. They append to `pending/<ns>/journal.jsonl`. Facts become visible after the next resolve pass (see [pipeline](pipeline.md)).
+Clients that support MCP resources can read static/contextual data without
+giving the model more action choices:
 
-| Tool | Purpose | Confidence |
-|---|---|---|
-| `propose_fact(fact, confidence)` | Propose a new node or edge. `ns` is server-enforced from `LOREKEEP_NS`, caller-provided `fact.ns` is stripped. | Agent-estimated (0-1) |
-| `link_facts(from_id, to_id, type, confidence)` | Create an edge between two existing nodes | Typically high (≥0.8) |
-| `flag_contradiction(fact_a_id, fact_b_id, description)` | Report conflicting facts for curator review | N/A (review, not merge) |
-| `update_fact(id, props, confidence)` | Propose updated props for an existing fact | Typically medium-high |
-| `suggest_improvement(description)` | Suggest a non-fact improvement (gap, missing entity) | N/A (review only) |
+- `lorekeep://schema`
+- `lorekeep://namespaces`
+- `lorekeep://status`
+
+`context()` is the fallback for clients that do not surface resources.
+
+## Journal-based writes
+
+`propose_change` and `review_note` **do not mutate** `facts.jsonl` directly.
+They append to `pending/<ns>/journal.jsonl`; facts become visible after resolve
+(see [pipeline](pipeline.md)).
 
 All write tools derive `ns` from the server's verified `LOREKEEP_NS` scope, never from caller input. The `fact.ns` field inside proposed facts is stripped and replaced with the server-verified namespace at journal-append time. This prevents an agent scoped to `backend` from injecting facts into `frontend`.
 
@@ -55,7 +61,7 @@ Agents should self-estimate confidence when proposing facts:
 Agent discovers knowledge during conversation
   │
   ▼
-Agent calls MCP write tool (e.g. propose_fact)
+Agent calls MCP write tool (propose_change or review_note)
   │
   ▼
 Server validates: ns derived from LOREKEEP_NS (caller cannot override), fact.ns stripped and replaced, fact matches schema
@@ -107,14 +113,12 @@ MCP server lazy-reloads on next query → fact is now searchable
 ```markdown
 ## Lorekeep knowledge base (MCP)
 Before answering architecture/code/domain questions, query Lorekeep:
-search(q) → get_node(id) → neighbors / at_time / history as needed.
+search(q) → get_node(id) → neighbors / temporal_query as needed.
+Use context() for ontology, visible namespaces, and graph freshness.
 Always cite `src` provenance. Knowledge is namespace-scoped — if a fact is
-missing, it may be outside your scope, not nonexistent.
-
-When you discover new knowledge during conversation (services, dependencies,
-decisions), call propose_fact or link_facts to contribute it back. Estimate
-confidence: ≥0.8 for explicit claims with source, 0.5 to <0.8 for implications.
-Facts enter the graph on the next resolve pass.
+missing, it may be outside your scope, not nonexistent. Use propose_change for
+facts/links/updates and review_note for contradictions or gaps. Facts enter the
+graph on the next resolve pass.
 ```
 
 ### `lorekeep doctor`

@@ -327,8 +327,8 @@ class TestMCPToolsCallable:
         result = get_node("svc:secret")
         assert "error" in result
 
-    def test_meta_callable(self, tmp_path):
-        from lorekeep.mcp_server import configure, meta
+    def test_context_callable(self, tmp_path):
+        from lorekeep.mcp_server import configure, context
         from lorekeep.compile.writer import write_graph
 
         nodes = [Node(id="svc:x", type="service", ns=("backend",), props={"name": "x"})]
@@ -338,7 +338,7 @@ class TestMCPToolsCallable:
             run_id="x", facts_hash="y",
         ))
         configure(graph_dir=g, allowed_ns=["backend"])
-        result = meta()
+        result = context("status")["status"]
         assert result["nodes"] == 1
 
 

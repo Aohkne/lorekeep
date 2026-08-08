@@ -25,7 +25,7 @@ Lorekeep is a **second brain for code**: one knowledge graph that aggregates wha
                                                   │
   2. Agent propose ──► MCP write tools ──► ───────┤
      (runtime, ZERO LLM cost)                     │
-     propose_fact / link_facts / flag_contradiction│
+     propose_change / review_note                  │
                                                   │
   3. Import sessions ──► import --from claude ──►─┘
      (agent history → raw/ → compile)              │

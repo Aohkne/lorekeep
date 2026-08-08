@@ -29,8 +29,9 @@ Everything below is implemented today and is what the roadmap builds on:
 - **Subject-aware ontology v2** — work-context node types + cross-namespace edges;
   the `me` namespace is subject-centric (altitude rule: tokens → attributes), team
   namespaces are entity-centric. ScopedGraph gates visibility per namespace.
-- **MCP, 9 read + 5 write tools** — agents read at query time and propose facts at
-  runtime through journal-based write tools (zero marginal LLM cost).
+- **MCP, compact surface** — 7 composable tools plus passive context
+  resources. Agents read at
+  query time and propose facts through journals (zero marginal LLM cost).
 - **Three write paths → one resolve** — `raw/` compile, agent propose, session
   import — converge into a pure-logic resolve step.
 - **4-agent session import + hooks** — Claude / Cursor / Codex / opencode memories
@@ -58,7 +59,7 @@ directions, not a sequence — several advance in parallel.
 - **Why:** you run Claude Code + Cursor + Codex at once; they all write to the same
   brain.
 - **Scope:** sharper contradiction detection across parallel proposals (beyond the
-  current `flag_contradiction`); agent-identity provenance on every fact; atomic
+  current `review_note(kind="contradiction")`); agent-identity provenance on every fact; atomic
   journal appends; deterministic merge under concurrent writes.
 - **Non-goals:** a central server (that's phase 5); real-time co-editing UX.
 - **Builds on:** append-only journal + resolve merge (shipped).

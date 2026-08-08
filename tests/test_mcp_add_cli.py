@@ -75,7 +75,9 @@ def test_mcp_add_opencode_project(tmp_path: Path, monkeypatch):
     data = json.loads((tmp_path / "opencode.json").read_text())
     entry = data["mcp"]["lorekeep"]
     assert entry["type"] == "local"
-    assert entry["command"] == ["lorekeep", "serve", "--transport", "stdio"]
+    assert entry["command"] == [
+        "lorekeep", "serve", "--transport", "stdio",
+    ]
     assert entry["environment"]["LOREKEEP_NS"] == "teams/backend"
 
 

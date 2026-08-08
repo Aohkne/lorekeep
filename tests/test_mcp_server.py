@@ -29,35 +29,37 @@ def test_neighbors_tool(fixtures: Path):
     assert {n["id"] for n in r["nodes"]} == {"svc:payments-api", "svc:auth"}
 
 
-def test_schema_tool(fixtures: Path):
+def test_context_schema(fixtures: Path):
     setup_server(fixtures, ["backend"])
-    r = ms.schema()
+    r = ms.context("schema")["schema"]
     assert "node_types" in r and "service" in r["node_types"]
 
 
-def test_list_namespaces_tool(fixtures: Path):
+def test_context_namespaces(fixtures: Path):
     setup_server(fixtures, ["backend"])
-    assert ms.list_namespaces() == ["backend", "public"]
+    assert ms.context("namespaces")["namespaces"] == ["backend", "public"]
 
 
-def test_at_time_tool(fixtures: Path):
+def test_temporal_at_time(fixtures: Path):
     setup_server(fixtures, ["backend"])
-    r = ms.at_time("2025-02-28")
+    r = ms.temporal_query("at_time", {"time": "2025-02-28"})
     types = {e["type"] for e in r["edges"]}
     assert "depends_on" in types
-    r2 = ms.at_time("2025-03-01")
+    r2 = ms.temporal_query("at_time", {"time": "2025-03-01"})
     assert "depends_on" not in {e["type"] for e in r2["edges"]}
 
 
-def test_history_tool(fixtures: Path):
+def test_temporal_history(fixtures: Path):
     setup_server(fixtures, ["backend"])
-    h = ms.history("svc:payments-api")
+    h = ms.temporal_query("history", {"id": "svc:payments-api"})["items"]
     assert h[0]["kind"] == "node"
 
 
-def test_changes_tool(fixtures: Path):
+def test_temporal_changes(fixtures: Path):
     setup_server(fixtures, ["backend"])
-    r = ms.changes("2024-01-01", "2025-04-01")
+    r = ms.temporal_query(
+        "changes", {"from_time": "2024-01-01", "to_time": "2025-04-01"},
+    )
     assert "depends_on" in {e["type"] for e in r["began"]}
 
 

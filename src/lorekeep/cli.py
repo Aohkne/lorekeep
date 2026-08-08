@@ -654,16 +654,17 @@ def serve(
         raise typer.Exit(code=1)
     try:
         configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         from lorekeep.output import error
         error(str(exc))
         log.error(
-            "serve: graph not built detail=%s", exc,
-            extra={"event": "serve.no_graph"},
+            "serve: invalid startup configuration detail=%s", exc,
+            extra={"event": "serve.invalid_config"},
         )
         raise typer.Exit(code=1)
     log.info(
-        "MCP server starting transport=%s namespace_count=%s", transport, len(allowed),
+        "MCP server starting transport=%s namespace_count=%s",
+        transport, len(allowed),
         extra={"event": "mcp.start"},
     )
     try:
@@ -1011,9 +1012,9 @@ def doctor() -> None:
     allowed = [x.strip() for x in raw_ns.split(",")] if raw_ns else config.ns.default
 
     try:
-        from lorekeep.mcp_server import configure, list_namespaces
+        from lorekeep.mcp_server import configure, context
         configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
-        ns = list_namespaces()
+        ns = context("namespaces")["namespaces"]
     except Exception as exc:
         problems.append(f"mcp configure/tool failed: {exc}")
         ns = []

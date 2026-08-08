@@ -131,8 +131,6 @@ def test_agents_section_is_read_from_yaml(tmp_path: Path):
     assert agents.enabled == ["codex"]
     assert agents.transcript_max_batches == 3
     assert agents.watch_transcripts is True        # unspecified keys keep defaults
-
-
 @pytest.mark.parametrize(
     "key", ["wire_interval_seconds", "transcript_max_batches",
             "transcript_max_chars", "transcript_retain_sessions"],
