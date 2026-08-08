@@ -20,7 +20,7 @@ uvx lorekeep agent watch &
 
 ```json
 {"mcpServers": {"lorekeep": {"command": "uvx",
-  "args": ["lorekeep", "serve", "--transport", "stdio"],
+  "args": ["lorekeep", "serve", "--transport", "stdio", "--profile", "core"],
   "env": {"LOREKEEP_NS": "<ns>"}}}}
 ```
 
@@ -42,15 +42,26 @@ LOREKEEP_HOME=~/kb-work uvx lorekeep init
 LOREKEEP_HOME=~/kb-work uvx lorekeep compile
 ```
 
-## Read tools (9 tools, scoped)
+## Core profile (7 tools, scoped)
 
-`search`, `get_node`, `neighbors`, `at_time`, `history`, `changes`,
-`list_namespaces`, `schema`, `meta`. Results are filtered to `LOREKEEP_NS`; cross-namespace
-edges are hidden unless both endpoints are visible.
+The default surface is deliberately small:
 
-### `meta(topic="")` — scope awareness
+- Read/context: `search`, `get_node`, `neighbors`, `temporal_query`, `context`.
+- Write/review: `propose_change`, `review_note`.
+- Passive resources: `lorekeep://schema`, `lorekeep://namespaces`,
+  `lorekeep://status`.
 
-Agents call `meta()` to decide whether to query the graph or work from memory:
+Results are filtered to `LOREKEEP_NS`; cross-namespace edges are hidden unless
+both endpoints are visible.
+
+Use `temporal_query(mode="at_time", params={"time": ...})`,
+`temporal_query(mode="history", params={"id": ...})`, or
+`temporal_query(mode="changes", params={"from_time": ..., "to_time": ...})`.
+
+### `context(section="meta", topic="")` — scope awareness
+
+Agents call `context()` to load ontology/scope/status together, or request only
+the `meta` section to decide whether to query the graph or work from memory:
 
 ```json
 {
@@ -92,19 +103,33 @@ Pass `topic` to check coverage for a specific subject:
 
 **Freshness signal:** `freshness.expired` counts nodes whose `valid_to` has passed. `compile.compiled_at` shows when the graph was last rebuilt. `pending` shows unresolved agent proposals.
 
-## Write tools (5 tools, journal-based)
+## Journal-based writes
 
 Agents contribute knowledge during conversation at **zero LLM cost**. Facts
 are appended to `pending/` journals and merged into the graph on the next
 resolve pass.
 
-| Tool | Purpose | Confidence |
+| Tool | Modes | Purpose |
 |---|---|---|
-| `propose_fact(fact, confidence)` | Propose a new node or edge. `ns` is server-enforced, not callable. | Agent-estimated (0-1) |
-| `link_facts(from_id, to_id, type, confidence)` | Create an edge | Typically ≥ 0.8 |
-| `flag_contradiction(a, b, description)` | Report conflicting facts | N/A |
-| `update_fact(id, props, confidence)` | Update existing fact props | 0.5-0.8 |
-| `suggest_improvement(description)` | Suggest gap or improvement | N/A |
+| `propose_change(operation, payload, confidence)` | `create`, `link`, `update` | Propose a node/edge, connect nodes, or replace a fact's complete props map. |
+| `review_note(kind, description, fact_ids?)` | `contradiction`, `improvement` | Record work that must stay pending for curator review. |
+
+Both derive namespace from the verified server scope; agents cannot write into
+another namespace by placing `ns` in a fact payload.
+
+### Full compatibility profile
+
+For an existing prompt that still calls the old 14 names:
+
+```bash
+uvx lorekeep mcp add --agent claude --ns <ns> --profile full
+# or for a manual server:
+uvx lorekeep serve --profile full
+```
+
+Set `agents.mcp_profile: full` in `config.yaml` if daemon auto-wiring should
+preserve that choice. The `full` profile exposes the core tools plus the old
+temporal, context, and write aliases; `core` remains the recommended default.
 
 **Confidence guidance for agents:**
 - ≥ 0.8: explicit claim with source citation. "The codebase shows service X uses database Y."

@@ -28,7 +28,7 @@ pending/
 └── codex/journal.jsonl         # facts proposed by Codex agent (any ns)
 ```
 
-**Write routing**: an agent in `LOREKEEP_NS=backend` calling `propose_fact` writes to `pending/backend/journal.jsonl`. The entry's `agent` field records attribution (`"claude"`).
+**Write routing**: an agent in `LOREKEEP_NS=backend` calling `propose_change` writes to `pending/backend/journal.jsonl`. The entry's `agent` field records attribution (`"claude"`).
 
 **Resolve loading**: resolve loads ALL journals (`pending/**/journal.jsonl`) — not selectively by namespace. This ensures agent-scoped journals (`pending/claude/`) are not missed and entries from all namespaces are merged together. Selectivity happens at the read path (ScopedGraph filters by ns), not at resolve.
 
@@ -50,7 +50,7 @@ See [data model](data-model.md#pending-journal-format) for the full schema.
 ┌─────────────────────────────────────────────────────────────┐
 │                    AGENT SESSION                             │
 │  Agent discovers: "service checkout is written in Rust"      │
-│  Agent calls: propose_fact({id:"svc:checkout", ...}, 0.85)  │
+│  Agent calls: propose_change(create, payload={...}, 0.85)    │
 └─────────────────────────┬───────────────────────────────────┘
                           │
                           ▼
@@ -130,9 +130,8 @@ Default: truncate. Archive mode available via `lorekeep resolve --archive`.
 | Operation | LLM calls | Why |
 |---|---|---|
 | Agent conversation (existing) | 1 (already running) | Agent runs LLM to answer user |
-| `propose_fact` | 0 | Formats existing output into JSON |
-| `link_facts` | 0 | Creates edge between known nodes |
-| `flag_contradiction` | 0 | Metadata-only flag |
+| `propose_change(create/link/update)` | 0 | Formats facts or graph changes into JSON |
+| `review_note(contradiction/improvement)` | 0 | Metadata-only review item |
 | Resolve (periodic) | 0 | Pure Python: dedup, merge, sort |
 | **Total marginal cost** | **0** | |
 
@@ -148,9 +147,9 @@ Write tools do not accept a caller-provided `ns` parameter. The namespace is ser
 
 Self-estimated confidence is the primary gate, but not the only one. Additional controls planned:
 
-1. **Cross-namespace edge gate**: any `link_facts` connecting nodes in different namespaces requires curator review regardless of confidence — cross-ns edges are opt-in.
+1. **Cross-namespace edge gate**: any `propose_change(operation="link")` connecting nodes in different namespaces requires curator review regardless of confidence — cross-ns edges are opt-in.
 2. **New entity type gate**: introducing a fact with a `type` not yet present in the graph requires confidence ≥ 0.9 AND curator review.
-3. **Contradiction flag escalation**: if `flag_contradiction` is called on a fact that was itself agent-proposed, both facts are quarantined until curator resolves.
+3. **Contradiction flag escalation**: if `review_note(kind="contradiction")` targets a fact that was itself agent-proposed, both facts are quarantined until curator resolves.
 4. **Audit trail**: every auto-merged fact carries full provenance (`agent`, `proposed_at`, `src`) for forensic review. A `lorekeep agent status` dashboard shows auto-merge rate per agent.
 
 ### Rate limiting

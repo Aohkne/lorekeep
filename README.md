@@ -47,8 +47,10 @@ compile-once + namespace permission + multi-source (agents/devices/software/team
 - **Namespace permission** — facts are tagged `ns` from the directory tree
   (`raw/<ns>/`); agents scoped to namespaces; cross-namespace edges
   hidden unless both endpoints are visible. Deny-by-default.
-- **MCP, stdio-first** — `lorekeep serve` exposes 9 read + 5 write tools;
-  `lorekeep mcp add` wires Claude Code / Cursor / Codex / opencode.
+- **MCP, stdio-first** — `lorekeep serve` defaults to 7 composable tools plus
+  passive schema/status resources; the opt-in `full` profile retains every
+  legacy tool alias. `lorekeep mcp add` wires Claude Code / Cursor / Codex /
+  opencode.
 - **Autonomous agent daemon** — `lorekeep agent watch` keeps the graph current:
   auto-compile on raw/ change, auto-resolve pending journals, delta import of
   agent session memory. **Auto-backup**: syncs to remote git after compile (pull --rebase + push).
@@ -101,7 +103,10 @@ uvx lorekeep mcp add --agent claude --ns private
 uvx lorekeep doctor
 ```
 
-Restart Claude Code → 14 Lorekeep tools are available (9 read + 5 write), scoped to your namespace. Open `~/.local/share/lorekeep/wiki/` in Obsidian to browse the graph as a human — or just run `uvx lorekeep wiki --open` to generate + launch it. See [Browsing the wiki in Obsidian](docs/guides/wiki.md).
+Restart Claude Code → 7 Lorekeep tools are available, scoped to your namespace.
+Open `~/.local/share/lorekeep/wiki/` in Obsidian to browse the graph as a human
+— or run `uvx lorekeep wiki --open` to generate + launch it. See
+[Browsing the wiki in Obsidian](docs/guides/wiki.md).
 
 ## Lifecycle
 
@@ -129,7 +134,7 @@ The full journey from install to continuous use — see the
 | 3. Compile | `lorekeep compile` | LLM-extract → `facts.jsonl` + `wiki/` (cached, deterministic) |
 | 4. Wire agent | `lorekeep mcp add --agent claude --ns <ns>` | Write `.mcp.json` + session-end hook, scoped to namespace |
 | 5. Verify | `lorekeep doctor` | Graph loads, schema valid, tool responds |
-| 6. Serve | `lorekeep serve` | MCP server (9 read + 5 write tools, lazy-reload) |
+| 6. Serve | `lorekeep serve` | MCP server (7 core tools + resources, lazy-reload) |
 | 7. Keep current | `lorekeep agent watch &` | Daemon: auto-compile, auto-resolve, delta-import sessions |
 | 8. Back up | `lorekeep backup` | Push data home to private git repo (raw/ + schema.json) |
 | 9. Persist daemon | `lorekeep agent service install` | Survive restart (systemd/launchd/startup) |
@@ -160,7 +165,7 @@ import ──► raw/ ──► compile ─────────────�
                                                         ┌───────────────┘
                                                         ▼ (git / S3 sync)
                SERVE + QUERY (runtime, per device)
-facts.jsonl ──load──► GraphStore ──► ScopedGraph(ns) ──► MCP (9 read + 5 write) ──► agent
+facts.jsonl ──load──► GraphStore ──► ScopedGraph(ns) ──► MCP (7 core tools) ──► agent
                          ▲              ▲                      │
                           │              │         ◄── read queries
                           │              └────────── write proposals (journal)
@@ -177,8 +182,9 @@ facts.jsonl ──load──► GraphStore ──► ScopedGraph(ns) ──► M
 
 **Serve**: `GraphStore` loads `facts.jsonl` into a networkx graph with temporal
 queries. `ScopedGraph` is the single permission chokepoint — every query is
-filtered through strict visibility rules. The FastMCP server exposes 9 read
-+ 5 write tools over `ScopedGraph`. It lazy-reloads when
+filtered through strict visibility rules. The FastMCP server exposes 7
+composable core tools over `ScopedGraph`, plus passive schema/namespaces/status
+resources. The `full` profile adds all legacy aliases. It lazy-reloads when
 `facts.jsonl` changes, so `compile` is instantly visible without reconnecting.
 
 ## Concepts
@@ -197,21 +203,28 @@ filtered through strict visibility rules. The FastMCP server exposes 9 read
 `edge.ns ∩ effective_ns ≠ ∅`. Deny-by-default; an edge never reveals a
 neighbor the caller can't see.
 
-**Temporal queries** — `at_time(T)` (snapshot of facts valid at T, half-open
-`[from,to)`), `history(id)` (versions of an entity), `changes(t1,t2)` (edges
-that began/ended in the window).
+**Temporal queries** — `temporal_query(mode, params)` composes snapshot at T,
+entity history, and changes in a range. The underlying half-open validity model
+remains `[from,to)`; `at_time`, `history`, and `changes` stay available in the
+`full` compatibility profile.
 
 **Agent-driven knowledge** — agents propose facts at runtime through MCP write tools (zero LLM cost). Facts land in `pending/<ns>/journal.jsonl` with agent id, confidence score, and timestamp. Resolve merges them into the graph: high-confidence (≥0.8) auto-merge, medium (0.5-0.8) merge + flag, low (<0.5) quarantine.
 
 **Autonomous agent daemon** — `lorekeep agent watch` keeps the graph current: watches `raw/` for changes → auto-compile; monitors `pending/` → auto-resolve; delta-imports agent session memory (Claude / Cursor / Codex / opencode) into `raw/`. Session-end hooks auto-trigger `lorekeep hook` when the agent exits. Scheduled lint and weekly suggestions are planned. See [docs/architecture/agent.md](docs/architecture/agent.md).
 
-## MCP tools (9 read + 5 write, scoped)
+## MCP tools (7-tool core, scoped)
 
-**Read:** `search` · `get_node` · `neighbors` · `at_time` · `history` · `changes` · `list_namespaces` · `schema` · `meta`.
+**Read/context:** `search` · `get_node` · `neighbors` · `temporal_query` ·
+`context`.
 
-**Write** (journal-based, zero LLM cost): `propose_fact` · `link_facts` · `flag_contradiction` · `update_fact` · `suggest_improvement`.
+**Write/review** (journal-based, zero LLM cost): `propose_change` ·
+`review_note`.
 
-Every result is filtered to the caller's namespace. Write tools append to `pending/` journals; facts enter the graph on the next resolve pass.
+The passive `lorekeep://schema`, `lorekeep://namespaces`, and
+`lorekeep://status` MCP resources avoid spending tool slots on static context.
+Every result is filtered to the caller's namespace. Write tools append to
+`pending/`; facts enter the graph only after resolve. Use `--profile full` to
+publish the compact tools plus all 14 legacy names during migration/debugging.
 
 ## Configuration
 
@@ -227,6 +240,8 @@ provider:
 ns:
   default: [me]                                      # serve-time default scope
   personal: me                                       # subject-centric extraction
+agents:
+  mcp_profile: core                                  # core | full
 install_source: pypi                                   # pypi = portable .mcp.json
 ```
 Native providers (`openai`, `anthropic`, `deepseek`, `dashscope`, `gemini`, …)
@@ -282,6 +297,7 @@ lorekeep config show                                    # print current config
 lorekeep config set provider.model deepseek/deepseek-chat
 lorekeep config set provider.api_key_env DEEPSEEK_API_KEY
 lorekeep config set ns.default backend,frontend
+lorekeep config set agents.mcp_profile full             # optional legacy aliases
 lorekeep config set observability.provider langfuse     # optional tracing
 ```
 
@@ -327,7 +343,7 @@ src/lorekeep/
   agent.py             autonomous agent: ingest, lint, suggest, status, watch
   store/{graph,fts}.py                          GraphStore + FTS5 cache
   perm/ns.py                                    ScopedGraph permission chokepoint
-  mcp_server.py                                 FastMCP + 9 read + 5 write tools
+  mcp_server.py                                 FastMCP profiles + resources
   wiki.py                                        Obsidian-compatible wiki generator
   importer/{claude,cursor,codex,opencode}.py    agent session → raw/ importers
   integrations/{claude_code,cursor,codex,opencode,common}.py
@@ -340,7 +356,13 @@ docs/                  README.md index, architecture/, guides/
 
 ## Status
 
-**v1 (implemented)** — the second-brain foundation: compile pipeline + serve (store/permission/MCP 9 read+5 write/4-agent integrations) + import (Claude/Cursor/Codex/opencode) + session-end hooks + agent daemon (watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode + lazy-reload + backup + eval + scope awareness (`meta` tool) + **subject-aware ontology v2** (personal `me` ns + team ns + cross-ns edges) + **Obsidian/Tolaria wiki** + profile/contribution commands. Published to PyPI as `lorekeep`.
+**v1 (implemented)** — the second-brain foundation: compile pipeline + serve
+(store/permission/7-tool core MCP profile/4-agent integrations) + import
+(Claude/Cursor/Codex/opencode) + session-end hooks + agent daemon
+(watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode +
+lazy-reload + backup + eval + scope awareness + **subject-aware ontology v2**
+(personal `me` ns + team ns + cross-ns edges) + **Obsidian/Tolaria wiki** +
+profile/contribution commands. Published to PyPI as `lorekeep`.
 
 **Next** — the second-brain direction is multi-faceted: multi-agent concurrency, multi-device sync, software-source connectors, a proactive agent, a team server, better retrieval. See the full **[Roadmap](docs/ROADMAP.md)**.
 

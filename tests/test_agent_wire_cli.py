@@ -165,6 +165,21 @@ class TestAgentWire:
         data = json.loads((isolated_home / ".claude.json").read_text())
         assert data["mcpServers"]["lorekeep"]["env"]["LOREKEEP_NS"] == "teams/backend"
 
+    def test_configured_full_mcp_profile_reaches_agent(
+        self, wired_project, tmp_path, isolated_home,
+    ):
+        (tmp_path / "data" / "config.yaml").write_text(
+            "install_source: local\nagents:\n  mcp_profile: full\n"
+        )
+
+        result = runner.invoke(app, ["agent", "wire", "--agent", "claude"])
+
+        assert result.exit_code == 0, result.stdout
+        data = json.loads((isolated_home / ".claude.json").read_text())
+        assert data["mcpServers"]["lorekeep"]["args"][-2:] == [
+            "--profile", "full",
+        ]
+
     def test_config_disabled_agent_is_skipped(self, wired_project, tmp_path, isolated_home):
         (tmp_path / "data" / "config.yaml").write_text(
             "install_source: local\nagents:\n  enabled: [claude]\n"

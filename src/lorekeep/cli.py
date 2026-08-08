@@ -627,6 +627,12 @@ def resolve(
 @app.command()
 def serve(
     transport: str = typer.Option("stdio", "--transport", help="stdio (default) | http"),
+    profile: str = typer.Option(
+        None,
+        "--profile",
+        help="MCP surface: core (7 tools, default) | full (core + legacy aliases)",
+        envvar="LOREKEEP_MCP_PROFILE",
+    ),
 ) -> None:
     """Serve the scoped graph over MCP."""
     p = resolve_paths()
@@ -636,7 +642,7 @@ def serve(
     else:
         allowed = load_config(p["config"]).ns.default
     try:
-        from lorekeep.mcp_server import configure, mcp
+        from lorekeep.mcp_server import configure, create_mcp, normalize_mcp_profile
     except ImportError as exc:
         from lorekeep.output import error
         missing = str(exc)
@@ -653,17 +659,20 @@ def serve(
         )
         raise typer.Exit(code=1)
     try:
+        selected_profile = normalize_mcp_profile(profile)
+        mcp = create_mcp(selected_profile)
         configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         from lorekeep.output import error
         error(str(exc))
         log.error(
-            "serve: graph not built detail=%s", exc,
-            extra={"event": "serve.no_graph"},
+            "serve: invalid startup configuration detail=%s", exc,
+            extra={"event": "serve.invalid_config"},
         )
         raise typer.Exit(code=1)
     log.info(
-        "MCP server starting transport=%s namespace_count=%s", transport, len(allowed),
+        "MCP server starting transport=%s profile=%s namespace_count=%s",
+        transport, selected_profile, len(allowed),
         extra={"event": "mcp.start"},
     )
     try:
@@ -939,13 +948,24 @@ def mcp_add(
     agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode"),
     scope: str = typer.Option("project", "--scope", help="project | user"),
     ns: str = typer.Option(None, "--ns", help="namespace to scope the agent to"),
+    profile: str = typer.Option(
+        None,
+        "--profile",
+        help="core (7 tools, default) | full (core + legacy aliases)",
+    ),
 ) -> None:
     """Write the agent's MCP config + print an agent-memory snippet."""
     from lorekeep.integrations.common import agent_memory_snippet, resolve_command
 
     p = resolve_paths()
     config = load_config(p["config"])
-    command, args = resolve_command(config.install_source)
+    selected_profile = profile or config.agents.mcp_profile
+    if selected_profile not in ("core", "full"):
+        typer.echo(f"unknown MCP profile: {selected_profile} (choose core|full)")
+        raise typer.Exit(code=1)
+    command, args = resolve_command(
+        config.install_source, profile=selected_profile,
+    )
     hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
 
     _validate_scope(scope)
@@ -1367,7 +1387,9 @@ def _wire_one(
     from lorekeep.integrations.common import resolve_command
 
     config = load_config(resolve_paths()["config"])
-    command, args = resolve_command(config.install_source)
+    command, args = resolve_command(
+        config.install_source, profile=config.agents.mcp_profile,
+    )
     hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
 
     writer = spec.writer()

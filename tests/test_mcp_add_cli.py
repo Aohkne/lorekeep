@@ -75,8 +75,38 @@ def test_mcp_add_opencode_project(tmp_path: Path, monkeypatch):
     data = json.loads((tmp_path / "opencode.json").read_text())
     entry = data["mcp"]["lorekeep"]
     assert entry["type"] == "local"
-    assert entry["command"] == ["lorekeep", "serve", "--transport", "stdio"]
+    assert entry["command"] == [
+        "lorekeep", "serve", "--transport", "stdio", "--profile", "core",
+    ]
     assert entry["environment"]["LOREKEEP_NS"] == "teams/backend"
+
+
+def test_mcp_add_full_profile(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
+    (tmp_path / "config.yaml").write_text("install_source: local\n")
+
+    result = runner.invoke(
+        app, ["mcp", "add", "--agent", "opencode", "--profile", "full"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    import json
+    data = json.loads((tmp_path / "opencode.json").read_text())
+    assert data["mcp"]["lorekeep"]["command"][-2:] == ["--profile", "full"]
+
+
+def test_mcp_add_rejects_unknown_profile(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
+    (tmp_path / "config.yaml").write_text("install_source: local\n")
+
+    result = runner.invoke(
+        app, ["mcp", "add", "--agent", "claude", "--profile", "wide"],
+    )
+
+    assert result.exit_code == 1
+    assert "choose core|full" in result.stdout
 
 
 def test_mcp_add_unknown_agent(tmp_path: Path, monkeypatch):

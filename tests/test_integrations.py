@@ -5,12 +5,21 @@ from lorekeep.integrations import claude_code, cursor, codex, opencode
 
 
 def test_resolve_command_pypi():
-    assert resolve_command(None) == ("uvx", ["lorekeep", "serve", "--transport", "stdio"])
-    assert resolve_command("pypi") == ("uvx", ["lorekeep", "serve", "--transport", "stdio"])
+    expected = ["lorekeep", "serve", "--transport", "stdio", "--profile", "core"]
+    assert resolve_command(None) == ("uvx", expected)
+    assert resolve_command("pypi") == ("uvx", expected)
 
 
 def test_resolve_command_local():
-    assert resolve_command("local") == ("lorekeep", ["serve", "--transport", "stdio"])
+    assert resolve_command("local") == (
+        "lorekeep", ["serve", "--transport", "stdio", "--profile", "core"],
+    )
+
+
+def test_resolve_command_full_profile():
+    assert resolve_command("local", profile="full") == (
+        "lorekeep", ["serve", "--transport", "stdio", "--profile", "full"],
+    )
 
 
 def test_resolve_command_git():

@@ -8,6 +8,11 @@ This is implemented in `GraphStore._active` (`src/lorekeep/store/graph.py`).
 
 ## Queries
 
+The default MCP surface exposes these through
+`temporal_query(mode="at_time"|"history"|"changes", params={...})`. The functions below
+remain the internal graph operations and are also published as aliases by the
+`full` profile.
+
 - **`at_time(t)`** — snapshot of all facts whose window contains `t`.
 - **`history(id)`** — all versions of an entity plus every edge touching it, ordered by `valid_from` (`None` first).
 - **`changes(t1, t2)`** — edges whose validity window **began** or **ended** within `[t1, t2)`.
