@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.25.0 (2026-08-09)
+
+## What's Changed
+* docs: combined review for docs refresh + agent integration by @manhhailua in https://github.com/manhhailua/lorekeep/pull/209
+* docs: refresh current usage contract by @manhhailua in https://github.com/manhhailua/lorekeep/pull/206
+* docs: add coverage mandate to AGENTS.md + fix all doc coverage gaps by @manhhailua in https://github.com/manhhailua/lorekeep/pull/208
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.24.1...v0.25.0
+
 ## 0.24.1 (2026-08-08)
 
 ## What's Changed
