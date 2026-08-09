@@ -37,9 +37,7 @@ directory. The same folder also opens in [Tolaria](https://tolaria.md)
 | Install | Vault path |
 |---|---|
 | Source checkout (dev) | `.lorekeep/wiki/` |
-| Installed (Linux XDG) | `~/.local/share/lorekeep/wiki/` |
-| Installed (macOS) | `~/Library/Application Support/lorekeep/wiki/` |
-| Installed (Windows) | `%LOCALAPPDATA%\lorekeep\wiki\` |
+| Installed (all platforms) | `~/.lorekeep/wiki/` |
 
 > ⚠️ **Open `wiki/`, not its parent.** The parent `.lorekeep/` holds
 > `config.yaml` (which may contain your API key). Scoping the vault to `wiki/`
@@ -279,7 +277,7 @@ overwrites them (`log.md` is the only append-only exception).
 
 - [Compiling](compile.md) — how `facts.jsonl` is produced.
 - [Data home & path resolution](data-home.md) — where `wiki/` lives (env /
-  `LOREKEEP_HOME` / dev / XDG).
+  `LOREKEEP_HOME` / dev / `~/.lorekeep`).
 - Re-generating from unchanged input is **byte-identical** (determinism);
   `log.md` is the only non-deterministic file (append-only).
 - Override the wiki path: `LOREKEEP_WIKI=/path uvx lorekeep wiki`.

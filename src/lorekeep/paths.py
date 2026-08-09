@@ -3,7 +3,7 @@
 1. explicit per-path env (LOREKEEP_RAW/OUT/CACHE/SCHEMA/CONFIG) - tests + power users
 2. LOREKEEP_HOME -> unified <home>/{config.yaml,schema.json,raw,graph,cache.json}
 3. dev mode (.lorekeep/ in CWD, or LOREKEEP_DEV=1) -> <cwd>/.lorekeep/{...}
-4. default -> XDG (platformdirs): config + data dirs
+4. default -> ~/.lorekeep/ (cross-platform dotdir in user home)
 
 Pure: no I/O, no side effects. Fully testable.
 """
@@ -24,35 +24,19 @@ def resolve_paths() -> dict[str, Path]:
 
     if home_env:
         home = Path(home_env).expanduser()
-        config = home / "config.yaml"
-        cache = home / "cache.json"
-        raw = home / "raw"
-        out = home / "graph"
-        schema = home / "schema.json"
-        pending = home / "pending"
-        wiki = home / "wiki"
-        logs = home / "logs"
     elif dev:
         home = cwd / ".lorekeep"
-        config = home / "config.yaml"
-        cache = home / "cache.json"
-        raw = home / "raw"
-        out = home / "graph"
-        schema = home / "schema.json"
-        pending = home / "pending"
-        wiki = home / "wiki"
-        logs = home / "logs"
     else:
-        from platformdirs import user_config_dir, user_data_dir
-        home = Path(user_data_dir("lorekeep"))
-        config = Path(user_config_dir("lorekeep")) / "config.yaml"
-        cache = home / "cache.json"
-        raw = home / "raw"
-        out = home / "graph"
-        schema = home / "schema.json"
-        pending = home / "pending"
-        wiki = home / "wiki"
-        logs = home / "logs"
+        home = Path.home() / ".lorekeep"
+
+    config = home / "config.yaml"
+    cache = home / "cache.json"
+    raw = home / "raw"
+    out = home / "graph"
+    schema = home / "schema.json"
+    pending = home / "pending"
+    wiki = home / "wiki"
+    logs = home / "logs"
 
     def override(env_name: str, current: Path) -> Path:
         v = os.environ.get(env_name)

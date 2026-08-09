@@ -53,7 +53,7 @@ def _make_error_record(msg: str = "compile failed") -> logging.LogRecord:
         raise ValueError("bad chunk")
     except ValueError:
         import sys
-        return _make_record(exc_info=sys.exc_info())
+        return _make_record(exc_info=sys.exc_info(), event="compile.unexpected_error")
 
 
 # ── signature ────────────────────────────────────────────────────────────────

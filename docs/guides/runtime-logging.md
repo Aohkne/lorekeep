@@ -9,7 +9,7 @@ Every CLI, daemon, and MCP process writes a unified operational log to:
 The directory follows normal [path resolution](data-home.md) and can be
 overridden with `LOREKEEP_LOGS`. Typical locations are
 `.lorekeep/logs/lorekeep.log` in development mode and
-`~/.local/share/lorekeep/logs/lorekeep.log` on installed Linux.
+`~/.lorekeep/logs/lorekeep.log` when installed.
 
 ## Log contract
 

@@ -19,7 +19,7 @@ the edge field alias `"from"`.
 ├── wiki/
 ├── logs/
 ├── cache.json
-└── config.yaml                 # outside data home in normal XDG mode
+└── config.yaml                 # may hold an API key — never commit
 ```
 
 Raw/schema/journals are durable knowledge inputs. Facts, manifest, FTS, wiki,

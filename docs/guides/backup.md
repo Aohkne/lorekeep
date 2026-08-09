@@ -36,8 +36,7 @@ currently in the generated ignore list. Add `logs/` to that backup repository's
 operational metadata synced.
 
 `config.yaml` is deliberately ignored because it may contain an inline API key.
-In XDG mode it lives outside the data home anyway. Each device configures its own
-provider credentials.
+Each device configures its own provider credentials.
 
 Journals can contain sensitive facts and review notes, including quarantined
 content. The remote must be private even though derived artifacts and config are
@@ -111,10 +110,8 @@ lorekeep compile
 lorekeep doctor
 ```
 
-For the normal installed Linux layout, clone into the platform data directory
-(`~/.local/share/lorekeep`) and let config remain at
-`~/.config/lorekeep/config.yaml`. See [Data home and paths](data-home.md) for
-macOS/Windows/custom locations.
+For the normal installed layout, clone into the data directory
+(`~/.lorekeep`). See [Data home and paths](data-home.md) for custom locations.
 
 `init` preserves the cloned schema/raw/journals, creates missing local config and
 directories, and rewires agents. Compile rebuilds the ignored graph, manifest,

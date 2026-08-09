@@ -31,9 +31,10 @@ logger = logging.getLogger("lorekeep.bugreport")
 # Warn-once flag for the "no token" case (per-process).
 _warned_no_token = False
 
-# Events that are symptoms of other errors and should never trigger an
-# auto-reported issue (they would just create duplicates of the root cause).
+# Events that are symptoms of other errors or expected LLM-output failures
+# and should never trigger an auto-reported issue.
 _SKIP_EVENTS = frozenset({
+    "compile.chunk_failed",     # expected: LLM produced truncated/empty/malformed JSON
     "compile.manifest_error",   # always a consequence of compile.chunk_failed
     "serve.mcp_missing",        # user needs to install/pin mcp — not a code bug
     "serve.no_graph",           # user needs to run compile first — not a code bug

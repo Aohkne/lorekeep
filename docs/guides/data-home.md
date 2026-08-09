@@ -6,7 +6,7 @@ Precedence is high to low:
 1. explicit per-path environment override;
 2. `LOREKEEP_HOME`;
 3. development mode; and
-4. platform directories from `platformdirs`.
+4. the default dotdir `~/.lorekeep/`.
 
 ## Path map
 
@@ -24,19 +24,18 @@ Precedence is high to low:
 Per-path overrides take precedence independently; setting `LOREKEEP_RAW` does
 not relocate the other paths.
 
-## Installed platform mode
+## Default dotdir mode
 
-With no override/home/dev marker, Lorekeep uses `platformdirs`:
+With no override/home/dev marker, Lorekeep uses `~/.lorekeep/`:
 
-- config lives in the platform user config directory;
-- raw, graph, schema, pending, wiki, cache, and logs live in the platform user
-  data directory.
+- all data — config, raw, graph, schema, pending, wiki, cache, and logs — lives
+  under one dotdir in the user home directory.
 
-Typical Linux paths are:
+This works identically on Linux, macOS, and Windows:
 
 ```text
-~/.config/lorekeep/config.yaml
-~/.local/share/lorekeep/
+~/.lorekeep/
+├── config.yaml
 ├── schema.json
 ├── raw/
 ├── graph/
@@ -82,7 +81,7 @@ uv run lorekeep serve
 ```
 
 The Lorekeep source checkout includes this marker, so development commands use
-the repository-local data home without migrating installed XDG data.
+the repository-local data home without migrating installed data.
 
 ## Per-path overrides
 

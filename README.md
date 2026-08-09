@@ -268,10 +268,10 @@ Path precedence, high to low:
 2. `LOREKEEP_HOME`;
 3. development mode (`.lorekeep/` in the current checkout or
    `LOREKEEP_DEV=1`); and
-4. platform XDG/application directories.
+4. default dotdir `~/.lorekeep/`.
 
-Installed Linux defaults place config at `~/.config/lorekeep/config.yaml` and
-data at `~/.local/share/lorekeep/`. See the
+All platforms (Linux, macOS, Windows) default to `~/.lorekeep/` for both
+config and data. See the
 [data-home guide](docs/guides/data-home.md) for other platforms and overrides.
 
 ## Backup and multi-device use

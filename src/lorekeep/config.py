@@ -1,4 +1,4 @@
-"""Load Lorekeep config. Path resolved by paths.resolve_paths() (dev .lorekeep/, LOREKEEP_HOME, or XDG)."""
+"""Load Lorekeep config. Path resolved by paths.resolve_paths() (dev .lorekeep/, LOREKEEP_HOME, or ~/.lorekeep)."""
 from __future__ import annotations
 
 from pathlib import Path
