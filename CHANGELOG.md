@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.1 (2026-08-09)
+
+## What's Changed
+* refactor: default data home to ~/.lorekeep instead of XDG/platformdirs by @manhhailua in https://github.com/manhhailua/lorekeep/pull/212
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.25.0...v0.25.1
+
 ## 0.25.0 (2026-08-09)
 
 ## What's Changed
