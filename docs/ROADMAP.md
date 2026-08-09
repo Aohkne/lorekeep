@@ -61,10 +61,10 @@ support first.
 |---|---|:---:|:---|:---:|---|
 | **Claude Code** | Anthropic | ✅ `.mcp.json` | ✅ `raw/claude-memory/` + `raw/claude-session/` | ✅ `--agent claude` | **Shipped** |
 | **Codex CLI** | OpenAI | ✅ `config.toml` | ✅ `raw/codex-memory/` + `raw/codex-session/` | ✅ `--agent codex` | **Shipped** |
-| **Cursor** | Anysphere | ✅ `~/.cursor/mcp.json` | ⚠️ session JSON only (no quick-import) | ✅ `--agent cursor` | **Shipped** (import limited) |
-| **opencode** | SST | ✅ `opencode.json` | ⚠️ minimal session data | ✅ `--agent opencode` | **Shipped** (import limited) |
-| **Grok Build** | xAI | ✅ `~/.grok/config.toml` | ⚠️ JSON sessions (needs LLM importer) | 🚧 planned | **Beta** |
-| **Qoder** | Alibaba | ✅ `.qoder/mcp.json` | ⚠️ JSON sessions (needs LLM importer) | 🚧 planned | **Beta** |
+| **Cursor** | Anysphere | ✅ `~/.cursor/mcp.json` | ✅ SQLite → `raw/cursor-session/` (cloud-lazy-load caveat) | ✅ `--agent cursor` | **Shipped** |
+| **opencode** | SST | ✅ `opencode.json` | ✅ SQLite → `raw/opencode-session/` | ✅ `--agent opencode` | **Shipped** |
+| **Grok Build** | xAI | ✅ `~/.grok/config.toml` | ✅ JSONL → `raw/grok-session/` | ✅ `--agent grok` | **Shipped** |
+| **Qoder** | Alibaba | ✅ `.qoder/mcp.json` | 🔒 blocked on upstream (sessions are cloud-only; no local conversation data or CLI export) | ✅ `--agent qoder` | **Beta** |
 | **Gemini CLI** | Google | 🚧 not detected | 🚧 not detected | 🚧 planned | **Planned** |
 | **Aider** | OSS | 🚧 | 🚧 chat history → `raw/aider-session/` | 🚧 planned | **Planned** |
 | **Windsurf** | Codeium | 🚧 | 🚧 | 🚧 planned | **Planned** |
@@ -78,12 +78,11 @@ support first.
 
 **Priority for new integrations:**
 
-1. **Grok Build** — MCP wired; needs JSON-session → markdown importer.
-2. **Qoder** — MCP wired; needs JSON-session → markdown importer.
-3. **Gemini CLI** — native MCP support; high adoption.
-4. **Aider** — plain-text chat logs trivially map to `raw/aider-session/`.
-5. **Windsurf / Zed** — both support MCP; need session-format research.
-6. **Cline / Continue** — VS Code extension MCP; need session-format research.
+1. **Gemini CLI** — native MCP support; high adoption.
+2. **Aider** — plain-text chat logs trivially map to `raw/aider-session/`.
+3. **Windsurf / Zed** — both support MCP; need session-format research.
+4. **Cline / Continue** — VS Code extension MCP; need session-format research.
+5. **Qoder** — blocked on upstream: sessions are cloud-only, no local conversation data or CLI export. Needs a Qoder cloud API or `qodercli --export` feature.
 
 > Vendors: all agents above expose (or plan to expose) an MCP client. Lorekeep
 > is MCP-native, so wiring is a config-file write — no bespoke protocol. The gap

@@ -210,10 +210,14 @@ _SPECS: tuple[AgentSpec, ...] = (
         supports_hook=False,
         user_config="~/.grok/config.toml",
         project_config="",  # Grok Build is user-scope only.
-        # Importer not yet implemented — Grok Build stores sessions as JSON
-        # (summary.json, prompt_context.json, signals.json) that need an LLM
-        # summarization path before they map to raw/<grok>-session/.
-        importer_module="",
+        importer_module="lorekeep.importer.grok",
+        session_ns="grok-session",
+        session=SessionSource(
+            locate="locate_session", parse="parse_transcript",
+            key="session_key", handle_kind="dir",
+            dump_fn="dump_current_session",
+            deep_fn="import_session_deep",
+        ),
     ),
     AgentSpec(
         name="qoder",
