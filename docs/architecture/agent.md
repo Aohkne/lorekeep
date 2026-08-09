@@ -16,7 +16,8 @@ Fully Autonomous           Confidence-Gated           Human-Only
 ───────────────────────────────────────────────────────────────
 import sessions            compile (raw/ changed)       ingest (conversational)
 lint report                lint --auto-fix              schema evolve
-resolve (periodic)         self-heal                    raw/ file edit
+resolve (periodic)
+self-heal
 suggest improvements
 watch raw/ → detect change
 ```
@@ -74,6 +75,21 @@ Lint checks:
 | **Session end detected** | Agent session dir modified → resolve |
 | **Manual** | `lorekeep resolve` |
 
+### Self-heal
+
+Runs after every compile cycle when `agent.self_heal` is enabled in config
+(default: on). Also available standalone via `lorekeep agent heal`.
+
+| Check | Action |
+|---|---|
+| **Dangling edges** | Edges referencing non-existent node ids are removed |
+| **Duplicate edges** | Exact-match edges (same type, from, to, props) are deduplicated |
+| **Circular dependencies** | `depends_on` cycles are flagged for review |
+| **Orphaned nodes** | Nodes with zero edges are flagged |
+
+Self-heal never deletes nodes — it only removes structurally invalid edges and
+reports issues. All actions are logged so the curator can audit what changed.
+
 ### Import trigger
 
 | Trigger | Behavior |
@@ -96,6 +112,7 @@ Lint checks:
 lorekeep agent watch                    # start watching filesystem
 
 # One-shot operations
+lorekeep agent heal                     # remove dangling edges, dedupe, flag issues
 lorekeep agent lint                     # full semantic health check
 lorekeep agent lint --auto-fix          # auto-apply high-confidence fixes
 lorekeep agent lint --focus <id>        # lint a specific entity

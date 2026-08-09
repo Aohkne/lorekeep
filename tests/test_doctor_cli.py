@@ -189,3 +189,68 @@ class TestDoctorApiBaseHint:
         result = runner.invoke(app, ["doctor"])
         assert result.exit_code == 0, result.stdout
         assert "api_base" not in result.stdout.lower()
+
+
+# ── agent connection + last session sections ─────────────────────────────────
+
+def _doctor_base_env(tmp_path: Path, fixtures: Path, monkeypatch):
+    """Shared setup: seed graph, skip provider ping."""
+    out = _seed_graph(tmp_path, fixtures)
+    monkeypatch.setenv("LOREKEEP_OUT", str(out))
+    monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
+    monkeypatch.setattr("lorekeep.cli._has_provider", lambda c: False)
+    return out
+
+
+def test_doctor_shows_agent_section(tmp_path: Path, fixtures: Path, monkeypatch):
+    """Doctor prints a compact agent table for installed agents."""
+    _doctor_base_env(tmp_path, fixtures, monkeypatch)
+    # Fake an installed + wired agent so the table has a row to show.
+    monkeypatch.setattr(
+        "lorekeep.cli._agent_report",
+        lambda scope: [{
+            "name": "grok",
+            "label": "Grok Build",
+            "installed": True,
+            "session_data": True,
+            "config": "/fake",
+            "wired": True,
+            "hook": None,
+            "hooked": False,
+            "ingest": ["transcript"],
+        }],
+    )
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.stdout
+    assert "agents" in result.stdout.lower()
+    assert "grok" in result.stdout
+    assert "wired" in result.stdout.lower()
+
+
+def test_doctor_shows_last_session(tmp_path: Path, fixtures: Path, monkeypatch):
+    """Doctor reports the newest imported session per agent namespace."""
+    out = _doctor_base_env(tmp_path, fixtures, monkeypatch)
+    raw = tmp_path / "raw"
+    grok_ns = raw / "grok-session"
+    grok_ns.mkdir(parents=True)
+    (grok_ns / "lorekeep-abc-001.md").write_text("# session")
+    monkeypatch.setattr(
+        "lorekeep.cli._agent_report", lambda scope: [],
+    )
+    # resolve_paths returns p["raw"]; it uses LOREKEEP_RAW or derives from home.
+    monkeypatch.setenv("LOREKEEP_RAW", str(raw))
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.stdout
+    assert "last session" in result.stdout.lower()
+    assert "grok" in result.stdout
+    assert "lorekeep-abc" in result.stdout
+
+
+def test_doctor_no_raw_dir(tmp_path: Path, fixtures: Path, monkeypatch):
+    """No raw/ → no session section, no crash."""
+    _doctor_base_env(tmp_path, fixtures, monkeypatch)
+    monkeypatch.setattr("lorekeep.cli._agent_report", lambda scope: [])
+    monkeypatch.setenv("LOREKEEP_RAW", str(tmp_path / "nope-raw"))
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.stdout
+    assert "last session" not in result.stdout.lower()
