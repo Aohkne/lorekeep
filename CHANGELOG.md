@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.26.0 (2026-08-09)
+
+## What's Changed
+* feat: add configurable extraction language by @manhhailua in https://github.com/manhhailua/lorekeep/pull/214
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.25.1...v0.26.0
+
 ## 0.25.1 (2026-08-09)
 
 ## What's Changed
