@@ -948,7 +948,7 @@ def _resolve_agent_arg(agent: str):
 
 @mcp_app.command("add")
 def mcp_add(
-    agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode"),
+    agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode | grok | qoder"),
     scope: str = typer.Option("project", "--scope", help="project | user"),
     ns: str = typer.Option(None, "--ns", help="namespace to scope the agent to"),
 ) -> None:

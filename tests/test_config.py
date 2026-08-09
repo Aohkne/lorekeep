@@ -113,7 +113,7 @@ def test_agents_defaults_are_autonomous():
     assert agents.wire_scope == "user"
     assert agents.watch_transcripts is True
     assert agents.deep_import is False
-    assert agents.enabled == ["claude", "codex", "cursor", "opencode"]
+    assert agents.enabled == ["claude", "codex", "cursor", "opencode", "grok", "qoder"]
 
 
 def test_agents_section_is_read_from_yaml(tmp_path: Path):

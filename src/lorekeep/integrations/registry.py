@@ -200,6 +200,35 @@ _SPECS: tuple[AgentSpec, ...] = (
             deep_fn="import_session_deep",
         ),
     ),
+    AgentSpec(
+        name="grok",
+        label="Grok Build",
+        install_markers=("~/.grok",),
+        binaries=("grok",),
+        data_markers=("~/.grok/sessions",),
+        writer_module="lorekeep.integrations.grok",
+        supports_hook=False,
+        user_config="~/.grok/config.toml",
+        project_config="",  # Grok Build is user-scope only.
+        # Importer not yet implemented — Grok Build stores sessions as JSON
+        # (summary.json, prompt_context.json, signals.json) that need an LLM
+        # summarization path before they map to raw/<grok>-session/.
+        importer_module="",
+    ),
+    AgentSpec(
+        name="qoder",
+        label="Qoder",
+        install_markers=("~/.qoder",),
+        binaries=(),
+        data_markers=("~/.qoder/projects",),
+        writer_module="lorekeep.integrations.qoder",
+        supports_hook=False,
+        project_config=".qoder/mcp.json",
+        user_config="~/.qoder/mcp.json",
+        # Importer not yet implemented — Qoder stores sessions as JSON
+        # (state.json per project) that need an LLM summarization path.
+        importer_module="",
+    ),
 )
 
 AGENT_NAMES: tuple[str, ...] = tuple(s.name for s in _SPECS)

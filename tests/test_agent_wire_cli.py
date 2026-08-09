@@ -26,7 +26,7 @@ def wired_project(isolated_home: Path, tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path / "data"))
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "config.yaml").write_text("install_source: local\n")
-    for marker in (".claude", ".codex", ".cursor", ".config/opencode"):
+    for marker in (".claude", ".codex", ".cursor", ".config/opencode", ".grok", ".qoder"):
         (isolated_home / marker).mkdir(parents=True, exist_ok=True)
     return project
 
@@ -118,6 +118,8 @@ class TestAgentWire:
             isolated_home / ".codex" / "config.toml",
             isolated_home / ".cursor" / "mcp.json",
             isolated_home / ".config" / "opencode" / "opencode.json",
+            isolated_home / ".grok" / "config.toml",
+            isolated_home / ".qoder" / "mcp.json",
         ]
         before = {t: t.stat().st_mtime_ns for t in targets}
 

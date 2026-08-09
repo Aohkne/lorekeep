@@ -16,7 +16,7 @@ that keeps it healthy:
 
 | Touchpoint | Feeds the brain from… |
 |---|---|
-| **Many coding agents (parallel)** | Claude Code, Cursor, Codex, opencode — all read + contribute concurrently |
+| **Many coding agents (parallel)** | Claude Code, Cursor, Codex, opencode, Grok Build, Qoder, and more — all read + contribute concurrently |
 | **Many devices (simultaneous)** | laptop, desktop, server — same brain, kept in sync |
 | **The software you build/operate** | your microservices' ADRs, runbooks, READMEs, observability, CI |
 | **Team sharing** | personal knowledge shared where it belongs (namespaces + permission) |
@@ -50,6 +50,45 @@ Everything below is implemented today and is what the roadmap builds on:
 - **Agent-identity provenance** — every journal-merged fact carries a
   `provenance` dict (`{agent, confidence, proposed_at, device}`) stamped at
   resolve time, so agent-contributed facts are traceable to their source.
+
+## Coding-agent integration matrix
+
+Lorekeep aims to integrate with **every** coding agent a developer uses, so the
+second brain is fed from all sessions — not just the ones lorekeep happens to
+support first.
+
+| Agent | Vendor | MCP wired | Memory/session import | `lorekeep mcp add` | Status |
+|---|---|:---:|:---|:---:|---|
+| **Claude Code** | Anthropic | ✅ `.mcp.json` | ✅ `raw/claude-memory/` + `raw/claude-session/` | ✅ `--agent claude` | **Shipped** |
+| **Codex CLI** | OpenAI | ✅ `config.toml` | ✅ `raw/codex-memory/` + `raw/codex-session/` | ✅ `--agent codex` | **Shipped** |
+| **Cursor** | Anysphere | ✅ `~/.cursor/mcp.json` | ⚠️ session JSON only (no quick-import) | ✅ `--agent cursor` | **Shipped** (import limited) |
+| **opencode** | SST | ✅ `opencode.json` | ⚠️ minimal session data | ✅ `--agent opencode` | **Shipped** (import limited) |
+| **Grok Build** | xAI | ✅ `~/.grok/config.toml` | ⚠️ JSON sessions (needs LLM importer) | 🚧 planned | **Beta** |
+| **Qoder** | Alibaba | ✅ `.qoder/mcp.json` | ⚠️ JSON sessions (needs LLM importer) | 🚧 planned | **Beta** |
+| **Gemini CLI** | Google | 🚧 not detected | 🚧 not detected | 🚧 planned | **Planned** |
+| **Aider** | OSS | 🚧 | 🚧 chat history → `raw/aider-session/` | 🚧 planned | **Planned** |
+| **Windsurf** | Codeium | 🚧 | 🚧 | 🚧 planned | **Planned** |
+| **Zed** | Zed Industries | 🚧 | 🚧 | 🚧 planned | **Planned** |
+| **Cline** | OSS (VS Code) | 🚧 | 🚧 | 🚧 planned | **Planned** |
+| **Continue** | OSS (VS Code/JetBrains) | 🚧 | 🚧 | 🚧 planned | **Planned** |
+| **GitHub Copilot** | GitHub | 🚧 | 🚧 | 🚧 planned | **Planned** |
+| **Amazon Q Developer** | AWS | 🚧 | 🚧 | 🚧 planned | **Planned** |
+| **Goose** | Block | 🚧 | 🚧 | 🚧 planned | **Planned** |
+| **OpenHands** | All Hands AI | 🚧 | 🚧 | 🚧 planned | **Planned** |
+
+**Priority for new integrations:**
+
+1. **Grok Build** — MCP wired; needs JSON-session → markdown importer.
+2. **Qoder** — MCP wired; needs JSON-session → markdown importer.
+3. **Gemini CLI** — native MCP support; high adoption.
+4. **Aider** — plain-text chat logs trivially map to `raw/aider-session/`.
+5. **Windsurf / Zed** — both support MCP; need session-format research.
+6. **Cline / Continue** — VS Code extension MCP; need session-format research.
+
+> Vendors: all agents above expose (or plan to expose) an MCP client. Lorekeep
+> is MCP-native, so wiring is a config-file write — no bespoke protocol. The gap
+> is always on the **import** side (reading each agent's session/memory format
+> into `raw/`), not on the serve side.
 
 ## Phases
 

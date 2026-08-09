@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from lorekeep.integrations import claude_code, codex, cursor, opencode
+from lorekeep.integrations import claude_code, codex, cursor, grok, opencode, qoder
 from lorekeep.integrations.registry import all_specs
 
 CMD = "uvx"
@@ -25,18 +25,22 @@ WRITERS = {
     "codex": codex,
     "cursor": cursor,
     "opencode": opencode,
+    "grok": grok,
+    "qoder": qoder,
 }
 
 
-def _expected(spec, scope: str, project: Path, home: Path) -> tuple[Path, Path]:
-    def resolve(declared: str) -> Path:
+def _expected(spec, scope: str, project: Path, home: Path) -> tuple[Path | None, Path | None]:
+    def resolve(declared: str | None) -> Path | None:
+        if not declared:
+            return None
         if declared.startswith("~/"):
             return home / declared[2:]
         return project / declared
 
     if scope == "user":
         return resolve(spec.user_config), resolve(spec.user_hook)
-    return resolve(spec.project_config), resolve(spec.project_hook)
+    return resolve(spec.project_config) or resolve(spec.user_config), resolve(spec.project_hook)
 
 
 @pytest.mark.parametrize("spec", all_specs(), ids=lambda s: s.name)
@@ -49,13 +53,18 @@ def test_writer_targets_match_the_registry(spec, scope, isolated_home, tmp_path)
     want_config, want_hook = _expected(spec, scope, project, isolated_home)
 
     assert writer.write_config(project, CMD, ARGS, "me", scope=scope) == want_config
-    assert writer.write_hook(project, CMD, HOOK_ARGS, scope=scope) == want_hook
+    if spec.supports_hook:
+        assert writer.write_hook(project, CMD, HOOK_ARGS, scope=scope) == want_hook
+    else:
+        assert not hasattr(writer, "write_hook")
 
 
 @pytest.mark.parametrize("spec", all_specs(), ids=lambda s: s.name)
 @pytest.mark.parametrize("scope", ["project", "user"])
 def test_rewriting_identical_wiring_does_not_touch_the_file(spec, scope, isolated_home, tmp_path):
     """The daemon re-checks on a timer; churning mtime would retrigger watchers."""
+    if not spec.supports_hook:
+        pytest.skip(f"{spec.name}: no hooks")
     project = tmp_path / "project"
     project.mkdir(exist_ok=True)
     writer = WRITERS[spec.name]
