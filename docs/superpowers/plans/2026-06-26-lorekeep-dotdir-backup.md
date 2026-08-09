@@ -1,5 +1,9 @@
 # .lorekeep Data-Home Consolidation + Backup CLI — Implementation Plan
 
+> **Historical implementation plan (2026-06-26).** The work has since shipped
+> and the commands, paths, tests, and backup behavior below are not maintained as
+> current documentation. Start at [the docs index](../../README.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Consolidate all dev-mode data under `.lorekeep/` (mirroring `LOREKEEP_HOME`) and add a manual `lorekeep backup` command that pushes the data home to a private backup git repo.

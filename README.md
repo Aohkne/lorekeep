@@ -2,386 +2,359 @@
 
 <p align="center"><img src="cover.jpeg" alt="Lorekeep" /></p>
 
-**A second brain for code — a temporal knowledge graph that aggregates what you and your agents learn across devices, the services you build, and your team, over MCP. Agents read at query time and propose facts at runtime through journal-based write tools.**
+**A file-sovereign, temporal knowledge graph shared by you and your coding
+agents over MCP.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Lorekeep is a **second brain**: every coding agent you run (Claude Code, Cursor,
-Codex, opencode) reads from and contributes to one knowledge graph; devices
-rebuild the same graph from Git-synced raw docs, schema, and agent journals; the
-software you build and operate feeds back in; and your team shares the parts
-that matter. Under the hood it compiles raw docs + agent
-contributions into a temporal knowledge graph (`facts.jsonl`) served over MCP.
-Knowledge is processed once, not re-RAG'd per query.
+Lorekeep compiles Markdown from multiple namespaces into a deterministic
+`facts.jsonl` graph, projects that graph into a human-readable Obsidian/Tolaria
+wiki, and exposes a compact namespace-scoped MCP surface to Claude Code, Cursor,
+Codex, and opencode. Agents can also propose facts during a session; proposals
+land in append-only journals and become visible after a confidence-gated resolve.
 
----
+The LLM work happens during compile or an explicitly requested deep import.
+Ordinary graph queries, journal writes, resolve, wiki generation, lint, and
+status checks do not call another LLM.
 
-## Why
+## What is available today
 
-A second brain for code has to pull from many sources — your coding agents, your
-devices, the services you operate, your team — and stay coherent as it grows.
-Most tools cover one slice:
+| Area | Current behavior |
+|---|---|
+| Compile | `raw/<ns>/*.md` → schema-constrained extraction → resolve → sorted `facts.jsonl` + manifest + wiki |
+| Query | Seven MCP tools plus passive schema, namespace, and status resources |
+| Permission | Deny-by-default namespace filtering through one `ScopedGraph` chokepoint |
+| Time | Half-open validity windows plus snapshot, history, and change queries |
+| Agent input | Session import and hooks for Claude Code, Cursor, Codex, and opencode |
+| Agent writes | Namespace-enforced, confidence-gated journals; no direct graph mutation |
+| Automation | Watch raw docs, journals, memories/transcripts, agent wiring, backup sync, and restart after an external package upgrade |
+| Human view | Deterministic, readable Markdown wiki for Obsidian and Tolaria |
+| Operations | Runtime logs, redacted support bundles, install diagnostics, and optional automatic GitHub issues |
 
-| | file-based | temporal KG | compile step | team permission | agent + device + software sources | MCP |
-|---|---|---|---|---|---|---|
-| Obsidian + MCP | ✅ | ❌ | ❌ | ❌ | ❌ (manual) | ✅ |
-| mcp-knowledge-graph | ✅ | ❌ | ❌ | ❌ (local) | ❌ | ✅ |
-| mem0 / cognee | ❌ (DB) | partial | ❌ | partial (DB) | partial | ✅ |
-
-No tool combines all six. Lorekeep does: **file-based + temporal graph +
-compile-once + namespace permission + multi-source (agents/devices/software/team) + MCP**.
-
-## Features
-
-- **Append-and-resolve** — three write paths (raw/ compile, agent ingest,
-  import sessions) converge into one resolve step. Journals are append-only;
-  resolve is pure logic, zero LLM cost.
-- **Agent-driven knowledge** — agents propose facts at runtime via MCP write
-  tools at **zero marginal LLM cost**. Confidence-gated: high-confidence
-  auto-merge, low-confidence quarantine.
-- **File-sovereign** — raw docs + schema + append-only agent journals are the
-  durable, Git-syncable sources. `facts.jsonl` is a deterministic derived store
-  rebuilt on each device; no binary store is committed.
-- **Temporal** — every fact carries `valid_from`/`valid_to` (half-open
-  `[from, to)`); query "what was true at *T*", history, diffs.
-- **Namespace permission** — facts are tagged `ns` from the directory tree
-  (`raw/<ns>/`); agents scoped to namespaces; cross-namespace edges
-  hidden unless both endpoints are visible. Deny-by-default.
-- **MCP, stdio-first** — `lorekeep serve` exposes 7 composable tools plus
-  passive schema/status resources. `lorekeep mcp add` wires Claude Code /
-  Cursor / Codex / opencode.
-- **Autonomous agent daemon** — `lorekeep agent watch` keeps the graph current:
-  auto-compile on raw/ change, auto-resolve pending journals, delta import of
-  agent session memory. **Auto-backup**: syncs to remote git after compile (pull --rebase + push).
-  Runs in the background; MCP server lazy-reloads.
-- **Session-end hooks** — `lorekeep hook` auto-imports agent memory when a
-  session ends (Claude / Cursor / Codex / opencode). Wired by `mcp add`.
-- **Human-first Obsidian + Tolaria wiki** — compile extracts grounded summaries
-  and relationship explanations once; the deterministic wiki renders a landing
-  dashboard, catalog, readable entity pages, `[[wikilinks]]`, and queryable YAML
-  frontmatter. The same `wiki/` folder opens in both apps.
-- **Subject-aware ontology** — work-context node types (person, role, skill,
-  domain, goal, …) + cross-namespace edges (owns, contributes_to, skilled_in)
-  weave your personal knowledge into the team graph. The `me` namespace is
-  subject-centric (altitude rule: tokens → attributes, not nodes).
-- **Lazy-reload** — graph updates visible on next query. Connect once, use forever.
-- **Provider-pluggable extraction** — litellm (OpenAI / Anthropic /
-  DashScope/Qwen / Ollama). Strict-privacy → Ollama, fully local.
-- **Tier-1 eval** — extraction P/R/F1 vs a gold corpus, entity-resolution F1,
-  graph-structure metrics, determinism property tests.
-- **Tier-2 LoCoMo eval** — long-term conversations → graph → retrieval QA.
-  F1 per category (single-hop, temporal, multi-hop, adversarial abstention).
+Lorekeep is suitable for one person using several coding agents and several
+devices, with an important current constraint: Git backup/sync is sequential.
+Simultaneous edits to the same raw document or journal can still require manual
+conflict resolution. A shared authenticated team server is roadmap work, not a
+shipped capability.
 
 ## Install
 
-```bash
-# no install needed — uvx runs it directly:
-uvx lorekeep init
+Python 3.11+ and [uv](https://docs.astral.sh/uv/) are required.
 
-# or install permanently:
+```bash
+# Run without a permanent install
+uvx lorekeep version
+
+# Recommended when using the daemon/service continuously
 uv tool install lorekeep
+lorekeep version
+```
+
+For development from source:
+
+```bash
+git clone https://github.com/manhhailua/lorekeep.git
+cd lorekeep
+uv sync
+uv run lorekeep version
 ```
 
 ## Quickstart
 
 ```bash
-# 1. bootstrap data home (config + schema + dirs + agent wiring)
-uvx lorekeep init
+# 1. Interactive setup: config + schema + profile + agent wiring + initial import
+lorekeep init
 
-# 2. add docs under the data home's raw/<namespace>/
-mkdir -p ~/.local/share/lorekeep/raw/private
-cp your-docs.md ~/.local/share/lorekeep/raw/private/
+# 2. Add Markdown under the raw directory printed by init
+mkdir -p ~/.local/share/lorekeep/raw/backend
+cp your-docs.md ~/.local/share/lorekeep/raw/backend/
 
-# 3. set a provider (edit ~/.config/lorekeep/config.yaml), then compile
-uvx lorekeep compile                # raw/*.md → graph/facts.jsonl + wiki/
+# 3. Compile raw docs, merge journals, and regenerate the wiki
+lorekeep compile
 
-# 4. wire a coding agent (writes a portable .mcp.json)
-uvx lorekeep mcp add --agent claude --ns private
+# 4. Inspect installed/active/wired coding agents
+lorekeep agent detect
 
-# 5. verify
-uvx lorekeep doctor
+# 5. Validate graph, schema, MCP, and provider connectivity
+lorekeep doctor
 ```
 
-Restart Claude Code → 7 Lorekeep tools are available, scoped to your namespace.
-Open `~/.local/share/lorekeep/wiki/` in Obsidian to browse the graph as a human
-— or run `uvx lorekeep wiki --open` to generate + launch it. See
-[Browsing the wiki in Obsidian](docs/guides/wiki.md).
+`init` is idempotent. On its first interactive run it selects a provider and
+namespace, writes `about.md` + `profile.md`, detects installed coding agents,
+writes their MCP configuration and supported session-end hooks, quick-imports
+available memory files, compiles when a usable provider key exists, and starts a
+background watcher unless `--no-watch` is passed.
 
-## Lifecycle
+If an agent was not detected, wire it explicitly:
 
-The full journey from install to continuous use — see the
-[Getting started guide](docs/guides/getting-started.md) for details.
-
-```
- INIT          CURATE              SERVE              KEEP CURRENT          SYNC
- ════          ═══════             ══════             ════════════          ════
- ┌─────┐   ┌──────────┐        ┌─────────┐       ┌───────────────┐    ┌────────┐
- │init │──►│raw/*.md  │──►     │mcp add  │──►    │ agent watch   │──► │backup  │
- │     │   │compile   │ compile│serve    │ serve │  raw/    → compile   │
- │     │   │          │────────│+hook    │       │  pending/ → resolve  │
- └─────┘   └──────────┘   wiki │         │       │  memory/  → import   └────────┘
-                               └─────────┘       └───────┬───────┘         │
-                                    ▲                     │ lazy-reload     │ git sync
-                                    │◄────────────────────┘                 │
-                                    │◄──────────────────────────────────────┘
+```bash
+lorekeep mcp add --agent codex --scope user --ns backend
+# or use the registry-aware command:
+lorekeep agent wire --agent codex --scope user --ns backend
 ```
 
-| Step | Command | What it does |
-|---|---|---|
-| 1. Bootstrap | `lorekeep init` | Create data home (config + schema + dirs) |
-| 2. Curate | `raw/<ns>/*.md` | Drop markdown docs under namespace dirs |
-| 3. Compile | `lorekeep compile` | LLM-extract → `facts.jsonl` + `wiki/` (cached, deterministic) |
-| 4. Wire agent | `lorekeep mcp add --agent claude --ns <ns>` | Write `.mcp.json` + session-end hook, scoped to namespace |
-| 5. Verify | `lorekeep doctor` | Graph loads, schema valid, tool responds |
-| 6. Serve | `lorekeep serve` | MCP server (7 tools + resources, lazy-reload) |
-| 7. Keep current | `lorekeep agent watch &` | Daemon: auto-compile, auto-resolve, delta-import sessions |
-| 8. Back up | `lorekeep backup` | Push data home to private git repo (raw/ + schema.json) |
-| 9. Persist daemon | `lorekeep agent service install` | Survive restart (systemd/launchd/startup) |
+Restart the coding agent after its MCP configuration changes. Open the generated
+wiki with `lorekeep wiki --open`, or select the printed `wiki/` directory in
+Obsidian/Tolaria.
 
-Personal knowledge + team sharing:
+For non-interactive setup, use `lorekeep init --yes --no-watch`; add a provider
+key and run `lorekeep compile` afterwards.
 
-| Command | Purpose |
+## Runtime model
+
+```text
+COMPILE / CURATE
+
+raw/<ns>/*.md ──> chunk ──> extract(LLM, cached) ──> resolve ──┐
+                                                               │
+pending/<ns>/journal.jsonl ──> confidence gate + replay ────────┤
+                                                               v
+                                         facts.jsonl + manifest.json
+                                                   │
+                                                   ├──> wiki/*.md
+                                                   └──> local FTS cache
+
+SERVE / USE
+
+facts.jsonl ──> GraphStore ──> ScopedGraph(allowed namespaces) ──> MCP
+     ^                    lazy reload on facts.jsonl mtime             │
+     └──────────── resolve <──── namespace journal <──── agent write ─┘
+```
+
+Raw Markdown, `schema.json`, and accepted/pending journals are the durable
+knowledge inputs. The graph, manifest, wiki, cache, and FTS index are derived and
+can be rebuilt on each device.
+
+### Compile, resolve, and wiki
+
+`lorekeep compile` is the normal all-in-one operation:
+
+1. chunk `raw/` with `path:line` provenance;
+2. extract typed nodes, edges, aliases, summaries, and relation descriptions;
+3. resolve aliases, validate facts, and quarantine invalid candidates;
+4. write sorted `facts.jsonl` and `manifest.json` atomically;
+5. replay/merge journals when present; and
+6. generate the wiki once from the final graph.
+
+Unchanged chunks use a hash cache, so they do not repeat extraction calls;
+sorted publication keeps the resulting graph byte-stable for unchanged inputs.
+
+Use the narrower commands when only the derived view or journals changed:
+
+```bash
+lorekeep resolve       # merge pending journal entries; zero LLM calls
+lorekeep wiki --open   # re-project the existing graph; zero LLM calls
+```
+
+### Daemon and service
+
+`lorekeep agent watch` polls at a configurable interval (60 seconds by default)
+and currently performs event-driven maintenance:
+
+- raw file count/mtime or schema change → compile;
+- journal mtime change → resolve;
+- Claude/Codex memory change → quick import;
+- supported live transcripts → bounded Markdown dumps under `raw/`;
+- detected agent change → idempotent MCP/hook wiring;
+- successful compile → self-heal, wiki refresh, and backup sync when configured;
+- installed Lorekeep version change → restart the running watcher.
+
+It does **not** currently run nightly lint, weekly suggestions, or an autonomous
+schema-evolution scheduler. Run those one-shot operations explicitly:
+
+```bash
+lorekeep agent lint
+lorekeep agent lint --auto-fix
+lorekeep agent suggest
+lorekeep agent status
+```
+
+For login/restart persistence:
+
+```bash
+lorekeep agent service install
+lorekeep agent service status
+```
+
+## MCP contract
+
+The runtime exposes exactly seven composable tools:
+
+| Tool | Purpose |
 |---|---|
-| `lorekeep agent profile [--open]` | Show / open your personal profile source (`raw/<ns>/about.md` + `profile.md`) — edit in Obsidian/Tolaria, then `compile`. |
-| `lorekeep agent contribution` | Suggest team-knowledge gaps: nodes in your personal ns not yet shared with a team ns. |
-| `lorekeep schema upgrade [--dry-run]` | Upgrade a stock v2/v3 schema to the human-readable v4 contract with a backup; custom schemas require `--force`. |
+| `search(query, limit=10)` | Find visible nodes by id, type, and properties |
+| `get_node(id)` | Fetch one visible node with properties and provenance |
+| `neighbors(id, edge_type="", depth=1)` | Traverse visible edges in both directions, up to five hops |
+| `temporal_query(mode, params)` | `at_time`, `history`, or `changes` |
+| `context(section="all", topic="")` | Ontology, visible namespaces, coverage, freshness, and pending count |
+| `propose_change(operation, payload, confidence)` | Journal a `create`, `link`, or complete-props `update` |
+| `review_note(kind, description, fact_ids=None)` | Record a contradiction or improvement for curator review |
 
-Steps 1–6 are one-time setup. Step 7 runs in the background for continuous
-updates. Step 8 syncs across machines.
+Clients that support MCP resources can also read:
 
-## How it works
+- `lorekeep://schema`
+- `lorekeep://namespaces`
+- `lorekeep://status`
 
-```
-               THREE WRITE PATHS                            SYNC
-               ════════════════
-raw/<ns>/*.md ──► ingest ──► extract(LLM) ──┐
-                                            │
-agent propose ──► MCP write tools ──► ──────┤
-  (ZERO LLM cost, journal append)           │
-                                            ├──► resolve ──► writer ──► facts.jsonl ──► wiki/*.md
-import ──► raw/ ──► compile ────────────────┘    (pure logic,    (sorted)       (Obsidian)
-                                                   ZERO LLM)
-                                                        ┌───────────────┘
-                                                        ▼ (git / S3 sync)
-               SERVE + QUERY (runtime, per device)
-facts.jsonl ──load──► GraphStore ──► ScopedGraph(ns) ──► MCP (7 tools) ──► agent
-                         ▲              ▲                      │
-                          │              │         ◄── read queries
-                          │              └────────── write proposals (journal)
-                         └── lazy-reload on mtime change
+Every graph-fact query and graph statistic goes through `ScopedGraph`. Effective
+visibility is the configured scope plus `public`; an edge is returned only when
+its own namespace and both endpoints are visible. Static schema and aggregate
+compile/pending operational metadata are process-wide. Write namespaces come
+from the verified server scope, not from caller payloads.
 
-               AUTONOMOUS AGENT DAEMON
-               lorekeep agent watch:
-                 ├── watch raw/ → auto-compile
-                 ├── watch pending/ → auto-resolve
-                 └── watch agent memory/ → delta import → raw/
+Making the MCP server available does not guarantee that every coding agent will
+choose to call it. `init` and `mcp add` print an instruction snippet that tells
+the agent to use this retrieval sequence:
+
+```text
+context(section="status") → search(query) → get_node(id) → neighbors/temporal_query
 ```
 
-**Three write paths → one resolve**: markdown is compiled by an LLM (chunked + cached); agents propose facts at runtime through MCP write tools at **zero marginal LLM cost** (the agent already ran the LLM for the conversation); agent sessions are imported into raw/. All converge at `resolve` — pure Python logic that merges, deduplicates, validates, and writes byte-stable `facts.jsonl`.
-
-**Serve**: `GraphStore` loads `facts.jsonl` into a networkx graph with temporal
-queries. `ScopedGraph` is the single permission chokepoint — every query is
-filtered through strict visibility rules. The FastMCP server exposes 7
-composable tools over `ScopedGraph`, plus passive schema/namespaces/status
-resources. It lazy-reloads when `facts.jsonl` changes, so `compile` is
-instantly visible without reconnecting.
-
-## Concepts
-
-**fact** — one line of `facts.jsonl`, a `node` or `edge`:
-```jsonl
-{"kind":"node","id":"svc:payments","type":"service","ns":["backend"],"valid_from":"2024-01-15","valid_to":null,"props":{"lang":"go"},"src":["raw/backend/payments.md:12"]}
-{"kind":"edge","id":"e_depends_on_0001","type":"depends_on","from":"svc:payments","to":"svc:auth","ns":["backend"],"valid_from":"2024-01-15","valid_to":"2025-03-01","props":{},"src":["...:20"]}
-```
-- `ns` — namespace set; `["public"]` is globally visible.
-- `valid_to: null` ⇒ current. History = multiple edges, same endpoints, different windows.
-- `src` — provenance to raw doc line (audit, incremental re-compile, agent citations).
-
-**Permission** — effective_ns = allowed ∪ {public}. Node visible iff
-`ns ∩ effective_ns ≠ ∅`. Edge visible iff **both** endpoints visible **and**
-`edge.ns ∩ effective_ns ≠ ∅`. Deny-by-default; an edge never reveals a
-neighbor the caller can't see.
-
-**Temporal queries** — `temporal_query(mode, params)` composes snapshot at T,
-entity history, and changes in a range. The underlying half-open validity model
-remains `[from,to)`.
-
-**Agent-driven knowledge** — agents propose facts at runtime through MCP write tools (zero LLM cost). Facts land in `pending/<ns>/journal.jsonl` with agent id, confidence score, and timestamp. Resolve merges them into the graph: high-confidence (≥0.8) auto-merge, medium (0.5-0.8) merge + flag, low (<0.5) quarantine.
-
-**Autonomous agent daemon** — `lorekeep agent watch` keeps the graph current: watches `raw/` for changes → auto-compile; monitors `pending/` → auto-resolve; delta-imports agent session memory (Claude / Cursor / Codex / opencode) into `raw/`. Session-end hooks auto-trigger `lorekeep hook` when the agent exits. Scheduled lint and weekly suggestions are planned. See [docs/architecture/agent.md](docs/architecture/agent.md).
-
-## MCP tools (7 tools, scoped)
-
-**Read/context:** `search` · `get_node` · `neighbors` · `temporal_query` ·
-`context`.
-
-**Write/review** (journal-based, zero LLM cost): `propose_change` ·
-`review_note`.
-
-The passive `lorekeep://schema`, `lorekeep://namespaces`, and
-`lorekeep://status` MCP resources avoid spending tool slots on static context.
-Every result is filtered to the caller's namespace. Write tools append to
-`pending/`; facts enter the graph only after resolve.
+Keep that snippet in the agent's project/user instructions when the client does
+not persist it automatically. Agents should cite `src`, check graph freshness,
+and treat “not found” as “absent or outside this namespace,” not proof that a
+fact does not exist globally.
 
 ## Configuration
 
-`config.yaml` (resolved by precedence: explicit `LOREKEEP_*` env > `LOREKEEP_HOME` >
-dev marker > XDG):
+All model names must use LiteLLM's `{provider}/{model}` form. Native providers
+include OpenAI, Anthropic, DeepSeek, DashScope/Qwen, Gemini, OpenRouter, Mistral,
+Groq, Together AI, and others exposed by LiteLLM. Ollama, vLLM, and LM Studio are
+available for local/custom endpoints.
+
 ```yaml
 provider:
-  model: dashscope/qwen-plus                           # {provider}/{model} — litellm routes by prefix
-  api_key_env: DASHSCOPE_API_KEY                       # env var name (preferred)
-  api_key: null                                        # or inline (gitignored config only)
-  timeout_seconds: 120                                 # per LLM request
-  max_retries: 2                                       # retries after the first attempt
+  model: deepseek/deepseek-chat
+  api_key_env: DEEPSEEK_API_KEY
+  timeout_seconds: 120
+  max_retries: 2
 ns:
-  default: [me]                                      # serve-time default scope
-  personal: me                                       # subject-centric extraction
-install_source: pypi                                   # pypi = portable .mcp.json
-```
-Native providers (`openai`, `anthropic`, `deepseek`, `dashscope`, `gemini`, …)
-need **no** `api_base` — litellm knows their endpoint. Set `api_base` only for a
-custom OpenAI-compatible endpoint (vllm, lm_studio, a proxy/gateway, or Ollama on
-a non-default host).
-API keys never live in committed files — use `api_key_env` (env) or inline
-`api_key` in the gitignored config only. Examples (DashScope / OpenAI / Ollama)
-in [`.lorekeep/config.yaml.example`](.lorekeep/config.yaml.example).
-
-## Data home & dev mode
-
-Path resolution (high → low): explicit `LOREKEEP_*` env → `LOREKEEP_HOME` →
-**dev mode** (`.lorekeep/` in CWD; auto-detected in a source checkout)
-→ XDG (`~/.config/lorekeep`, `~/.local/share/lorekeep`).
-
-Back up the data home to a private git repo with `lorekeep backup` — see
-[`docs/guides/backup.md`](docs/guides/backup.md).
-
-Full details, per-path overrides, and `lorekeep init`: [`docs/guides/data-home.md`](docs/guides/data-home.md).
-For usage, see the [`docs/`](docs/README.md) index.
-
-## Evaluation
-
-**Tier-1** (CI): extraction P/R/F1 vs a gold corpus, entity-resolution pairwise F1,
-graph-structure metrics, determinism. *Dev-only command: `lorekeep eval`.*
-
-**Tier-2 LoCoMo** (per-release): long-term conversation → graph → retrieval QA.
-*Dev-only command: `lorekeep eval-locomo`.*
-
-| Category | Recall | Description |
-|---|---|---|
-| Temporal | 0.71 | "When did X happen?" |
-| Single-hop | 0.58 | "What is X's Y?" |
-| Multi-hop | 0.49 | "Who did X's sister work with?" |
-| Descriptive | 0.73 | "What did X do?" |
-| Adversarial | 0.85 | Abstention — plausible-but-wrong answer not found |
-| **Overall** | **0.71** | 199 QA, 1 conversation, DeepSeek extraction |
-
-*Graph-guided retrieval: keyword search → get_node → neighbors(depth=1-2) →
-source markdown enrichment. No agent-LLM synthesis (programmatic baseline).*
-
-The north star is *systematic thinking with complete information* — memory-recall
-benchmarks (LoCoMo, LongMemEval) are parity checks, not the optimization target.
-See [`docs/architecture/evaluation.md`](docs/architecture/evaluation.md).
-
-## Configuration
-
-After `init`, adjust settings without editing YAML:
-
-```bash
-lorekeep config show                                    # print current config
-lorekeep config set provider.model deepseek/deepseek-chat
-lorekeep config set provider.api_key_env DEEPSEEK_API_KEY
-lorekeep config set ns.default backend,frontend
-lorekeep config set observability.provider langfuse     # optional tracing
+  default: [me]
+  personal: me
+agents:
+  enabled: [claude, codex, cursor, opencode]
+  auto_wire: true
+  wire_scope: user
+  watch_transcripts: true
+  self_heal: true
 ```
 
-Observability (optional): set `observability.provider` to `langfuse` or
-`langsmith` for LLM call tracing via litellm callbacks.
+Prefer `provider.api_key_env`. An inline `provider.api_key` is accepted only in
+the local gitignored `config.yaml`. Native providers normally need no
+`api_base`; set it for Ollama on a non-default host or another custom
+OpenAI-compatible endpoint. See the validated
+[configuration example](.lorekeep/config.yaml.example).
 
-## Backup & sync
-
-Back up `raw/` + `schema.json` to a private git repo. API keys, graph, cache,
-and wiki are never committed — they're regenerated per machine.
+Change settings without editing YAML:
 
 ```bash
-# First time — create a private repo on GitHub, then:
+lorekeep config show
+lorekeep config set provider.model openrouter/deepseek/deepseek-chat
+lorekeep config set provider.api_key_env OPENROUTER_API_KEY
+lorekeep config set ns.default me,backend
+lorekeep config set agents.wire_scope user
+```
+
+Optional LiteLLM tracing is available through Langfuse or LangSmith by setting
+`observability.provider` and the corresponding environment credentials.
+
+## Data home and paths
+
+Path precedence, high to low:
+
+1. per-path `LOREKEEP_RAW`, `LOREKEEP_OUT`, `LOREKEEP_CACHE`,
+   `LOREKEEP_SCHEMA`, `LOREKEEP_CONFIG`, `LOREKEEP_PENDING`, `LOREKEEP_WIKI`,
+   or `LOREKEEP_LOGS`;
+2. `LOREKEEP_HOME`;
+3. development mode (`.lorekeep/` in the current checkout or
+   `LOREKEEP_DEV=1`); and
+4. platform XDG/application directories.
+
+Installed Linux defaults place config at `~/.config/lorekeep/config.yaml` and
+data at `~/.local/share/lorekeep/`. See the
+[data-home guide](docs/guides/data-home.md) for other platforms and overrides.
+
+## Backup and multi-device use
+
+Initialize a separate **private** Git remote for the resolved data home:
+
+```bash
 lorekeep backup --init https://github.com/<you>/lorekeep-data.git
-
-# Routine — after editing raw/ or compiling:
 lorekeep backup
-
-# Restore on a new machine:
-lorekeep init                                        # bootstrap config
-rm -rf .lorekeep && git clone https://github.com/<you>/lorekeep-data.git .lorekeep
-lorekeep compile                                     # rebuild graph from raw/
-
-# Multi-device sync — if push is rejected (non-fast-forward):
-cd .lorekeep && git pull --rebase && cd - && lorekeep backup
 ```
 
-Each machine sets its own API key — no secrets in the backup.
+The generated backup ignore rules exclude local configuration/secrets and
+derived graph, manifest, wiki, cache, FTS, and lock files. Raw docs,
+`schema.json`, and `pending/` journals are durable inputs and are committed.
+Journals can contain sensitive context, including quarantined proposals, so the
+remote must remain private.
 
-## Project layout
+The watcher fetches/rebases at startup and synchronizes after a successful
+compile. Manual `lorekeep backup` pushes the current branch; if two devices
+changed the same tracked content, resolve the ordinary Git rebase conflict and
+retry. Lorekeep does not yet provide conflict-free simultaneous editing or a
+central reconciler.
 
-```
-src/lorekeep/
-  models.py            shared contract (Node/Edge/Schema/Manifest)
-  facts_io.py          facts.jsonl loader (store + eval)
-  paths.py             4-tier path resolution (env/home/dev/XDG)
-  providers.py         litellm provider/model enumeration for init
-  defaults.py          default schema + config (for `init`)
-  config.py, schema_io.py
-  compile/{ingest,extract,resolve,writer}.py    the compile pipeline
-  compile/providers.py                          LiteLLMProvider + observability
-  journal.py           append-only journal writer + loader
-  agent.py             autonomous agent: ingest, lint, suggest, status, watch
-  store/{graph,fts}.py                          GraphStore + FTS5 cache
-  perm/ns.py                                    ScopedGraph permission chokepoint
-  mcp_server.py                                 FastMCP profiles + resources
-  wiki.py                                        Obsidian-compatible wiki generator
-  importer/{claude,cursor,codex,opencode}.py    agent session → raw/ importers
-  integrations/{claude_code,cursor,codex,opencode,common}.py
-  pipeline.py, cli.py
-  eval/{gold,construction,retrieval}.py
-  eval/locomo.py                                Tier-2 LoCoMo eval
-tests/                 ~410 tests
-docs/                  README.md index, architecture/, guides/
+## Diagnostics and support
+
+`lorekeep doctor` is the pass/fail installation check. Runtime logs live under
+the resolved `logs/` directory and avoid prompts, raw docs, fact properties,
+journal payloads, and credentials.
+
+```bash
+lorekeep doctor
+lorekeep agent service status
+lorekeep support                 # print report + create redacted ZIP
+lorekeep support --report-only
+lorekeep support status          # automatic issue-reporting state
+lorekeep support off             # disable automatic issue creation
 ```
 
-## Status
+The support bundle contains an allowlisted report, redacted log tail, and
+manifest counters—not raw knowledge or configuration. See
+[runtime logging and bug reports](docs/guides/runtime-logging.md).
 
-**v1 (implemented)** — the second-brain foundation: compile pipeline + serve
-(store/permission/7-tool MCP surface/4-agent integrations) + import
-(Claude/Cursor/Codex/opencode) + session-end hooks + agent daemon
-(watch/ingest/lint/suggest/status) + journal + resolve + data-home + dev mode +
-lazy-reload + backup + eval + scope awareness + **subject-aware ontology v2**
-(personal `me` ns + team ns + cross-ns edges) + **Obsidian/Tolaria wiki** +
-profile/contribution commands. Published to PyPI as `lorekeep`.
+## Current limits
 
-**Next** — the second-brain direction is multi-faceted: multi-agent concurrency, multi-device sync, software-source connectors, a proactive agent, a team server, better retrieval. See the full **[Roadmap](docs/ROADMAP.md)**.
+- Search is keyword/FTS plus graph traversal; hybrid/vector retrieval is planned.
+- Git sync is sequential; conflicting simultaneous edits need manual resolution.
+- Local stdio is the supported transport; authenticated shared-team HTTP hosting
+  and OIDC/SSO are not shipped.
+- Lint, suggest, and contribution analysis are one-shot commands, not scheduled jobs.
+- There are no built-in software-source connectors for repositories,
+  observability systems, CI, Confluence, PDFs, or URLs yet.
+- Coding-agent tool use depends on the client's MCP support and instructions.
+
+See the [roadmap](docs/ROADMAP.md) for unshipped directions. Architecture docs
+describe only current behavior unless a section is explicitly marked planned.
+
+## Development
+
+```bash
+uv sync
+uv run pytest
+uv run pytest tests/test_core_regression.py -q
+uv run python scripts/generate_cli_reference.py --check
+uv build
+```
+
+Tests use `FakeProvider`; no API key or network call is required. Determinism and
+the compact seven-tool MCP surface are regression contracts.
 
 ## Documentation
 
-The [`docs/`](docs/README.md) index is the entry point.
+Start at the [documentation index](docs/README.md).
 
-**Guides**
 - [Getting started](docs/guides/getting-started.md)
+- [Compiling and resolving](docs/guides/compile.md)
 - [Importing agent sessions](docs/guides/import.md)
-- [Compiling the knowledge graph](docs/guides/compile.md)
-- [Serving the graph to coding agents](docs/guides/serve.md)
+- [Serving the graph over MCP](docs/guides/serve.md)
 - [Browsing the wiki](docs/guides/wiki.md)
-- [Data home & path resolution](docs/guides/data-home.md)
-- [Runtime logging & bug reports](docs/guides/runtime-logging.md)
-- [Backing up the data home](docs/guides/backup.md)
-
-**Architecture**
-- [Overview](docs/architecture/overview.md) · [Data model](docs/architecture/data-model.md) · [Pipeline](docs/architecture/pipeline.md) · [Journal](docs/architecture/journal.md) · [Agent](docs/architecture/agent.md) · [Permission](docs/architecture/permission.md) · [Temporal](docs/architecture/temporal.md) · [Serve & MCP](docs/architecture/serve-mcp.md) · [Testing & evaluation](docs/architecture/evaluation.md)
+- [Backing up and syncing](docs/guides/backup.md)
+- [Runtime logging and bug reports](docs/guides/runtime-logging.md)
+- [Architecture overview](docs/architecture/overview.md)
+- [Generated CLI reference](docs/reference/cli.md)
 
 ## License
 
-Lorekeep is released under the **MIT License** — see [`LICENSE`](LICENSE).
-
-Copyright © 2026 Manh Pham. You're free to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the software, provided the
-copyright and permission notice are included in all copies. The software is
-provided "as is", without warranty of any kind.
+Lorekeep is released under the [MIT License](LICENSE).

@@ -1,61 +1,47 @@
-# Roadmap — Lorekeep as a second brain
+# Roadmap
 
-> Direction, not commitments. No dates. Items move as the product + users learn.
+> Direction, not commitments. No dates. “Current” below means implemented in
+> this repository; everything else is explicitly planned or under evaluation.
 
 ## North star
 
-Lorekeep is a **second brain for code**: one knowledge graph that aggregates what
-you and your coding agents learn, across every device you use, the services you
-build and operate, and your team — and that **grows itself proactively**, not just
-compiles on edit. The payoff: every agent (and you) reasons over the same
-complete, coherent, temporally-correct picture instead of re-reading scattered
-docs or re-deriving context per session.
+Lorekeep aims to be a file-sovereign second brain shared by a person, their
+coding agents, devices, and—eventually—their team. The useful outcome is not
+merely remembering text: agents should retrieve complete, coherent,
+temporally-correct, source-backed knowledge without reprocessing the corpus on
+every question.
 
-The second brain has four **touchpoints** that feed it and one **proactive core**
-that keeps it healthy:
+## Current foundation
 
-| Touchpoint | Feeds the brain from… |
-|---|---|
-| **Many coding agents (parallel)** | Claude Code, Cursor, Codex, opencode, Grok Build, Qoder, and more — all read + contribute concurrently |
-| **Many devices (simultaneous)** | laptop, desktop, server — same brain, kept in sync |
-| **The software you build/operate** | your microservices' ADRs, runbooks, READMEs, observability, CI |
-| **Team sharing** | personal knowledge shared where it belongs (namespaces + permission) |
-| **Proactive core** | lorekeep reconciles, dedups, fills gaps, surfaces contradictions on its own |
+- Schema v4 / ontology v2.1 for people, software/work entities, typed
+  relationships, summaries, descriptions, aliases, provenance, and validity
+  windows.
+- Compile-time extraction with chunk cache, deterministic resolve/publication,
+  manifest diagnostics, and human-readable Obsidian/Tolaria wiki projection.
+- Exactly seven MCP tools plus three passive resources, with deny-by-default
+  namespace filtering at `ScopedGraph`.
+- Append-only, process-locked agent journals; confidence-gated resolve; atomic
+  graph publication; lazy server reload.
+- Integration registry for Claude Code, Cursor, Codex, opencode, and Grok Build,
+  including config wiring, supported hooks, memory quick import, and bounded
+  transcript capture.
+- Event-driven watcher for raw/schema/journal/session changes, idempotent agent
+  wiring, self-heal, backup sync, and installed-version restart.
+- Private Git backup of durable inputs and deterministic per-device rebuild.
+- Runtime logs, redacted support bundle, doctor checks, and optional deduplicated
+  GitHub issue reporting.
 
-## Shipped (the foundation)
+This foundation already supports several local coding agents and a sequential
+multi-device workflow. It does not yet provide conflict-free simultaneous
+editing or a shared authenticated team service.
 
-Everything below is implemented today and is what the roadmap builds on:
-
-- **Subject-aware ontology v2** — work-context node types + cross-namespace edges;
-  the `me` namespace is subject-centric (altitude rule: tokens → attributes), team
-  namespaces are entity-centric. ScopedGraph gates visibility per namespace.
-- **MCP, compact surface** — 7 composable tools plus passive context
-  resources. Agents read at
-  query time and propose facts through journals (zero marginal LLM cost).
-- **Three write paths → one resolve** — `raw/` compile, agent propose, session
-  import — converge into a pure-logic resolve step.
-- **4-agent session import + hooks** — Claude / Cursor / Codex / opencode memories
-  → `raw/`; session-end hooks auto-trigger.
-- **Agent daemon** — `agent watch` auto-compiles on raw/ change, auto-resolves
-  pending journals, delta-imports session memory.
-- **Backup + durable sources** — `lorekeep backup` commits `raw/`, schema, and
-  agent journals to a private git repo; each device rebuilds derived
-  `facts.jsonl`.
-- **Obsidian/Tolaria wiki** — flat markdown + relationship frontmatter; one vault,
-  both apps.
-- **Profile + contribution** — `profile` (edit your personal source in Obsidian/
-  Tolaria) and `contribution` (what should you share with a team namespace?).
-- **Resolve normalize** — auto-merge duplicate ids (case/separator variants),
-  preserve diacritics.
-- **Agent-identity provenance** — every journal-merged fact carries a
-  `provenance` dict (`{agent, confidence, proposed_at, device}`) stamped at
-  resolve time, so agent-contributed facts are traceable to their source.
+## Near-term contract cleanup
 
 ## Coding-agent integration matrix
 
-Lorekeep aims to integrate with **every** coding agent a developer uses, so the
-second brain is fed from all sessions — not just the ones lorekeep happens to
-support first.
+Lorekeep integrates with **every** coding agent a developer uses, so the second
+brain is fed from all sessions — not just the ones lorekeep happens to support
+first.
 
 | Agent | Vendor | MCP wired | Memory/session import | `lorekeep mcp add` | Status |
 |---|---|:---:|:---|:---:|---|
@@ -107,102 +93,101 @@ on the **import** side.
 > is always on the **import** side (reading each agent's session/memory format
 > into `raw/`), not on the serve side.
 
-## Phases
+## Near-term contract cleanup
 
-Each phase: **goal**, **why it matters**, **scope**, **non-goals**. Phases are
-directions, not a sequence — several advance in parallel.
+Before expanding the surface, align a few existing interfaces whose behavior is
+currently documented but awkward:
 
-### 1. Multi-agent concurrency (hardening)
+- normalize the `serve --transport http` CLI label with FastMCP's actual
+  `streamable-http` value, or remove it until a supported server mode exists;
+- make manual Codex quick-import default to `codex-memory`, matching registry
+  automation;
+- make manual and watcher resolve status transitions identical for accepted,
+  flagged, and rejected proposals; and
+- either implement `resolve --archive` or remove the currently inert option.
 
-- **Goal:** many agents proposing facts in parallel never lose or corrupt data.
-- **Why:** you run Claude Code + Cursor + Codex at once; they all write to the same
-  brain.
-- **Scope:** sharper contradiction detection across parallel proposals (beyond the
-  current `review_note(kind="contradiction")`); atomic
-  journal appends; deterministic merge under concurrent writes.
-- **Non-goals:** a central server (that's phase 5); real-time co-editing UX.
-- **Builds on:** append-only journal + resolve merge (shipped).
+These are compatibility/clarity fixes, not a promise of remote authentication
+or team hosting.
 
-### 2. Multi-device sync
+## Product directions
 
-- **Goal:** laptop + desktop edit the same brain simultaneously without clobbering.
-- **Why:** the second brain follows you across machines; sequential pull/push isn't
-  enough when two devices edit concurrently.
-- **Scope:** conflict resolver for simultaneous raw-document edits and journal
-  reconciliation; optional central sync server for always-on reconciliation.
-- **Non-goals:** replacing git as the transport (git stays the default).
-- **Builds on:** git backup (`pull --rebase` + push) + deterministic rebuild
-  from durable sources.
-- **Honest gap:** today's backup is sequential — concurrent device edits can
-  conflict and need manual resolve.
+### 1. Multi-agent concurrency hardening
 
-### 3. Software-source connectors
+**Goal:** many local agents can propose and resolve knowledge concurrently
+without lost writes, nondeterministic outcomes, or ambiguous attribution.
 
-- **Goal:** lorekeep reads the software you operate, not just docs you hand-write.
-- **Why:** your microservices already hold the truth (ADRs, runbooks, READMEs,
-  service catalog, observability, CI). Ingesting them keeps the brain live.
-- **Scope:** git-repo watch (auto-ingest ADRs/runbooks/READMEs from service repos
-  into the right namespace); observability → facts (e.g. a Signoz MCP feed turning
-  recurring incidents/services into facts); CI status edges. Connectors are
-  read-only ingest, namespace-tagged.
-- **Non-goals:** lorekeep doesn't run your services or own their repos; it mirrors
-  their knowledge into the graph.
-- **Builds on:** `raw/<ns>` ingest + ontology v2 service/project/decision types.
+Planned work includes stress/fault tests across processes, clearer
+contradiction policy, stronger agent/device identity provenance, and identical
+manual/daemon resolution semantics. The process-safe append and global resolve
+lock are already implemented; distributed locking is not.
 
-### 4. Proactive agent
+### 2. Multi-device reconciliation
 
-- **Goal:** the brain grows and heals itself, not just compiles on edit.
-- **Why:** a second brain that silently drifts is worthless; lorekeep should
-  reconcile, dedup, fill gaps, and surface contradictions on a schedule.
-- **Scope:** scheduled nightly reconcile (dedup, normalize, fill gaps driven by the
-  `contribution` view, surface flagged contradictions for review, auto-enrich from
-  imported sessions). A "what changed + what needs you" digest.
-- **Non-goals:** autonomous fact creation without review (human stays in the loop
-  for low-confidence / contradictory facts).
-- **Builds on:** daemon auto-compile/resolve + `contribution` + `lint`/`suggest`
-  hooks.
+**Goal:** several devices can edit the same brain without relying on an operator
+to untangle every conflict.
 
-### 5. Team server
+Today Git fetch/rebase/push is sequential. Planned work should reconcile
+append-only journals safely, define raw-document conflict policy, report
+unmerged states visibly, and preserve deterministic rebuild. Git can remain the
+default transport; conflict-free simultaneous editing is not shipped.
 
-- **Goal:** share namespaces across an org without each person running their own
-  serve.
-- **Why:** team knowledge needs a shared, authenticated endpoint, not N local MCP
-  servers.
-- **Scope:** streamable-HTTP transport; OIDC/SSO; shared namespace hosting; schema
-  evolution without breaking older clients.
-- **Non-goals:** multi-tenant SaaS (single-org deployment first).
-- **Builds on:** MCP server + ScopedGraph permission (deny-by-default).
+### 3. Knowledge-source connectors
+
+**Goal:** ingest useful knowledge already present in repositories and operating
+systems.
+
+Candidates include selected READMEs/ADRs/runbooks, service catalogs, CI state,
+observability signals, Confluence, PDFs, and URLs. Each connector must be
+read-only by default, provenance-preserving, incremental, namespace-explicit,
+and testable without weakening file sovereignty. None is built in today.
+
+### 4. Proactive curation
+
+**Goal:** surface drift, duplicates, gaps, and contradictions without pretending
+that the current watcher is an autonomous curator.
+
+Current `agent lint`, `agent suggest`, and `agent contribution` are one-shot
+commands; the watcher reacts to filesystem/session events. Planned work may add
+scheduled review/digests and source-backed enrichment, with review gates for
+uncertain or contradictory facts. Nightly/weekly jobs are not currently
+implemented.
+
+### 5. Authenticated team serving
+
+**Goal:** host selected namespaces behind a shared endpoint with real
+identity-to-scope mapping.
+
+This requires a supported streamable-HTTP lifecycle, OIDC/SSO, authorization
+tests, auditability, schema compatibility, and operational guidance. A local
+stdio process plus `LOREKEEP_NS` is not sufficient for multi-user trust.
 
 ### 6. Retrieval quality
 
-- **Goal:** agents query the second brain well — not just keyword `search`.
-- **Why:** as the graph grows, recall + ranking matter for the agent to actually
-  *use* it.
-- **Scope:** embeddings / hybrid (keyword + vector) search; graph-guided retrieval
-  (search → get_node → neighbors); retrieval eval against the existing Tier-1/Tier-2
-  harnesses.
-- **Non-goals:** training models; the graph stays file-based.
-- **Builds on:** FTS5 cache + graph BFS neighbors (shipped).
+**Goal:** improve recall and ranking as graphs grow while keeping the compact MCP
+contract.
 
-## How phases relate
+Candidates include hybrid keyword/vector ranking, better relation-aware
+expansion, query guidance, and evaluation across temporal/multi-hop tasks. The
+current implementation has SQLite FTS with scan fallback, scoped graph
+traversal, a construction harness, and a LoCoMo-oriented retrieval harness.
+End-to-end agent reasoning evaluation remains planned.
 
-```
-touchpoints (feed)            proactive core (heal)         serve (use)
-─────────────────             ────────────────────          ──────────
-1 multi-agent concurrency ─┐
-2 multi-device sync ───────┼──► 4 proactive agent ──► 5 team server ──► 6 retrieval
-3 software connectors ─────┘         (dedup/gap/         (shared ns)      (agents
-                                       contradict)                          query)
-```
+## Design constraints for roadmap work
 
-Phases 1-3 feed the brain; phase 4 keeps it healthy; phases 5-6 let agents and
-teams use it well. Everything builds on the shipped foundation above.
+- Keep durable knowledge inspectable and portable; derived indexes must remain
+  rebuildable.
+- Preserve deterministic compilation for unchanged inputs.
+- Keep permission in `ScopedGraph`, never in ad hoc tool handlers.
+- Prefer a small composable MCP surface over one tool per product feature.
+- Distinguish implemented behavior, experimental developer commands, and
+  planned work in both code and documentation.
+- Add offline regression tests for every new contract; use real providers only
+  in explicit smoke/evaluation runs.
 
-## References
+## Related
 
-- [Architecture overview](architecture/overview.md) — compile/serve phases, write
-  paths, the append-and-resolve model.
-- [Agent](architecture/agent.md) — the daemon that phases 3-4 extend.
-- [Permission model](architecture/permission.md) — namespaces + ScopedGraph, the
-  basis for team sharing (phase 5).
-- [Evaluation](architecture/evaluation.md) — the retrieval-quality bar (phase 6).
+- [Architecture overview](architecture/overview.md)
+- [Agent/watcher](architecture/agent.md)
+- [Permission model](architecture/permission.md)
+- [Testing and evaluation](architecture/evaluation.md)
+- [Serve guide](guides/serve.md)

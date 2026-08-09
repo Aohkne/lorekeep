@@ -1,178 +1,242 @@
-# Serving the knowledge graph to coding agents
+# Serving the graph to coding agents
 
-Path resolution (env > `LOREKEEP_HOME` > dev mode > XDG) is covered in [data-home.md](data-home.md).
+Lorekeep serves the compiled graph through a small MCP contract. The normal
+client integration uses stdio: each coding agent starts a local Lorekeep process
+with a fixed namespace scope. Graph updates are picked up lazily without
+restarting that process.
 
-## Installed use (recommended)
+## Prerequisites
 
-```bash
-uvx lorekeep init                     # bootstrap + wire agents + compile + start daemon
-# add your docs under ~/.local/share/lorekeep/raw/<ns>/
-uvx lorekeep compile                  # requires a real provider in config.yaml
-uvx lorekeep mcp add --agent claude --ns <ns>
-uvx lorekeep doctor
-
-# Keep the graph current with the daemon:
-uvx lorekeep agent watch &
-```
-
-`mcp add` writes a **portable** `.mcp.json` (no machine path) when
-`install_source` is `pypi` (the default from `init`):
-
-```json
-{"mcpServers": {"lorekeep": {"command": "uvx",
-  "args": ["lorekeep", "serve", "--transport", "stdio"],
-  "env": {"LOREKEEP_NS": "<ns>"}}}}
-```
-
-## Local dev (repo co-located data)
-
-From the Lorekeep source checkout (has `.lorekeep/` → auto dev mode):
+Build and validate a graph first:
 
 ```bash
-uv run lorekeep compile      # reads .lorekeep/raw/, writes .lorekeep/graph/
-uv run lorekeep serve
+lorekeep compile
+lorekeep doctor
 ```
 
-Force dev mode anywhere: `LOREKEEP_DEV=1 lorekeep ...`.
+`serve` requires `graph/facts.jsonl`. It loads the schema, manifest, and local
+FTS index alongside the graph.
 
-## Custom knowledge base
+## Wire a client
+
+For one client:
 
 ```bash
-LOREKEEP_HOME=~/kb-work uvx lorekeep init
-LOREKEEP_HOME=~/kb-work uvx lorekeep compile
+lorekeep mcp add --agent claude --scope project --ns backend
 ```
 
-## MCP surface (7 tools, scoped)
+For registry-based detection/wiring:
 
-The default surface is deliberately small:
+```bash
+lorekeep agent detect
+lorekeep agent wire --scope user --ns backend
+lorekeep agent wire --agent codex --scope user --ns backend
+```
 
-- Read/context: `search`, `get_node`, `neighbors`, `temporal_query`, `context`.
-- Write/review: `propose_change`, `review_note`.
-- Passive resources: `lorekeep://schema`, `lorekeep://namespaces`,
-  `lorekeep://status`.
+Supported names are `claude`, `cursor`, `codex`, and `opencode`. Writers preserve
+unrelated client configuration and are idempotent: an already-correct target is
+reported as unchanged without touching its mtime.
 
-Results are filtered to `LOREKEEP_NS`; cross-namespace edges are hidden unless
-both endpoints are visible.
-
-Use `temporal_query(mode="at_time", params={"time": ...})`,
-`temporal_query(mode="history", params={"id": ...})`, or
-`temporal_query(mode="changes", params={"from_time": ..., "to_time": ...})`.
-
-### `context(section="status", topic="")` — scope awareness
-
-Agents call `context()` to load ontology/scope/status together, or request only
-the `status` section to decide whether to query the graph or work from memory:
+With `install_source: pypi`, a project-scoped Claude config is conceptually:
 
 ```json
 {
-  "nodes": 42,
-  "edges": 18,
-  "node_types": {"service": 30, "decision": 12},
-  "edge_types": {"depends_on": 15, "decided_by": 3},
-  "namespaces": ["backend", "frontend", "public"],
-  "provenance": {"curator": 38, "agent": 4},
-  "freshness": {
-    "oldest": "2024-01-15",
-    "newest": "2026-06-20",
-    "expired": 2
-  },
-  "compile": {
-    "run_id": "abc123",
-    "compiled_at": "2026-06-30T01:27:59Z",
-    "merged_count": 4,
-    "quarantined_count": 1
-  },
-  "pending": 7
-}
-```
-
-Pass `topic` to check coverage for a specific subject:
-
-```json
-{
-  "coverage": {
-    "topic": "payments",
-    "matching_nodes": 3,
-    "matching_types": {"service": 2, "decision": 1},
-    "node_ids": ["svc:payments-api", "dec:adr-007", "svc:payments-worker"]
+  "mcpServers": {
+    "lorekeep": {
+      "command": "uvx",
+      "args": ["lorekeep", "serve", "--transport", "stdio"],
+      "env": {"LOREKEEP_NS": "backend"}
+    }
   }
 }
 ```
 
-**Provenance signal:** `provenance.curator` counts nodes with `src` (compiled from raw docs, higher trust). `provenance.agent` counts nodes without `src` (agent-proposed via journal, lower trust). If most facts are agent-proposed, the agent should verify before relying on them.
+The writer selects the actual command and target format from install source,
+agent, and scope. Do not copy this Claude-specific JSON over another client's
+native config. Restart the client after wiring or changing scope.
 
-**Freshness signal:** `freshness.expired` counts nodes whose `valid_to` has passed. `compile.compiled_at` shows when the graph was last rebuilt. `pending` shows unresolved agent proposals.
+## Scope and permission
+
+Serve-time scope comes from comma-separated `LOREKEEP_NS`; without that env var,
+it uses `config.ns.default`. `public` is always added implicitly.
+
+Permission is deny-by-default:
+
+- a node is visible when one of its namespaces is effective;
+- an edge is visible only when its namespace **and both endpoint nodes** are
+  visible; and
+- missing and out-of-scope return the same result, preventing existence leaks.
+
+All graph-fact paths—including temporal queries, graph status counts, topic
+coverage, FTS results, and traversal—go through `ScopedGraph`. Static schema and
+aggregate compile/pending operational metadata are process-wide and contain no
+fact payloads; the pending count is not filtered per namespace.
+
+## MCP surface
+
+The server exposes exactly seven tools.
+
+### `search(query, limit=10)`
+
+Returns visible node ids matching id/type/property text. Lorekeep builds a local
+SQLite FTS index at load/reload; if FTS is unavailable it falls back to graph
+scan. Search over-fetches before scope filtering, then applies `limit`.
+
+### `get_node(id)`
+
+Returns one visible node with canonical id, type, namespace, temporal window,
+props, `src`, and agent provenance when present. Missing and hidden nodes return
+`{"error": "not found or out of scope"}`.
+
+### `neighbors(id, edge_type="", depth=1)`
+
+Traverses incoming and outgoing visible edges. Depth is clamped to 1–5. An empty
+`edge_type` means all types. The payload contains deduplicated nodes and edges;
+permission filtering is applied at every returned endpoint.
+
+### `temporal_query(mode, params)`
+
+One tool composes the three temporal operations:
+
+```json
+{"mode": "at_time", "params": {"time": "2025-03-01"}}
+{"mode": "history", "params": {"id": "svc:payments-api"}}
+{"mode": "changes", "params": {
+  "from_time": "2025-01-01", "to_time": "2025-06-01"
+}}
+```
+
+Validity is half-open: `valid_from <= t < valid_to`; `null` is unbounded.
+
+### `context(section="all", topic="")`
+
+Returns all context, or one of `schema`, `namespaces`, or `status`. The graph
+portion of status is namespace-filtered and contains visible node/edge counts by
+type, namespaces, source-provenance counts, validity freshness, and topic
+coverage. Compile-manifest metadata and the aggregate unresolved-journal count
+are process-wide; the response contains no journal payload.
+
+Passing a topic adds a lightweight visible-coverage probe over node ids, types,
+and property values:
+
+```json
+{"section": "status", "topic": "payments"}
+```
+
+The `provenance.curator`/`agent` split currently uses presence of node `src` as
+its signal. Treat it as a coverage hint, not a cryptographic trust decision.
+
+### `propose_change(operation, payload, confidence)`
+
+Appends a structured proposal to a namespace journal:
+
+| Operation | Payload |
+|---|---|
+| `create` | complete node or edge fact |
+| `link` | `from_id`, `to_id`, `edge_type`, optional `props` |
+| `update` | visible fact `id` and the **complete replacement** `props` map |
+
+Node/edge types are checked against the loaded schema. Edge endpoints must exist,
+be visible, and satisfy allowed endpoint types. No proposal changes
+`facts.jsonl` directly.
+
+### `review_note(kind, description, fact_ids=None)`
+
+Records an `improvement`, or a `contradiction` referencing exactly two fact ids.
+Review notes use low confidence deliberately, so resolve retains them in the
+review/quarantine trail rather than treating them as ordinary domain facts.
+
+## Passive resources
+
+Clients with MCP resource support can read the same contextual information
+without adding action choices:
+
+- `lorekeep://schema`
+- `lorekeep://namespaces`
+- `lorekeep://status`
+
+`context` is the fallback for clients that do not expose resources to the model.
+
+## Recommended agent instructions
+
+Wiring only exposes tools. Whether the model calls them depends on the client and
+its instructions. `init` and `mcp add` print a snippet; preserve an equivalent
+rule in the relevant `CLAUDE.md`, `AGENTS.md`, Cursor rules, or opencode
+instructions:
+
+```markdown
+Before answering architecture, code, domain, ownership, or historical questions,
+call Lorekeep context(section="status") and search relevant terms. Follow matching
+ids with get_node, then neighbors or temporal_query as needed. Cite src. If a fact
+is missing, report weak coverage or possible namespace exclusion rather than
+inventing it. Propose only source-backed facts and record contradictions for
+review.
+```
+
+Good user prompts are explicit about using the graph and the desired time/scope:
+
+- “Search Lorekeep for payment ownership and dependencies; cite provenance.”
+- “Use Lorekeep history for ADR-17 and distinguish past from current state.”
+- “Check Lorekeep status coverage before answering; say when evidence is weak.”
 
 ## Journal-based writes
 
-Agents contribute knowledge during conversation at **zero LLM cost**. Facts
-are appended to `pending/` journals and merged into the graph on the next
-resolve pass.
+Write tools derive their namespace from the server scope and overwrite any
+caller-provided `ns`. With multiple non-public scopes, the fact carries all of
+them and the journal is routed through the first configured namespace. Give a
+write-capable agent the narrowest practical scope.
 
-| Tool | Modes | Purpose |
-|---|---|---|
-| `propose_change(operation, payload, confidence)` | `create`, `link`, `update` | Propose a node/edge, connect nodes, or replace a fact's complete props map. |
-| `review_note(kind, description, fact_ids?)` | `contradiction`, `improvement` | Record work that must stay pending for curator review. |
+The flow is:
 
-Both derive namespace from the verified server scope; agents cannot write into
-another namespace by placing `ns` in a fact payload.
-
-**Confidence guidance for agents:**
-- ≥ 0.8: explicit claim with source citation. "The codebase shows service X uses database Y."
-- 0.5-0.8: implied without explicit source. "Based on the architecture, X likely depends on Y."
-- < 0.5: speculation — these are quarantined, not merged.
-
-Facts become visible after the next resolve pass (run `lorekeep resolve`
-manually; or automatically when `lorekeep agent watch` detects new pending
-entries, polling every 60s).
-
-## Keeping the graph current
-
-Two modes, from fully automatic to agent-controlled:
-
-```bash
-# Mode 1: Daemon (default) — fully autonomous, follows Karpathy LLM Wiki pattern
-uvx lorekeep agent watch
-# Startup: sync backup from remote (pull changes from other machines)
-# Watches raw/ → auto-compile (file count + mtime tracking)
-#   → after compile: auto-resolve + wiki regen + backup sync (push to remote)
-# Watches pending/ → auto-resolve
-# Watches Claude memory/ + Codex memories/ → delta quick-import (zero LLM)
-# Session re-discovery every cycle — detects new sessions after daemon start
-# Survives restart: lorekeep agent service install (systemd/launchd/startup)
-# Backup auto-syncs: pull --rebase (other machines) + push (local changes)
-# Use --no-watch-sessions to disable session watching
-
-# Mode 2: Agent-controlled (--no-watch on init) — no daemon
-# The coding agent triggers updates via shell commands:
-#   lorekeep compile   # does compile + resolve + wiki (all-in-one, uses LLM)
-#   lorekeep resolve   # merge agent-proposed facts only (zero LLM cost)
-#   lorekeep wiki      # regenerate wiki from existing graph
-# MCP server lazy-reloads facts.jsonl on next query — no daemon needed
+```text
+MCP write
+  → operation/type/endpoint/scope checks
+  → process-locked append + fsync to pending/<ns>/journal.jsonl
+  → resolve full Pydantic/schema validation + confidence gate
+  → atomic facts.jsonl publication
+  → MCP lazy reload on next query
 ```
 
-## Connect once (lazy-reload)
+Confidence behavior is `>=0.8` merge, `0.5..<0.8` merge + flag, and `<0.5`
+quarantine. Agent/device/proposal metadata is stamped onto accepted facts.
 
-The server loads `facts.jsonl` into memory and **lazy-reloads** it: every query
-stats the file's mtime, and if it changed (after compile or resolve) the graph is
-rebuilt automatically. So the workflow is:
+Run `lorekeep resolve` manually, or let `agent watch` detect the journal mtime
+change. Resolve uses no LLM call.
+
+## Lazy reload
+
+Each query stats `facts.jsonl`. When its mtime differs, the server rebuilds the
+graph, schema/manifest state, and FTS index before answering. Therefore:
 
 ```bash
-<edit raw/.../*.md>
-uvx lorekeep compile          # rebuilds facts.jsonl + regenerates wiki/
-# OR: agent ingest + resolve  # propose facts interactively, merge journals
-# OR: lorekeep agent watch    # daemon does compile + resolve automatically
-# next query from the agent sees the new graph — NO reconnect needed
-# wiki/ pages also regenerated automatically
+# raw changed
+lorekeep compile
+
+# only journals changed
+lorekeep resolve
 ```
 
-Connect the MCP server **once**; graph updates via `compile`, `resolve`, or
-the daemon are visible immediately. Reconnect is only needed for **code**
-changes (rare; the serve path is stable) or **scope** changes (`.mcp.json`
-`LOREKEEP_NS`).
+The next MCP query sees the new graph. Reconnect only when code, command, or
+namespace configuration changed.
 
-## Human view: wiki
+## Transport status
 
-The same `facts.jsonl` is also projected to **Obsidian-compatible markdown**
-in `wiki/` — one page per node, `[[wikilinks]]` for edges, YAML frontmatter
-for Dataview. See [wiki.md](wiki.md).
+The supported coding-agent path is `--transport stdio`, which blocks while it
+waits for an MCP client. A clean timeout is a useful boot smoke:
+
+```bash
+timeout 3 lorekeep serve --transport stdio </dev/null
+```
+
+Authenticated shared HTTP hosting is not shipped. The current CLI help retains
+an `http` label, but the bundled FastMCP runtime expects the distinct
+`streamable-http` transport name; until the CLI contract is corrected and
+covered, do not treat `--transport http` as a working team-server mode.
+
+## Related
+
+- [Permission architecture](../architecture/permission.md)
+- [Temporal architecture](../architecture/temporal.md)
+- [Serve and MCP architecture](../architecture/serve-mcp.md)
+- [Journal architecture](../architecture/journal.md)
+- [Runtime logging](runtime-logging.md)

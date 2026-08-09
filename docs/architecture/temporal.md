@@ -1,27 +1,86 @@
 # Temporal model
 
-> Adapted from the original design spec.
+Nodes and edges can carry `valid_from` and `valid_to` ISO dates. Lorekeep uses a
+half-open interval:
 
-Every node and edge carries `valid_from` (ISO date) and `valid_to` (ISO date or `null`). A fact is **active** at time `t` under the half-open interval `valid_from ≤ t < valid_to`, treating `null` as unbounded on that side (`valid_to: null` ⇒ still current).
+```text
+valid_from <= t < valid_to
+```
 
-This is implemented in `GraphStore._active` (`src/lorekeep/store/graph.py`).
+Either boundary can be `null`, meaning unbounded on that side. A fact with
+`valid_to: 2025-03-01` is no longer active on 2025-03-01; a replacement can
+begin on that same day without overlap.
 
-## Queries
+The model uses calendar dates, not timestamps or transaction time. `src` and
+journal metadata record provenance, but they do not form a second bitemporal
+axis.
 
-The MCP surface exposes these through
-`temporal_query(mode="at_time"|"history"|"changes", params={...})`; the modes
-map to the internal graph operations below.
+## Query operations
 
-- **`at_time(t)`** — snapshot of all facts whose window contains `t`.
-- **`history(id)`** — all versions of an entity plus every edge touching it, ordered by `valid_from` (`None` first).
-- **`changes(t1, t2)`** — edges whose validity window **began** or **ended** within `[t1, t2)`.
+MCP exposes all temporal reads through
+`temporal_query(mode, params)`.
 
-History is modelled as multiple edges sharing the same endpoints (and type) with different validity windows — not as mutation. A dependency that ended `2025-03-01` and a new one that began the same day are two coexisting edges; `at_time` selects the right one.
+### Snapshot
 
-## Composition with permission
+```json
+{"mode": "at_time", "params": {"time": "2025-03-01"}}
+```
 
-Temporal filtering composes with [permission](permission.md) filtering: a temporal query returns only facts the caller is allowed to see. `ScopedGraph.snapshot`, `.history`, and `.changes` apply both layers.
+Returns active visible nodes and active visible edges. An edge is returned only
+when both of its endpoints are also active and visible in the snapshot.
 
-## Why a temporal graph
+### History
 
-Temporal KG-QA is the industry weak spot — specialized memory systems drop to ~20% on temporal reasoning. A structured temporal graph is Lorekeep's core bet, and [Tier-2 evaluation](evaluation.md) stresses it heavily.
+```json
+{"mode": "history", "params": {"id": "svc:payments-api"}}
+```
+
+Returns the visible node followed by visible incoming/outgoing edges, ordered by
+`valid_from` with an unbounded start first. This is incident-edge history for
+the current node id; it is not an audit log of every mutation to `props`.
+
+### Changes
+
+```json
+{"mode": "changes", "params": {
+  "from_time": "2025-01-01",
+  "to_time": "2025-06-01"
+}}
+```
+
+Returns two edge lists:
+
+- `began`: `valid_from` falls in `[from_time, to_time)`;
+- `ended`: `valid_to` falls in `[from_time, to_time)`.
+
+The current operation reports relationship changes only; node start/end events
+are not included.
+
+Invalid/missing dates or modes return structured MCP errors. Internally the
+store accepts parsed `date` values.
+
+## Representing change
+
+Lorekeep preserves fact validity windows rather than rewriting every historical
+relationship into a single current value. For example, an old dependency ending
+on 2025-03-01 and a replacement beginning that day are two edge facts. Snapshot
+selects the applicable relationship; history shows both.
+
+This is validity history, not full event sourcing: recompiling curated raw
+documents rebuilds the derived graph, and ordinary prop changes are not
+automatically retained as separate versions unless the source/extracted facts
+model them that way.
+
+## Permission composition
+
+`ScopedGraph.snapshot`, `.history`, and `.changes` filter the pure
+`GraphStore` result. A hidden node, a hidden endpoint, or an edge outside the
+effective namespace cannot leak through a temporal response. See
+[Permission](permission.md).
+
+## Related
+
+- [Data model](data-model.md)
+- [Compile pipeline](pipeline.md)
+- [Serve and MCP](serve-mcp.md)
+- [Testing and evaluation](evaluation.md)

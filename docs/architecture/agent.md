@@ -1,218 +1,203 @@
-# Autonomous agent
+# Autonomous agent and graph operations
 
-> **Status: partially implemented.** The daemon (`lorekeep agent watch`), `agent ingest`, `agent lint`, `agent suggest`, and `agent status` are shipped. The daemon auto-compiles on `raw/` change (file count + mtime tracking), auto-resolves pending journals, and delta-imports **Claude + Codex** session memory. Session re-discovery happens every polling cycle (detects new sessions after daemon start). Cursor/opencode are handled by session-end hooks (`lorekeep hook`). Scheduled nightly lint / weekly suggest, schema evolve (`agent evolve`), and `--auto-fix` are planned.
+Lorekeep's “agent” surface combines an event-driven watcher with explicit
+one-shot graph/source operations. It is not a planner or periodic job scheduler.
 
-The autonomous agent (`lorekeep agent`) is the engine that keeps the knowledge graph continuously up-to-date. It watches for changes, triggers compiles and resolves, runs health checks, and suggests improvements — all without manual curator intervention for routine operations.
+## Public commands
 
-## Trigger model
-
-Inspired by the LLM Wiki ecosystem (see references below), Lorekeep uses a **hybrid trigger model**: some operations are fully autonomous, some are gated by confidence, and some require explicit human approval.
-
-```
-TRIGGER SPECTRUM
-═══════════════════════════════════════════════════════════════
-
-Fully Autonomous           Confidence-Gated           Human-Only
-───────────────────────────────────────────────────────────────
-import sessions            compile (raw/ changed)       ingest (conversational)
-lint report                lint --auto-fix              schema evolve
-resolve (periodic)
-self-heal
-suggest improvements
-watch raw/ → detect change
-```
-
-## Operations
-
-### Daemon mode (`lorekeep agent watch`)
-
-Runs continuously, polling or watching the filesystem. Handles all routine maintenance.
-
-```
-lorekeep agent watch
-  ├── Watch raw/ for new or changed .md files (count + mtime)
-  │   └── On change → hash check → auto-compile → resolve → wiki
-  ├── Watch pending/ for new journal entries
-  │   └── On change → auto-resolve → wiki regen
-  ├── Watch Claude memory/ + Codex memories/ (re-discover every cycle)
-  │   └── On change → delta quick import → raw/ (zero LLM cost)
-  │       → triggers raw/ watch → auto-compile
-  │   Cursor/opencode: no quick-import path → session-end hooks
-  └── (planned) Periodic lint, suggest, schema evolve
-```
-
-### Compile trigger
-
-| Trigger | Behavior | Gate |
+| Command | Current role | LLM use |
 |---|---|---|
-| **raw/ file added** | Hash check → if new, auto-compile | None (safe: new file, no cache bust) |
-| **raw/ file modified** | Hash check → if changed, auto-compile | None (cache handles unchanged chunks) |
-| **raw/ file deleted** | Re-compile to remove facts from that source | None (source gone → facts become stale) |
-| **Schema changed** | Full re-compile (cache invalid) | Manual only (costly, curator must approve) |
+| `agent detect` | report installed, active, session-data, wiring/hook state | none |
+| `agent wire` | idempotently write MCP config + supported hooks | none |
+| `agent watch` | poll sources/journals/agents and coordinate maintenance | compile only when triggered |
+| `agent service install/uninstall/status` | OS persistence wrapper around `agent watch` | none |
+| `agent ingest` | extract/review one raw file and journal approved facts | yes |
+| `agent lint` | structural/semantic graph heuristics | none |
+| `agent lint --auto-fix` | remove dangling/duplicate edges and republish | none |
+| `agent suggest` | list missing dates/sources, sparse namespaces/edges | none |
+| `agent status` | graph counts, namespaces, lint/pending counts | none |
+| `agent profile` | print/open editable personal raw source | none |
+| `agent contribution` | find personal-only shareable entities | none |
 
-### Lint trigger
+There is no `agent evolve` command.
 
-| Trigger | Behavior | Gate |
-|---|---|---|
-| **Nightly** | Full semantic lint pass → `manifest.lint_report` | Auto-fix confidence ≥ 0.85 |
-| **Post-compile** | Incremental lint (only new/changed facts) | Report only |
-| **On-demand** | `lorekeep agent lint` | As requested |
+## Detection and wiring
 
-Lint checks:
-- **Contradictions**: facts that conflict (same entity, contradictory props)
-- **Orphan facts**: nodes with zero inbound or outbound edges
-- **Stale facts**: `valid_to` expired, no superseding edge
-- **Missing entities**: nodes referenced in edges but not in the node set
-- **Coverage gaps**: namespaces or types with few facts relative to others
+The registry defines six clients: Claude Code, Codex, Cursor, opencode, Grok Build, and Qoder.
+Each `AgentSpec` owns detection markers, active-shell env vars, config/hook
+targets, and memory/session importer functions.
 
-### Resolve trigger
+`detect_active_agent` examines known environment markers. Installed detection
+checks client directories and binaries. The active client is listed first but
+does not exclude other installed clients; Lorekeep is designed to aggregate all
+of them.
 
-| Trigger | Behavior |
-|---|---|
-| **Batch threshold** | After N pending journal entries (default 50) |
-| **Time interval** | Every T minutes if pending entries exist (default 5) |
-| **Post-compile** | After compile, immediately resolve pending |
-| **Session end detected** | Agent session dir modified → resolve |
-| **Manual** | `lorekeep resolve` |
+`agent wire` uses registry writers and preserves unrelated native config. It can:
 
-### Self-heal
+- wire all detected/enabled agents;
+- target one explicit `--agent`;
+- use project or user `--scope`;
+- set one MCP namespace;
+- preview with `--dry-run`; and
+- include undetected agents with `--force`.
 
-Runs after every compile cycle when `agent.self_heal` is enabled in config
-(default: on). Also available standalone via `lorekeep agent heal`.
+Writers report unchanged without rewriting. The watcher can therefore re-run
+detection periodically without causing config mtime churn. Failed clients enter
+a one-hour per-process backoff.
 
-| Check | Action |
-|---|---|
-| **Dangling edges** | Edges referencing non-existent node ids are removed |
-| **Duplicate edges** | Exact-match edges (same type, from, to, props) are deduplicated |
-| **Circular dependencies** | `depends_on` cycles are flagged for review |
-| **Orphaned nodes** | Nodes with zero edges are flagged |
+## Watcher startup
 
-Self-heal never deletes nodes — it only removes structurally invalid edges and
-reports issues. All actions are logged so the curator can audit what changed.
+`agent watch`:
 
-### Import trigger
+1. prints resolved raw/pending paths and mode;
+2. refuses to start when `.daemon.pid` belongs to a live process;
+3. writes its PID and installs SIGTERM cleanup;
+4. snapshots the installed package version;
+5. loads `agents` config;
+6. synchronizes the private backup remote when configured; and
+7. replays pending/accepted journals after sync before entering the loop.
 
-| Trigger | Behavior |
-|---|---|
-| **Session end** | Agent session dir modified → auto-import (quick mode) |
-| **Hourly** | Import all unimported sessions |
-| **Manual** | `lorekeep import --from claude` |
+Startup synchronization precedes replay so remote journal events are available
+on this device.
 
-### Suggest trigger
+## Poll loop
 
-| Trigger | Behavior |
-|---|---|
-| **Weekly** | Analyze graph for gaps, orphans, under-sourced areas → report |
-| **On query** | Agent queries expose knowledge gaps → suggest improvements |
+The loop sleeps `--interval` seconds (default 60) and performs these checks in
+order.
 
-## CLI interface
+### Package upgrade
 
-```bash
-# Daemon (autonomous)
-lorekeep agent watch                    # start watching filesystem
+The running process compares its startup distribution version to current
+on-disk metadata. When an external `uv tool upgrade`/install changes it, the
+watcher removes the PID file and replaces itself with `os.execv`, picking up new
+code without waiting for systemd/launchd restart.
 
-# One-shot operations
-lorekeep agent heal                     # remove dangling edges, dedupe, flag issues
-lorekeep agent lint                     # full semantic health check
-lorekeep agent lint --auto-fix          # auto-apply high-confidence fixes
-lorekeep agent lint --focus <id>        # lint a specific entity
-lorekeep agent suggest                  # generate improvement suggestions
-lorekeep agent status                   # graph health dashboard
+### Agent wiring
 
-# Conversational (human in the loop)
-lorekeep agent ingest <source>          # interactive ingest with guidance
+On first pass and every `agents.wire_interval_seconds` (default 900), it detects
+installed clients and idempotently wires enabled ones according to
+`agents.wire_scope`.
 
-# Schema evolution (human in the loop)
-lorekeep agent evolve                   # suggest schema improvements
-lorekeep agent evolve --apply <change>  # apply approved schema change
-```
+### Raw/schema compile
 
-## Confidence gates
+The watcher tracks both Markdown file count and maximum mtime, plus schema mtime.
+After the initial baseline, any count change, newer raw mtime, or newer schema
+mtime runs the same compile pipeline as the CLI. File count catches new files
+even on filesystems where mtimes share a coarse tick.
 
-All autonomous mutations are gated. The agent never silently corrupts the graph.
+Compile errors are reported/logged but do not kill the daemon. Total provider
+failure does not terminate the loop.
 
-Two distinct confidence thresholds exist — these are intentionally different gates:
+After successful compile it:
 
-| Threshold | Applies to | Value |
-|---|---|---|
-| **Fact merge** | Agent-proposed facts entering `facts.jsonl` via resolve | ≥ 0.8 |
-| **Lint auto-fix** | Autonomous lint correction (e.g., marking stale facts) | ≥ 0.85 |
+1. synchronizes backup if configured;
+2. replays/merges journals;
+3. runs deterministic self-heal when `agents.self_heal` is true; and
+4. generates the wiki once from final facts.
 
-Lint auto-fix has a higher bar because it modifies *existing* facts that may already be relied upon. Fact merge introduces *new* facts at lower risk.
+### Journal resolve
 
-```
-Autonomous action proposed
-  │
-  ├── Confidence ≥ 0.85 (high) — lint auto-fix threshold
-  │   └── Auto-apply → facts.jsonl + log
-  │
-  ├── 0.8 ≤ Confidence < 0.85 — fact merge only, no lint auto-fix
-  │   └── Merge fact OR flag lint finding for review
-  │
-  ├── 0.5 ≤ Confidence < 0.8 (medium)
-  │   └── Apply + flag → manifest.review
-  │
-  └── Confidence < 0.5 (low)
-      └── Reject → manifest.quarantine + notification
-```
+The watcher tracks maximum mtime across `pending/**/journal.jsonl`. A later mtime
+triggers immediate auto-resolve in that poll cycle. There is no batch-size or
+five-minute threshold.
 
-Confidence is compound: for auto-fix, both the lint finding confidence AND the fix confidence must meet their respective thresholds for auto-apply.
+### Memory quick import
 
-## Daemon lifecycle
+Every cycle re-discovers registry agents with a curated memory source (currently
+Claude and Codex). First sight or newer memory mtime triggers content-hash-based
+quick import, rate-limited to once per 30 seconds per source. State advances only
+after success, so a failed import can retry.
 
-```
-┌──────────────────────────────────────────────────────┐
-│                 lorekeep agent watch                 │
-│                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
-│  │ Watcher  │  │ Scheduler│  │  Resolver         │   │
-│  │          │  │          │  │                   │   │
-│  │ raw/     │  │ nightly  │  │ poll pending/     │   │
-│  │ sessions │  │ hourly   │  │ → resolve when    │   │
-│  │ schema   │  │ weekly   │  │   threshold met   │   │
-│  └────┬─────┘  └────┬─────┘  └────────┬──────────┘   │
-│       │             │                 │               │
-│       ▼             ▼                 ▼               │
-│  ┌────────────────────────────────────────────────┐   │
-│  │              Action Queue                      │   │
-│  │  compile → resolve → lint → suggest → import   │   │
-│  └────────────────────┬───────────────────────────┘   │
-│                       │                               │
-│                       ▼                               │
-│  ┌────────────────────────────────────────────────┐   │
-│  │              State Machine                      │   │
-│  │  IDLE → COMPILING → RESOLVING → LINTING → IDLE │   │
-│  │  (actions serialized; no concurrent mutations)  │   │
-│  └────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────┘
-```
+### Transcript dump
 
-Actions are serialized through a state machine: only one mutation (compile, resolve, lint with auto-fix) runs at a time. This preserves determinism and avoids race conditions on `facts.jsonl`.
+When `agents.watch_transcripts` is true, the registry locates supported live
+sessions for all supported clients every 30 seconds. Parsed turns become bounded,
+deterministic Markdown batches under `raw/<agent>-session/`; older sessions are
+pruned according to retention config. No LLM is called here.
 
-## Cost profile
+Because raw detection occurs earlier in the same loop, newly dumped transcript
+Markdown is compiled on a later poll.
 
-| Operation | Frequency | LLM cost | Notes |
-|---|---|---|---|
-| Watch + compile | On raw/ change | Chunk cache hit rate > 90% after first compile | Only new/changed chunks cost. In team setups with git-synced raw/, a teammate's push → your pull → new files → your daemon triggers LLM extract. Gate with `auto_compile: false` in config if you want manual-only compile on shared repos. |
-| Resolve | Every 5 min / 50 writes | **Zero** | Pure Python |
-| Lint | Nightly | **Zero** | Pure graph analysis (no LLM needed for structural lint) |
-| Lint (semantic) | Weekly | Low | Optional: LLM for semantic contradiction detection |
-| Import (quick) | Session end | **Zero** | File copy only |
-| Import (deep) | On demand | 1 LLM per session | LLM-summarizes transcript |
-| Suggest | Weekly | Low | LLM analyzes graph structure |
+## Self-heal
 
-**Total daily LLM cost:** near-zero for routine operations. The only LLM calls are raw/ extraction (cache-hit dominant) and optional deep import / semantic lint.
+`agent.self_heal` is deliberately narrow:
 
-## References
+- remove edges whose real endpoint node is missing;
+- deduplicate edges with identical type/endpoints/validity;
+- report circular dependencies; and
+- report orphan nodes without deleting them.
 
-- Karpathy LLM Wiki gist: https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f — original three-operation model (ingest, query, lint)
-- LLM Wiki v2: https://gist.github.com/rohitg00/2067ab416f7bbe447c1977edaaa681e2 — confidence scoring, supersession, consolidation tiers
-- LLM Wiki v3: https://github.com/vvvvvivekkk/LLM-Wiki-v3 — gated autonomous writes, provenance chain, audit trail
-- Synthadoc: https://github.com/axoviq-ai/synthadoc — scheduled ingest/lint, auto-detecting health mode
-- AutoSci: https://github.com/skyllwt/AutoSci — autonomous sleep phase, cross-model review
+The pure function returns a new `GraphStore` plus `HealReport`; callers decide
+whether to publish. The daemon runs it only after a successful compile. The CLI
+also previews fixability during `agent lint` and persists it with
+`agent lint --auto-fix`.
+
+Self-heal does not synthesize facts, resolve semantic contradictions, fill
+descriptions, or alter raw sources.
+
+## Lint, suggest, and status
+
+`lint` currently detects:
+
+- orphan nodes;
+- missing edge endpoints;
+- expired edges;
+- very sparse namespaces relative to the graph; and
+- duplicate node ids with conflicting props when such duplicates reach the
+  loaded store.
+
+`suggest` lists nodes with one/fewer sources, missing `valid_from` on such nodes,
+single-namespace graphs, and graphs with no edges. It is deterministic graph
+analysis despite the command name; no provider call occurs.
+
+`status` reports global (unscoped local) node/edge/namespace counts, total lint
+issues, and pending-journal count. For namespace-filtered agent-facing status,
+use the MCP `context(section="status")` tool.
+
+None of these one-shot commands runs nightly/weekly from the watcher.
+
+## Conversational ingest
+
+`agent ingest <raw-file>` requires the file to resolve beneath `raw/`. It chunks
+and extracts using the configured provider, displays candidates, and lets the
+user approve all or individual facts. Approved facts are appended with
+`agent="cli-ingest"` and confidence 1.0. Resolve/compile is still required before
+they are served.
+
+## Persistent service
+
+`agent service install` generates a platform wrapper:
+
+- Linux: systemd user unit;
+- macOS: launchd LaunchAgent; and
+- Windows: Startup-folder VBS.
+
+Each wrapper runs `lorekeep agent watch` and pins `LOREKEEP_HOME` to the home
+resolved at install time. Status delegates to the platform service manager.
+Reinstall when the desired home/command installation changes.
+
+## Error resilience
+
+Each loop body has a broad error boundary: unexpected errors are logged, shown,
+and followed by the normal interval sleep. Individual wiring, import, backup,
+compile, transcript, resolve, and wiki operations also isolate expected failure
+so one integration does not stop all maintenance.
+
+## Not implemented
+
+The following belong in the roadmap, not the current daemon description:
+
+- nightly semantic reconcile/lint;
+- weekly suggestions/digests;
+- hourly batch import schedule;
+- autonomous schema evolution;
+- provider-backed gap filling without user review; and
+- a distributed action queue across devices.
 
 ## Related
 
-- [Journal](journal.md) — how agent-proposed facts enter the system.
-- [Pipeline](pipeline.md) — how resolve merges journals into the graph.
-- [Serve & MCP](serve-mcp.md) — the write tools agents call.
+- [Pipeline](pipeline.md)
+- [Journal](journal.md)
+- [Import guide](../guides/import.md)
+- [Runtime logging](../guides/runtime-logging.md)
+- [Roadmap](../ROADMAP.md)
