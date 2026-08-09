@@ -45,6 +45,22 @@ provider:
 Use the [validated config example](../../.lorekeep/config.yaml.example) for more
 providers and daemon settings.
 
+## Choose the generated content language
+
+LLM-extracted names, summaries, and descriptions default to English (`en`),
+regardless of the source document's language. Set one language for the compiled
+graph with a lowercase ISO 639-1 code:
+
+```bash
+lorekeep config set compile.language vi
+lorekeep compile
+```
+
+Lorekeep translates generic labels and explanatory prose while preserving raw
+Markdown, proper nouns, stable IDs, schema keys, code symbols, and product names.
+This setting affects `compile` and `agent ingest`; the deterministic wiki simply
+renders the resulting facts and does not translate them itself.
+
 ## Run the all-in-one compile
 
 Installed tool:
@@ -82,9 +98,10 @@ The command performs these stages:
 ## Incremental extraction cache
 
 The extraction cache key includes normalized chunk content, the complete schema
-contract, prompt version, and model. An unchanged chunk returns cached extraction
-output and makes no new provider request. Editing one chunk or changing the
-schema/model invalidates only the relevant cache entries.
+contract, prompt version, configured output language, and model. An unchanged
+chunk returns cached extraction output and makes no new provider request. Editing
+one chunk or changing the schema, language, or model invalidates only the relevant
+cache entries.
 
 Do not delete `cache.json` merely to switch providers; the model fingerprint
 already triggers the required extraction.

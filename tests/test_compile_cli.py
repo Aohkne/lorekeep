@@ -23,6 +23,34 @@ def test_compile_command_uses_config_provider(patch_make_provider, monkeypatch, 
     assert (tmp_path / "graph/facts.jsonl").exists()
 
 
+def test_compile_command_uses_configured_language(
+    patch_make_provider,
+    fake_provider,
+    monkeypatch,
+    tmp_path: Path,
+    fixtures: Path,
+):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "provider:\n  model: openai/gpt-4o-mini\n"
+        "compile:\n  language: vi\n"
+    )
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(config))
+    monkeypatch.setenv("LOREKEEP_RAW", str(tmp_path / "raw"))
+    monkeypatch.setenv("LOREKEEP_OUT", str(tmp_path / "graph"))
+    monkeypatch.setenv("LOREKEEP_CACHE", str(tmp_path / "cache.json"))
+    monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
+
+    raw = tmp_path / "raw/backend/payments.md"
+    raw.parent.mkdir(parents=True)
+    raw.write_text("# Thanh toán\nDịch vụ xử lý giao dịch.\n")
+
+    result = runner.invoke(app, ["compile"])
+
+    assert result.exit_code == 0, result.output
+    assert "ISO 639-1 code 'vi', regardless" in fake_provider.calls[0][1]
+
+
 # ── compile error surfacing (regression: silent 0-node compile) ───────────────
 
 

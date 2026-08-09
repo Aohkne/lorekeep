@@ -58,6 +58,29 @@ def test_compile_pipeline_produces_facts(tmp_path: Path, fixtures: Path, caplog)
     assert manifest.content_quality.edge_description_coverage == 1.0
 
 
+def test_compile_pipeline_uses_configured_language(
+    tmp_path: Path, fixtures: Path, fake_extraction: str,
+):
+    raw = tmp_path / "raw"
+    copy_fixture(
+        fixtures / "raw/backend/payments.md",
+        raw / "teams/backend/payments.md",
+    )
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+    provider = FakeProvider([fake_extraction])
+
+    compile_graph(
+        raw_root=raw,
+        out_dir=tmp_path / "graph",
+        schema=schema,
+        provider=provider,
+        cache_path=tmp_path / "cache.json",
+        language="vi",
+    )
+
+    assert "ISO 639-1 code 'vi', regardless" in provider.calls[0][1]
+
+
 def test_content_quality_reports_generic_edges_and_duplicate_labels():
     from lorekeep.models import Edge, Node
 

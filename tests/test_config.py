@@ -26,6 +26,23 @@ def test_default_config_when_missing(tmp_path: Path):
     assert c.provider.timeout_seconds == 120.0
     assert c.provider.max_retries == 2
     assert c.compile.chunk_lines == 60
+    assert c.compile.language == "en"
+
+
+def test_load_config_reads_compile_language(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("compile:\n  language: vi\n")
+
+    assert load_config(cfg).compile.language == "vi"
+
+
+@pytest.mark.parametrize("language", ["", "English", "EN", "eng", "en-US"])
+def test_compile_language_rejects_invalid_values(tmp_path: Path, language: str):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(f"compile:\n  language: {language!r}\n")
+
+    with pytest.raises(ValueError):
+        load_config(cfg)
 
 
 def test_load_config_rejects_bare_model(tmp_path: Path):

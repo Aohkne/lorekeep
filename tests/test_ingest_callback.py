@@ -35,3 +35,18 @@ def test_ingest_source_default_none_is_silent(tmp_path: Path, fixtures: Path, fa
     provider = FakeProvider(responses=[fake_extraction] * 50)
     result = ingest_source(src, raw, provider, schema)  # no callback
     assert result.chunk_count >= 1
+
+
+def test_ingest_source_uses_configured_language(
+    tmp_path: Path, fixtures: Path, fake_extraction: str,
+):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    src = raw / "notes.md"
+    src.write_text("# Dịch vụ\nNền tảng thanh toán.\n")
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+    provider = FakeProvider(responses=[fake_extraction])
+
+    ingest_source(src, raw, provider, schema, language="vi")
+
+    assert "ISO 639-1 code 'vi', regardless" in provider.calls[0][1]

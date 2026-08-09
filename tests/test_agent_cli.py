@@ -34,6 +34,35 @@ def test_agent_ingest_yes_flag(patch_make_provider, monkeypatch, tmp_path: Path,
         assert entry["status"] == "pending"
 
 
+def test_agent_ingest_uses_configured_language(
+    patch_make_provider,
+    fake_provider,
+    monkeypatch,
+    tmp_path: Path,
+    fixtures: Path,
+):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "provider:\n  model: openai/gpt-4o-mini\n"
+        "compile:\n  language: vi\n"
+    )
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(config))
+    monkeypatch.setenv("LOREKEEP_RAW", str(tmp_path / "raw"))
+    monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
+    monkeypatch.setenv("LOREKEEP_PENDING", str(tmp_path / "pending"))
+
+    raw_file = tmp_path / "raw/backend/payments.md"
+    raw_file.parent.mkdir(parents=True)
+    raw_file.write_text("# Thanh toán\nDịch vụ xử lý giao dịch.\n")
+
+    result = runner.invoke(
+        app, ["agent", "ingest", str(raw_file), "--yes"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "ISO 639-1 code 'vi', regardless" in fake_provider.calls[0][1]
+
+
 def test_agent_ingest_interactive_approve_all(patch_make_provider, monkeypatch, tmp_path: Path, fixtures: Path):
     """agent ingest: interactive mode, approve all nodes and edges."""
     monkeypatch.setenv("LOREKEEP_RAW", str(tmp_path / "raw"))
