@@ -21,7 +21,7 @@ except ImportError:
 
 from lorekeep import __version__
 from lorekeep.compile.providers import LiteLLMProvider
-from lorekeep.config import Config, load_config
+from lorekeep.config import CompileConfig, Config, load_config
 from lorekeep.models import now_iso
 from lorekeep.pipeline import compile_graph
 from lorekeep.paths import resolve_paths
@@ -301,6 +301,7 @@ def compile() -> None:
             provider=provider, cache_path=p["cache"], chunk_lines=config.compile.chunk_lines,
             on_progress=_progress_cb(handle),
             personal_ns=config.ns.personal_namespace,
+            language=config.compile.language,
         )
 
     ok(f"compiled: {manifest.node_count} nodes, {manifest.edge_count} edges, "
@@ -478,6 +479,7 @@ def eval_locomo_cmd(
             provider=provider, cache_path=p["cache"],
             chunk_lines=config.compile.chunk_lines,
             personal_ns=config.ns.personal_namespace,
+            language=config.compile.language,
         )
         typer.echo(f"eval-locomo: compiled {manifest.node_count} nodes, {manifest.edge_count} edges")
 
@@ -903,6 +905,16 @@ def config_set(
             validate_model_prefix(target[final_key])
         except ValueError as exc:
             typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1)
+    elif key == "compile.language":
+        try:
+            CompileConfig(language=target[final_key])
+        except ValueError:
+            typer.echo(
+                "compile.language must be a lowercase ISO 639-1 code "
+                "(for example: en, vi)",
+                err=True,
+            )
             raise typer.Exit(code=1)
 
     p["config"].write_text(
@@ -1573,6 +1585,7 @@ def _auto_import_and_compile(p: dict) -> None:
                 chunk_lines=config.compile.chunk_lines,
                 on_progress=_progress_cb(handle),
                 personal_ns=config.ns.personal_namespace,
+                language=config.compile.language,
             )
         _report_compile_errors(manifest, exit_on_total_failure=False)
         _report_content_quality(manifest)
@@ -1975,6 +1988,7 @@ def ingest(
                 chunk_lines=config.compile.chunk_lines,
                 on_progress=on_progress,
                 personal_ns=config.ns.personal_namespace,
+                language=config.compile.language,
             )
         except Exception as exc:
             typer.echo(f"ingest: extraction failed: {exc}")
@@ -2750,6 +2764,7 @@ def watch(
                             chunk_lines=config.compile.chunk_lines,
                             on_progress=_progress_cb(handle),
                             personal_ns=config.ns.personal_namespace,
+                            language=config.compile.language,
                         )
                     _report_compile_errors(dm, exit_on_total_failure=False)
                     _report_content_quality(dm)

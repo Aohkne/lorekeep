@@ -148,6 +148,38 @@ class TestConfigCLI:
         data = yaml.safe_load(config.read_text())
         assert data["provider"]["model"] == "deepseek/deepseek-chat"
 
+    def test_config_set_compile_language(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        home.mkdir()
+        config = home / "config.yaml"
+        config.write_text("compile:\n  language: en\n")
+
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        from lorekeep.cli import app
+        result = runner.invoke(
+            app, ["config", "set", "compile.language", "vi"],
+        )
+        assert result.exit_code == 0
+
+        data = yaml.safe_load(config.read_text())
+        assert data["compile"]["language"] == "vi"
+
+    def test_config_set_rejects_language_name(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        home.mkdir()
+        config = home / "config.yaml"
+        config.write_text("compile:\n  language: en\n")
+
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        from lorekeep.cli import app
+        result = runner.invoke(
+            app, ["config", "set", "compile.language", "English"],
+        )
+
+        assert result.exit_code == 1
+        assert "lowercase ISO 639-1 code" in result.output
+        assert yaml.safe_load(config.read_text())["compile"]["language"] == "en"
+
     def test_config_set_rejects_bare_model(self, tmp_path, monkeypatch):
         home = tmp_path / "home"
         home.mkdir()

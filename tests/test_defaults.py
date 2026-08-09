@@ -45,6 +45,15 @@ def test_default_config_yaml_loads_into_config():
     assert c.install_source == "pypi"
     assert c.ns.default == ["me"]
     assert c.ns.personal_namespace == "me"
+    assert c.compile.language == "en"
+
+
+def test_default_config_yaml_materializes_every_compile_key():
+    """Every compile setting must be writable with correctly inferred CLI types."""
+    from lorekeep.config import CompileConfig
+
+    written = yaml.safe_load(DEFAULT_CONFIG_YAML)["compile"]
+    assert set(written) == set(CompileConfig.model_fields)
 
 
 def test_default_config_yaml_materializes_every_agents_key():

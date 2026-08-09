@@ -6,7 +6,9 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from lorekeep.cli import app
 from lorekeep.eval.locomo import (
     _normalize,
     answer_question,
@@ -76,6 +78,8 @@ LOCOMO_SAMPLE = [
         "observation": {},
     }
 ]
+
+runner = CliRunner()
 
 
 @pytest.fixture
@@ -166,6 +170,32 @@ class TestConverter:
         convert_locomo(locomo_json, raw_dir)
         content = (raw_dir / "conv-test" / "session-2.md").read_text()
         assert "15 Jan 2024" in content
+
+
+def test_eval_locomo_compile_uses_configured_language(
+    locomo_json: Path,
+    patch_make_provider,
+    fake_provider,
+    monkeypatch,
+    tmp_path: Path,
+):
+    from lorekeep.defaults import DEFAULT_SCHEMA
+
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "schema.json").write_text(json.dumps(DEFAULT_SCHEMA))
+    (home / "config.yaml").write_text(
+        "provider:\n  model: openai/gpt-4o-mini\n"
+        "compile:\n  language: vi\n"
+    )
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+
+    result = runner.invoke(
+        app, ["eval-locomo", "--compile", "--data", str(locomo_json)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "ISO 639-1 code 'vi', regardless" in fake_provider.calls[0][1]
 
 
 class TestExtractQuestions:

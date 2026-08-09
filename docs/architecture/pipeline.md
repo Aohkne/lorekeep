@@ -44,7 +44,8 @@ facts for audit and used to map chunk hashes to fact ids in the manifest.
 For each chunk, `compile/extract.py` sends:
 
 - a stable system prefix containing stock/custom schema, human-readable content
-  rules, temporal rules, and the node-vs-attribute altitude rule; and
+  rules, the configured lowercase ISO 639-1 `compile.language` (default `en`),
+  temporal rules, and the node-vs-attribute altitude rule; and
 - only chunk text as the user message, maximizing provider prefix-cache reuse.
 
 The provider must emit `nodes`, `edges`, and `aliases`. Parsing repairs common
@@ -52,8 +53,9 @@ fenced/trailing-comma/prose-wrapped JSON variants, then validates facts through
 Pydantic and stamps namespace/source outside the model response.
 
 Extraction-cache identity incorporates content and compiler contract, including
-schema/prompt/model. A hit returns the prior candidate output without a provider
-call. The cache is saved after the chunk loop even when some chunks fail.
+schema/prompt/language/model. A hit returns the prior candidate output without a
+provider call. The cache is saved after the chunk loop even when some chunks
+fail.
 
 ## Candidate resolve
 

@@ -68,6 +68,7 @@ All model values use LiteLLM's `{provider}/{model}` form:
 ```bash
 lorekeep config set provider.model deepseek/deepseek-chat
 lorekeep config set provider.api_key_env DEEPSEEK_API_KEY
+lorekeep config set compile.language en
 export DEEPSEEK_API_KEY=...
 ```
 
@@ -87,6 +88,11 @@ address. The full validated example is
 The provider is used during `compile`, `agent ingest`, and manual deep import.
 MCP queries, quick capture, resolve, wiki generation, lint, status, and backup do
 not call it.
+
+`compile.language` is a lowercase ISO 639-1 code, defaults to `en`, and controls
+the human-readable prose created by extraction. Set it to another language code
+before compiling if your graph should use that language consistently; source
+Markdown remains unchanged.
 
 ## 4. Add source Markdown
 

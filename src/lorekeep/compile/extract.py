@@ -29,9 +29,19 @@ HUMAN_READABLE_RULE = (
     "matters here. Add props.description when the source provides enough detail. "
     "Every edge must have props.description explaining the concrete reason, "
     "mechanism, or context for that relationship. Ground all prose in the source; "
-    "do not invent details or repeat generic templates. Write in the same language "
-    "as the source chunk. Keep summary suitable for a one-line catalog and put "
+    "do not invent details or repeat generic templates. Keep summary suitable for "
+    "a one-line catalog and put "
     "longer or multi-paragraph material in description."
+)
+
+OUTPUT_LANGUAGE_RULE = (
+    "Output language rule: write all generated human-readable content in "
+    "the language identified by ISO 639-1 code '{language}', regardless of the "
+    "source chunk's language. This includes node names or titles, summaries, "
+    "descriptions, and edge descriptions. Preserve proper nouns, stable IDs, "
+    "schema keys, code symbols, product names, and source-language aliases "
+    "verbatim; translate generic labels and explanatory prose. Do not switch "
+    "output language merely because the source does."
 )
 
 # Altitude rule: decides node vs attribute. Prevents low-altitude tokens
@@ -77,8 +87,9 @@ def build_system_prompt(
     schema: Schema,
     ns: str | None = None,
     personal_ns: str = "me",
+    language: str = "en",
 ) -> str:
-    """Build a constant system prompt including schema + altitude rule.
+    """Build a constant system prompt including schema, language, and altitude rules.
 
     ns='me' adds subject-centric guidance (personal profile); other namespaces
     use the default entity-centric extraction. Keeping schema in the system
@@ -105,6 +116,7 @@ def build_system_prompt(
     parts = [
         SYSTEM_PROMPT_BASE,
         HUMAN_READABLE_RULE,
+        OUTPUT_LANGUAGE_RULE.format(language=language),
         ALTITUDE_RULE,
         TEMPORAL_RULE,
         f"Allowed node_types and preferred props: {node_types}",
@@ -369,9 +381,12 @@ def extract_chunk(
     provider: LLMProvider,
     cache: ExtractionCache,
     personal_ns: str = "me",
+    language: str = "en",
 ) -> tuple[list[Node], list[Edge], dict[str, list[str]]]:
     model = getattr(provider, "model", "")
-    system = build_system_prompt(schema, chunk.namespace, personal_ns)
+    system = build_system_prompt(
+        schema, chunk.namespace, personal_ns, language=language,
+    )
     schema_json = json.dumps(
         schema.model_dump(mode="json", by_alias=True),
         sort_keys=True,
@@ -382,6 +397,7 @@ def extract_chunk(
     prompt_variant = (
         f"schema={schema_fingerprint};prompt={prompt_fingerprint};"
         f"personal={personal_ns};"
+        f"language={language};"
         f"subject={chunk.namespace == personal_ns}"
     )
     key = cache.key(chunk, schema.version, model, prompt_variant)

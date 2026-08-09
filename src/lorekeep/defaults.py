@@ -198,6 +198,7 @@ provider:
   max_retries: 2
 compile:
   chunk_lines: 60
+  language: en
 ns:
   default: [me]
   personal: me

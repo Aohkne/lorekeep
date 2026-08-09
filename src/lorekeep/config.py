@@ -19,6 +19,8 @@ class ProviderConfig(BaseModel):
 
 class CompileConfig(BaseModel):
     chunk_lines: int = 60
+    # ISO 639-1 alpha-2 code, normalized to lowercase by contract.
+    language: str = Field(default="en", pattern=r"^[a-z]{2}$")
 
 
 class NsConfig(BaseModel):

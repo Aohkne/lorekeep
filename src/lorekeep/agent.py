@@ -284,6 +284,7 @@ def ingest_source(
     chunk_lines: int = 60,
     on_progress: Callable[[int, int, DocChunk], None] | None = None,
     personal_ns: str = "me",
+    language: str = "en",
 ) -> IngestResult:
     """Read a source file, chunk it, and extract facts via LLM.
 
@@ -321,7 +322,9 @@ def ingest_source(
             on_progress(chunk_count, total, chunk)
         chunk_count += 1
         raw = provider.extract_json(
-            build_system_prompt(schema, chunk.namespace, personal_ns),
+            build_system_prompt(
+                schema, chunk.namespace, personal_ns, language=language,
+            ),
             build_prompt(chunk, schema),
         )
         nodes, edges, _aliases = parse_response(raw, chunk, schema)

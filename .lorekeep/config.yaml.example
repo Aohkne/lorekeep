@@ -53,6 +53,10 @@ provider:
 #   temperature: 0.0
 compile:
   chunk_lines: 60
+  # Language for LLM-generated names, summaries, and descriptions.
+  # ISO 639-1 lowercase code. Source Markdown is never rewritten.
+  # Examples: en, vi, ja.
+  language: en
 ns:
   default: [me]
   personal: me

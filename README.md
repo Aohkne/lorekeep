@@ -228,6 +228,8 @@ provider:
   api_key_env: DEEPSEEK_API_KEY
   timeout_seconds: 120
   max_retries: 2
+compile:
+  language: en
 ns:
   default: [me]
   personal: me
@@ -251,12 +253,19 @@ Change settings without editing YAML:
 lorekeep config show
 lorekeep config set provider.model openrouter/deepseek/deepseek-chat
 lorekeep config set provider.api_key_env OPENROUTER_API_KEY
+lorekeep config set compile.language vi
 lorekeep config set ns.default me,backend
 lorekeep config set agents.wire_scope user
 ```
 
 Optional LiteLLM tracing is available through Langfuse or LangSmith by setting
 `observability.provider` and the corresponding environment credentials.
+
+`compile.language` is a lowercase ISO 639-1 code, defaults to `en`, and keeps
+LLM-extracted names, summaries, and descriptions consistent even when source
+files mix languages. Changing it invalidates the relevant extraction cache
+entries on the next compile. Raw Markdown, proper nouns, stable IDs, and
+technical identifiers are preserved.
 
 ## Data home and paths
 

@@ -107,6 +107,7 @@ def compile_graph(
     chunk_lines: int = 60,
     on_progress: ProgressCb | None = None,
     personal_ns: str = "me",
+    language: str = "en",
 ) -> Manifest:
     chunks = ingest(raw_root, chunk_lines=chunk_lines)
     cache = ExtractionCache(cache_path)
@@ -126,6 +127,7 @@ def compile_graph(
         try:
             nodes, edges, aliases = extract_chunk(
                 chunk, schema, provider, cache, personal_ns=personal_ns,
+                language=language,
             )
             all_nodes.extend(nodes)
             all_edges.extend(edges)

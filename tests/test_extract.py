@@ -46,8 +46,15 @@ def test_system_prompt_requires_grounded_human_readable_content():
     s = build_system_prompt(SCHEMA)
     assert "props.summary" in s
     assert "Every edge must have props.description" in s
-    assert "same language as the source chunk" in s
+    assert "ISO 639-1 code 'en', regardless of the source chunk's language" in s
+    assert "same language as the source chunk" not in s
     assert "do not invent details" in s
+
+
+def test_system_prompt_uses_configured_output_language():
+    s = build_system_prompt(SCHEMA, language="vi")
+    assert "ISO 639-1 code 'vi', regardless of the source chunk's language" in s
+    assert "Do not switch output language" in s
 
 
 def test_me_namespace_adds_subject_prompt():
@@ -233,6 +240,20 @@ def test_extract_chunk_cache_invalidates_when_system_prompt_changes(
     extract_chunk(c, SCHEMA, provider, cache)
 
     assert len(provider.calls) == 2
+
+
+def test_extract_chunk_cache_invalidates_when_language_changes(tmp_path: Path):
+    cache = ExtractionCache(tmp_path / "cache.json")
+    c = make_chunk("Dịch vụ thanh toán được viết bằng Go.")
+    raw = json.dumps({"nodes": [], "edges": [], "aliases": {}})
+    provider = FakeProvider(responses=[raw, raw])
+
+    extract_chunk(c, SCHEMA, provider, cache, language="en")
+    extract_chunk(c, SCHEMA, provider, cache, language="vi")
+
+    assert len(provider.calls) == 2
+    assert "ISO 639-1 code 'en', regardless" in provider.calls[0][1]
+    assert "ISO 639-1 code 'vi', regardless" in provider.calls[1][1]
 
 
 def test_cache_persists_to_disk(tmp_path: Path):
