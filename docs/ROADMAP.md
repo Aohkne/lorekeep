@@ -64,7 +64,7 @@ support first.
 | **Cursor** | Anysphere | ✅ `~/.cursor/mcp.json` | ✅ SQLite → `raw/cursor-session/` (cloud-lazy-load caveat) | ✅ `--agent cursor` | **Shipped** |
 | **opencode** | SST | ✅ `opencode.json` | ✅ SQLite → `raw/opencode-session/` | ✅ `--agent opencode` | **Shipped** |
 | **Grok Build** | xAI | ✅ `~/.grok/config.toml` | ✅ JSONL → `raw/grok-session/` | ✅ `--agent grok` | **Shipped** |
-| **Qoder** | Alibaba | ✅ `.qoder/mcp.json` | 🔒 blocked on upstream (sessions are cloud-only; no local conversation data or CLI export) | ✅ `--agent qoder` | **Beta** |
+| **Qoder** | Alibaba | ✅ `.qoder/mcp.json` | 🔒 blocked (cloud-only sessions) | ✅ `--agent qoder` | **MCP only** |
 | **Gemini CLI** | Google | 🚧 not detected | 🚧 not detected | 🚧 planned | **Planned** |
 | **Aider** | OSS | 🚧 | 🚧 chat history → `raw/aider-session/` | 🚧 planned | **Planned** |
 | **Windsurf** | Codeium | 🚧 | 🚧 | 🚧 planned | **Planned** |
@@ -82,7 +82,25 @@ support first.
 2. **Aider** — plain-text chat logs trivially map to `raw/aider-session/`.
 3. **Windsurf / Zed** — both support MCP; need session-format research.
 4. **Cline / Continue** — VS Code extension MCP; need session-format research.
-5. **Qoder** — blocked on upstream: sessions are cloud-only, no local conversation data or CLI export. Needs a Qoder cloud API or `qodercli --export` feature.
+5. ~~**Qoder**~~ — **not feasible** without upstream changes (see below).
+
+### Cloud-only agents (import not supported)
+
+Some agents store conversation history exclusively in the cloud — local data is
+limited to telemetry/metadata (session IDs, truncated prompt previews, token
+counts, timestamps) with no full-text transcript. Lorekeep's compile pipeline
+needs full conversation text to LLM-extract facts (nodes/edges/aliases), so
+metadata-only data has insufficient signal for the knowledge graph.
+
+Currently affected:
+
+| Agent | Local data available | Why it's blocked |
+|---|---|---|
+| **Qoder** | `~/.qoder/logs/sessions/*/segments/*.jsonl` — telemetry events only (`session.phase`, `input.prompt.received` with `text_preview` ~50 chars, `model.response.completed` with token counts) | No full prompt text, no response text, no tool calls. Needs `qodercli --export` or a Qoder cloud API. |
+
+Future agents that follow this pattern (cloud-first, no local transcript) will
+hit the same wall. The MCP serve side always works — the blocker is exclusively
+on the **import** side.
 
 > Vendors: all agents above expose (or plan to expose) an MCP client. Lorekeep
 > is MCP-native, so wiring is a config-file write — no bespoke protocol. The gap
