@@ -11,7 +11,7 @@ Lorekeep compiles a team's raw markdown docs into a **temporal knowledge graph**
 Python 3.11+, managed with **uv**. The CLI is `lorekeep` (entry: `src/lorekeep/cli.py`, Typer).
 
 ```bash
-uv run pytest                                # full suite (~140 tests)
+uv run pytest                                # full suite (~1,200 tests)
 uv run pytest tests/test_perm.py -q          # one file
 uv run pytest tests/test_perm.py::test_name  # one test
 uv run pytest -k perm                        # by name match
@@ -28,6 +28,10 @@ uv run lorekeep <command>                    # run the CLI in dev mode
 | `compile` | `raw/*.md` → `graph/facts.jsonl` + `manifest.json` + `wiki/` (runs the LLM pipeline, auto-generates wiki) |
 | `wiki` | Regenerate `wiki/` from `facts.jsonl` (Obsidian-compatible markdown) |
 | `serve [--transport stdio\|http]` | Run the MCP server (7 tools + passive resources) |
+| `agent watch` | Start the daemon (polls 60s: auto-import sessions, auto-compile raw/, auto-resolve pending/) |
+| `agent heal` | Run self-heal standalone (remove dangling edges, dedupe, flag issues) |
+| `agent service install/uninstall/status` | Install/uninstall/status the daemon as an OS service (launchd/systemd) |
+| `schema upgrade` | Upgrade stock schema to latest version (backs up previous, `--dry-run`/`--force` for custom schemas) |
 | `mcp add --agent claude\|cursor\|codex\|opencode --ns NS` | Write agent MCP config |
 | `config show` | Print config.yaml |
 | `config set <key> <value>` | Set nested config value (dot notation) |
@@ -51,10 +55,10 @@ SERVE   (runtime, per device): facts.jsonl → GraphStore → ScopedGraph(ns) �
 `ingest` chunks markdown with `path:line` provenance → `extract` calls the LLM provider for schema-constrained nodes/edges/aliases (per-chunk SHA-256 hash cache → unchanged chunks return cached output, giving byte-stable recompiles) → `resolve` collapses alias variants to canonical entities and quarantines invalid facts → `writer` emits **sorted** `facts.jsonl` + `manifest.json`. Failures are skip-and-log (partial compile is valid); errors/quarantine land in the manifest. **Compile errors are surfaced** — `_report_compile_errors()` in `cli.py` prints per-chunk failures to stderr and exits non-zero (code 1) when ALL chunks fail (0 nodes from non-empty input). The daemon (`agent watch`) passes `exit_on_total_failure=False` so it can keep running, but still logs errors.
 
 ### Shared contract (`models.py`)
-Pydantic, all `frozen=True`, `extra="forbid"`. `Node` / `Edge` are the two `kind`s of a fact. **`Edge.from_` is the Python field name; `"from"` is its JSON alias** — always serialize with `by_alias=True`. `Schema`, `Manifest`, `DocChunk` round out the contract. `facts_io.py` loads facts; `Node`/`Edge` carry `ns`, `valid_from`/`valid_to`, `props`, and `src` (provenance).
+Pydantic, all `frozen=True`, `extra="forbid"`. `Node` / `Edge` are the two `kind`s of a fact. **`Edge.from_` is the Python field name; `"from"` is its JSON alias** — always serialize with `by_alias=True`. `Schema`, `Manifest`, `DocChunk` round out the contract. `facts_io.py` loads facts; `Node`/`Edge` carry `ns`, `valid_from`/`valid_to`, `props`, and `src` (compile-time provenance — the `path:line` of the source chunk). **`provenance`** (a separate optional `dict[str, Any] | None` field) is stamped by `resolve.py` when journal-merged facts enter the graph — it records `{agent, confidence, proposed_at, device}` so every agent-contributed fact carries identity metadata.
 
 ### Store + permission (the most important layering to get right)
-- **`store/graph.py` `GraphStore`** — pure graph logic over `networkx.MultiDiGraph`. **No permission, no MCP here.** Temporal queries: `snapshot(T)` (half-open `[valid_from, valid_to)`, `None` = unbounded), `history(id)`, `changes(t1,t2)`, BFS `neighbors`.
+- **`store/graph.py` `GraphStore`** — pure graph logic over `networkx.MultiDiGraph`. **No permission, no MCP here.** Temporal queries: `snapshot(T)` (half-open `[valid_from, valid_to)`, `None` = unbounded), `history(id)`, `changes(t1,t2)`, BFS `neighbors`. **`store/fts.py` `FTSIndex`** provides SQLite FTS5 full-text search over node names/props — the `search` MCP tool falls back to FTS when graph name matching returns nothing, and the index is rebuilt lazily on stale mtime.
 - **`perm/ns.py` `ScopedGraph`** — the **single permission chokepoint**. Wraps a `GraphStore` and filters *every* query. Deny-by-default: `effective_ns = allowed ∪ {public}`; a node is visible iff `ns ∩ effective_ns ≠ ∅`; an edge iff **both** endpoints visible **and** `edge.ns ∩ effective_ns ≠ ∅` (an edge never leaks a neighbor the caller can't see). **Any new query path must go through `ScopedGraph`, not `GraphStore` directly.**
 
 ### Serve (`mcp_server.py`)
@@ -67,7 +71,7 @@ Pure JSONL → markdown transform (no LLM). `generate_wiki(graph_dir, wiki_dir)`
 Pure (no I/O), 4-tier precedence high→low: explicit `LOREKEEP_RAW/OUT/CACHE/SCHEMA/CONFIG/WIKI` env → `LOREKEEP_HOME` → **dev mode** (`.lorekeep/` present in CWD, or `LOREKEEP_DEV=1`; auto-detected in a source checkout) — all data lives under `cwd/.lorekeep/` (`config.yaml`, `schema.json`, `raw/`, `graph/`, `wiki/`, `pending/`, `cache.json`), mirroring the `LOREKEEP_HOME` layout → XDG (`platformdirs`). Running `uv run lorekeep …` from the repo uses the repo's own `.lorekeep/` data home with zero migration.
 
 ### Daemon (`cli.py` watch command)
-Polls every 60s. `_discover_watchable_sessions()` finds Claude `memory/` + Codex `memories/` dirs (called every cycle — detects new sessions after daemon start). `_quick_import_session()` dispatches per-agent quick import (zero LLM cost — copies `.md` files to `raw/<agent>-memory/`). Cursor/opencode have no quick-import path — handled by session-end hooks (`lorekeep hook`). raw/ watch tracks both file count AND mtime — detects new files even if mtime is same (fast filesystem). pending/ watch triggers `_do_auto_resolve()` → merge journals → wiki regen. Init calls `_auto_import_and_compile()` which runs compile + wiki regen + auto-resolve — graph + wiki produced immediately if API key available.
+Polls every 60s. `_discover_watchable_sessions()` finds Claude `memory/` + Codex `memories/` dirs (called every cycle — detects new sessions after daemon start). `_quick_import_session()` dispatches per-agent quick import (zero LLM cost — copies `.md` files to `raw/<agent>-memory/`). Cursor/opencode have no quick-import path — handled by session-end hooks (`lorekeep hook`). raw/ watch tracks both file count AND mtime — detects new files even if mtime is same (fast filesystem). pending/ watch triggers `_do_auto_resolve()` → merge journals → wiki regen. Init calls `_auto_import_and_compile()` which runs compile + wiki regen + auto-resolve — graph + wiki produced immediately if API key available. **Self-heal** (`agent.py` `self_heal()`, gated on `agent.self_heal` config flag) runs after every compile cycle — removes dangling edges, deduplicates exact-match edges, and flags circular dependencies / orphaned nodes. Also available standalone via `lorekeep agent heal`. The daemon can be installed as an OS service (`lorekeep agent service install/uninstall/status`).
 
 ### Provider pluggability (`compile/providers.py`)
 `LiteLLMProvider` (OpenAI / Anthropic / DashScope/Qwen / DeepSeek / Ollama via litellm model strings) and `FakeProvider` (tests/offline). Model is set in `config.yaml` as a litellm string. Model names from the provider picker are **always normalized** to `{provider}/{model}` format (e.g., `deepseek/deepseek-chat`, not `deepseek-chat`) — litellm's catalog contains both prefixed and non-prefixed variants, but non-prefixed names fail at runtime for providers like DeepSeek/Gemini that litellm can't auto-detect by pattern. `list_models()` in `providers.py` de-duplicates and normalizes. `setup_observability()` configures litellm success/failure callbacks for Langfuse or Langsmith when `observability.provider` is set in config. Prefix cache optimized: schema in system prompt (constant across chunks), user message = chunk text only.
@@ -89,9 +93,36 @@ Polls every 60s. `_discover_watchable_sessions()` finds Claude `memory/` + Codex
 - **Core regression tests are mandatory** — `test_core_regression.py` guards the 8 pillars of the pipeline (provider class structure, extraction, compile→graph, GraphStore queries, ScopedGraph permission, MCP tools, wiki, resolve). Any change to `providers.py`, `extract.py`, `pipeline.py`, `mcp_server.py`, `wiki.py`, `store/graph.py`, or `perm/ns.py` MUST pass `test_core_regression.py`. If you add a new method to `LiteLLMProvider`, verify it's INSIDE the class (not accidentally outside due to a function insertion — this caused a critical bug where `extract_json` became a nested function of `setup_observability`).
 - **`graph/facts.jsonl`, `graph/manifest.json`, and `wiki/` are gitignored** (regenerated by `compile`); `.lorekeep/schema.json` is committed.
 
+## Code change discipline — test coverage, unit tests, and docs
+
+Every source code change (bug fix, feature, refactor) must be evaluated against three dimensions **before opening a PR**. If any dimension is lacking, proactively fill the gap in the same PR — do not defer it.
+
+### 1. Test coverage
+
+- **Run coverage** on the touched module(s): `uv run pytest --cov=lorekeep.<module> --cov-report=term-missing tests/`. Lines added or changed must be exercised by at least one test.
+- **New code path (branch/condition) → new test.** If you add an `if`/`elif`/`except` branch, write a test that hits it. Untested branches are treated as incomplete work.
+- **Regression guard**: any fix must include a test that fails without the fix and passes with it. This prevents regressions from the same root cause.
+- **`test_core_regression.py` is the gate** — any change to `providers.py`, `extract.py`, `pipeline.py`, `mcp_server.py`, `wiki.py`, `store/graph.py`, or `perm/ns.py` MUST pass it.
+- **Determinism tests** (`test_determinism.py`) must remain green if the pipeline or writer changes.
+
+### 2. Unit tests
+
+- **One test per public function/method** that changed. If the function has multiple code paths, write one test per path.
+- **Follow the `FakeProvider` pattern** (`patch_make_provider` / `patch_make_import_provider` in `conftest.py`) — never hit a real LLM in tests. All new CLI/compile/import tests inject `FakeProvider`.
+- **Test naming**: `test_<unit>_<scenario>_<expected_outcome>` (e.g. `test_merge_journals_high_confidence_auto_merges`).
+- **Fixtures over setup blocks** — reuse and extend `conftest.py` fixtures rather than duplicating boilerplate.
+
+### 3. Docs coverage
+
+- **AGENTS.md** must reflect the current codebase. When you add, rename, or remove a module, command, tool, or field, update AGENTS.md in the same PR. The file is the single source of truth for agents working on this repo — stale instructions cause bugs.
+- **`test_docs_contract.py`** is the docs gate — it enforces that active docs don't advertise removed commands, local links resolve, the MCP tool list matches the runtime, and the CLI reference is generated from the live Typer app (`scripts/generate_cli_reference.py --check`). Any new command or tool must be reflected in the generated reference.
+- **When adding a new feature**, update: (a) the relevant `docs/architecture/*.md` or `docs/guides/*.md` page, (b) AGENTS.md if the feature changes how an agent should work with the codebase, (c) `docs/reference/cli.md` if it's a new CLI command (run `scripts/generate_cli_reference.py` to regenerate, then commit).
+- **When changing a model** (`models.py`), update `docs/architecture/data-model.md` with the new field and a facts.jsonl example.
+- **Doc inconsistency checklist** — before merging, verify: the CLI table in AGENTS.md matches `grep '@.*command' src/lorekeep/cli.py`; the MCP tool count in AGENTS.md matches `len(asyncio.run(mcp.mcp.list_tools()))`; the schema version in AGENTS.md matches `defaults.py`; the Node/Edge field list in AGENTS.md matches `models.py`.
+
 ## Tests
 
-`~470` tests, no network. Gold corpus in `tests/fixtures/gold/`, raw fixtures in `tests/fixtures/raw/`. **`test_core_regression.py` is the critical safety net** — it verifies the full pipeline end-to-end (provider → extract → compile → graph → MCP → wiki → resolve). Compile/serve/import tests inject `FakeProvider` via `patch_make_provider` / `patch_make_import_provider` conftest fixtures to pin paths and avoid the LLM — follow this pattern for any new CLI test rather than hitting a real provider.
+`~1,200` tests, no network. Gold corpus in `tests/fixtures/gold/`, raw fixtures in `tests/fixtures/raw/`. **`test_core_regression.py` is the critical safety net** — it verifies the full pipeline end-to-end (provider → extract → compile → graph → MCP → wiki → resolve). Compile/serve/import tests inject `FakeProvider` via `patch_make_provider` / `patch_make_import_provider` conftest fixtures to pin paths and avoid the LLM — follow this pattern for any new CLI test rather than hitting a real provider.
 
 ## Cursor Cloud specific instructions
 
