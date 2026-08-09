@@ -206,6 +206,10 @@ def _extract_json(raw: str, chunk: DocChunk) -> str:
     """
     s = raw.strip()
 
+    # 0. Empty or whitespace-only output → treat as no extraction
+    if not s:
+        return '{"nodes": [], "edges": []}'
+
     # 1. Fast path: clean JSON
     try:
         json.loads(s)
