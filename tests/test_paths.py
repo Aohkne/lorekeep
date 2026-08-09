@@ -29,20 +29,21 @@ def test_lorekeep_home_overrides_dev(tmp_path: Path, monkeypatch):
     assert p["logs"] == home / "logs"
 
 
-def test_xdg_default(tmp_path: Path, monkeypatch):
+def test_dotdir_default(tmp_path: Path, monkeypatch):
     empty = tmp_path / "empty"
     empty.mkdir()
     monkeypatch.chdir(empty)
     monkeypatch.delenv("LOREKEEP_HOME", raising=False)
     monkeypatch.delenv("LOREKEEP_DEV", raising=False)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
+    fake_home = tmp_path / "fakehome"
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr("lorekeep.paths.Path.home", lambda: fake_home)
     p = resolve_paths()
-    assert p["home"] == tmp_path / "xdg-data" / "lorekeep"
-    assert p["config"] == tmp_path / "xdg-config" / "lorekeep" / "config.yaml"
-    assert p["raw"] == tmp_path / "xdg-data" / "lorekeep" / "raw"
-    assert p["schema"] == tmp_path / "xdg-data" / "lorekeep" / "schema.json"
-    assert p["logs"] == tmp_path / "xdg-data" / "lorekeep" / "logs"
+    assert p["home"] == fake_home / ".lorekeep"
+    assert p["config"] == fake_home / ".lorekeep" / "config.yaml"
+    assert p["raw"] == fake_home / ".lorekeep" / "raw"
+    assert p["schema"] == fake_home / ".lorekeep" / "schema.json"
+    assert p["logs"] == fake_home / ".lorekeep" / "logs"
 
 
 def test_explicit_env_overrides_everything(tmp_path: Path, monkeypatch):

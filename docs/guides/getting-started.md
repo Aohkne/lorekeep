@@ -94,8 +94,8 @@ Put documents under `<data-home>/raw/<namespace>/`. The first directory is the
 fact namespace and therefore a permission boundary:
 
 ```bash
-mkdir -p ~/.local/share/lorekeep/raw/backend
-cp payments.md ~/.local/share/lorekeep/raw/backend/
+mkdir -p ~/.lorekeep/raw/backend
+cp payments.md ~/.lorekeep/raw/backend/
 ```
 
 From a source checkout, use `.lorekeep/raw/backend/`. To find/open your personal
