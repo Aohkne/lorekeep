@@ -39,13 +39,14 @@ The first directory under `raw/` becomes a fact's `ns` (e.g. `raw/backend/...` �
 One JSON object per line. Two kinds: `node` and `edge`. Deterministic key order (sorted) for stable diffs.
 
 ```jsonl
-{"kind":"node","id":"svc:payments","type":"service","ns":["backend"],"valid_from":"2024-01-15","valid_to":null,"props":{"description":"Handles payment authorization and capture.","lang":"go","name":"payments","summary":"Core service for customer payment requests."},"src":["raw/backend/payments.md:12"]}
-{"kind":"edge","id":"e_depends_on_0001","type":"depends_on","from":"svc:payments","to":"svc:auth","ns":["backend"],"valid_from":"2024-01-15","valid_to":"2025-03-01","props":{"description":"Uses auth to validate the caller before capture."},"src":["raw/backend/payments.md:20"]}
+{"kind":"node","id":"svc:payments","type":"service","ns":["backend"],"valid_from":"2024-01-15","valid_to":null,"props":{"description":"Handles payment authorization and capture.","lang":"go","name":"payments","summary":"Core service for customer payment requests."},"provenance":null,"src":["raw/backend/payments.md:12"]}
+{"kind":"edge","id":"e_depends_on_0001","type":"depends_on","from":"svc:payments","to":"svc:auth","ns":["backend"],"valid_from":"2024-01-15","valid_to":"2025-03-01","props":{"description":"Uses auth to validate the caller before capture."},"provenance":null,"src":["raw/backend/payments.md:20"]}
 ```
 
 - `valid_to: null` ⇒ still current. History = multiple edges with the same endpoints and different validity windows.
 - `ns` is a **set**. `["public"]` ⇒ visible to all agents.
 - `src` is provenance (path:line) for every fact ⇒ audit, trust, incremental re-compile, and agent citations.
+- `provenance` (optional `dict`) is stamped by `resolve.py` when a journal-merged fact enters the graph. It records `{agent, confidence, proposed_at, device}` so every agent-contributed fact carries identity metadata. Facts extracted from `raw/` compile have `provenance: null`.
 - `props.summary` is concise catalog prose; `props.description` carries grounded
   detail. Edge `props.description` explains why or how a relationship exists.
   These remain optional at the storage-model level so historical/custom graphs
@@ -96,6 +97,21 @@ plurals, a node `display_prop`, and forward/inverse edge labels. The extractor i
 constrained to this schema so the graph is typed and predictable; the wiki uses
 the labels without another LLM call. The full schema and prompt are part of the
 extraction-cache fingerprint, so changing either forces re-extraction.
+
+### The `note` node type
+
+`review_note` (MCP write tool) materializes agent observations as graph nodes of
+type `note` with props `{title, topic}`. Two sub-types are created based on the
+`kind` parameter:
+
+| `kind` | ID prefix | Purpose |
+|---|---|---|
+| `contradiction` | `contradiction:...` | Flags facts that conflict |
+| `suggestion` | `suggestion:...` | Proposes improvements or fills gaps |
+
+Notes link to existing facts via `mentions` (note → concept) and `describes`
+(note → service) edges, making them queryable through the standard `neighbors`
+and `search` tools.
 
 ## Components
 

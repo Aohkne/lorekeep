@@ -47,6 +47,9 @@ Everything below is implemented today and is what the roadmap builds on:
   Tolaria) and `contribution` (what should you share with a team namespace?).
 - **Resolve normalize** — auto-merge duplicate ids (case/separator variants),
   preserve diacritics.
+- **Agent-identity provenance** — every journal-merged fact carries a
+  `provenance` dict (`{agent, confidence, proposed_at, device}`) stamped at
+  resolve time, so agent-contributed facts are traceable to their source.
 
 ## Phases
 
@@ -59,7 +62,7 @@ directions, not a sequence — several advance in parallel.
 - **Why:** you run Claude Code + Cursor + Codex at once; they all write to the same
   brain.
 - **Scope:** sharper contradiction detection across parallel proposals (beyond the
-  current `review_note(kind="contradiction")`); agent-identity provenance on every fact; atomic
+  current `review_note(kind="contradiction")`); atomic
   journal appends; deterministic merge under concurrent writes.
 - **Non-goals:** a central server (that's phase 5); real-time co-editing UX.
 - **Builds on:** append-only journal + resolve merge (shipped).

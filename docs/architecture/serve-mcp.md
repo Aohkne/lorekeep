@@ -113,12 +113,11 @@ MCP server lazy-reloads on next query → fact is now searchable
 ```markdown
 ## Lorekeep knowledge base (MCP)
 Before answering architecture/code/domain questions, query Lorekeep:
-search(q) → get_node(id) → neighbors / temporal_query as needed.
+search(q) -> get_node(id) -> neighbors / temporal_query as needed.
 Use context() for ontology, visible namespaces, and graph freshness.
-Always cite `src` provenance. Knowledge is namespace-scoped — if a fact is
-missing, it may be outside your scope, not nonexistent. Use propose_change for
-facts/links/updates and review_note for contradictions or gaps. Facts enter the
-graph on the next resolve pass.
+Always cite `src` provenance. Knowledge is namespace-scoped - if a fact is
+missing, it may be outside your scope, not nonexistent. Use propose_change
+for facts/links/updates and review_note for contradictions or gaps.
 ```
 
 ### `lorekeep doctor`
