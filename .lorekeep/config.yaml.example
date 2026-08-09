@@ -2,11 +2,11 @@
 #
 # The model string MUST be '{provider}/{model}' — litellm routes by the prefix:
 #   openai/gpt-4o-mini, anthropic/claude-sonnet-4-20250514, deepseek/deepseek-chat,
-#   dashscope/qwen-plus, ollama/llama3.
+#   dashscope/qwen-plus, openrouter/deepseek/deepseek-chat, ollama/llama3.
 # Native providers (openai, anthropic, deepseek, dashscope, gemini, ...) need NO
 # api_base — litellm already knows the endpoint. Set api_base ONLY for a custom
 # OpenAI-compatible endpoint (vllm, lm_studio, a proxy/gateway, or Ollama on a
-# non-default host); see Option E.
+# non-default host); see Options E–F.
 #
 # API keys: prefer api_key_env (name of an env var you export). An inline api_key is
 # also accepted since this file is gitignored — but never commit it.
@@ -32,13 +32,19 @@ provider:
 #   api_key_env: DEEPSEEK_API_KEY
 #   temperature: 0.0
 #
-# Option D: Ollama (local, strict privacy — default http://localhost:11434)
+# Option D: OpenRouter (native gateway — model keeps the openrouter/ prefix)
+# provider:
+#   model: openrouter/deepseek/deepseek-chat
+#   api_key_env: OPENROUTER_API_KEY
+#   temperature: 0.0
+#
+# Option E: Ollama (local, strict privacy — default http://localhost:11434)
 #   set api_base only if your Ollama runs on a different host/port
 # provider:
 #   model: ollama/llama3
 #   temperature: 0.0
 #
-# Option E: custom OpenAI-compatible endpoint (vllm / lm_studio / proxy / gateway)
+# Option F: custom OpenAI-compatible endpoint (vllm / lm_studio / proxy / gateway)
 #   this is the one case api_base is required
 # provider:
 #   model: openai/your-model
@@ -67,8 +73,9 @@ bugreport:
 
 # ── coding agents ────────────────────────────────────────────────────────────
 # Lorekeep aggregates knowledge from every coding agent on this machine into one
-# graph.  The daemon re-detects installed agents each cycle and writes their MCP
-# config + session-end hook, so installing an agent later needs no manual step.
+# graph.  The daemon re-detects installed agents on its wiring interval and
+# writes their MCP config + session-end hook, so installing an agent later needs
+# no manual step.
 agents:
   auto_wire: true                  # let the daemon wire newly installed agents
   wire_scope: user                 # user (every project) | project (this dir only)
@@ -78,7 +85,7 @@ agents:
   transcript_max_batches: 20       # per session; caps how much of a long chat is kept
   transcript_max_chars: 20000      # chars per dumped file
   transcript_retain_sessions: 5    # older sessions are pruned from raw/<agent>-session/
-  deep_import: false               # advanced: LLM-summarize transcripts (costs money)
+  deep_import: false               # reserved; use manual `lorekeep import` for LLM summaries
   self_heal: true                  # daemon auto-removes dangling edges, dedupes edges
 
 install_source: pypi                              # pypi (portable .mcp.json) | local | git+URL | path

@@ -1,5 +1,10 @@
 # Lorekeep CLI Consistency Review
 
+> **Historical document.** This records the command-surface reduction performed
+> at that point in development. Line numbers, counts, and “future work” below are
+> not maintained. Use the generated [CLI reference](reference/cli.md) for the
+> current public surface.
+
 ## 1. Command Inventory
 
 Source: `src/lorekeep/cli.py` (32 command registrations, 30 user-visible commands).

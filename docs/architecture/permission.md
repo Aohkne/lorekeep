@@ -1,28 +1,95 @@
 # Permission model
 
-> Adapted from the original design spec.
+Lorekeep's MCP read boundary is deny-by-default and centralized in
+`ScopedGraph` (`src/lorekeep/perm/ns.py`). `GraphStore` contains pure graph
+operations; any externally reachable query path must pass through the scoped
+wrapper.
 
-Permission is **deny-by-default** and enforced at a single chokepoint: `ScopedGraph` (`src/lorekeep/perm/ns.py`), which wraps the pure `GraphStore` and filters every query. There is no raw bypass path — any new query must go through `ScopedGraph`, not `GraphStore` directly.
+## Namespace origin and runtime identity
 
-## Namespace origin
+Compile derives namespaces from the source layout: facts extracted from
+`raw/<ns>/*.md` carry that namespace. A fact can carry more than one namespace,
+and `public` is the shared namespace.
 
-Namespace is derived from directory structure: every fact extracted from `raw/<ns>/*` is tagged `ns: ["<ns>"]` (or multiple if shared). `["public"]` is globally visible.
+At serve time, allowed namespaces come from:
 
-## Identity → namespace
+1. comma-separated `LOREKEEP_NS`, when set; otherwise
+2. `ns.default` in the resolved `config.yaml`.
 
-- `LOREKEEP_NS` env var (comma-separated), or `ns.default` in `.lorekeep/config.yaml`.
-- The permission engine only needs the `allowed_ns` set; the source of that set is pluggable for future OIDC/team-sync.
+Agent wiring writes `LOREKEEP_NS` into the client's native MCP configuration.
+The current local stdio model therefore treats process configuration as caller
+identity; it does not authenticate a remote human or service.
 
 ## Visibility rules
 
-Define the effective allowed set as `A' = A ∪ {"public"}` — every caller implicitly sees `public`.
+For configured set `A`, define the effective set as:
 
-- **Node** visible ⇔ `node.ns ∩ A' ≠ ∅`.
-- **Edge** visible ⇔ **both** endpoint nodes are visible to `A'` **and** `edge.ns ∩ A' ≠ ∅`.
-- Empty/unknown `A` ⇒ `A' = {"public"}` ⇒ sees only `public` facts.
+```text
+A' = A ∪ {public}
+```
 
-The strict endpoint rule is what prevents leakage: an edge never reveals a cross-namespace neighbor's existence. If you can't see one endpoint, you can't see the edge — even if the edge itself is in your namespace.
+- Node visible if `node.ns ∩ A'` is non-empty.
+- Edge visible if `edge.ns ∩ A'` is non-empty **and both endpoint nodes are
+  visible**.
+- Empty/unknown configured scope sees `public` only.
 
-## Where it applies
+The endpoint rule prevents relationship leakage. A caller cannot infer a hidden
+neighbor merely because an otherwise-visible edge points to it. Missing and
+out-of-scope ids intentionally produce the same MCP response.
 
-Permission filters compose with [temporal](temporal.md) filtering: a temporal query returns only facts the caller is allowed to see, within the requested time window. The MCP tools in [serve & MCP](serve-mcp.md) all route through `ScopedGraph`, so every result an agent receives is already scoped.
+## Read paths covered
+
+`ScopedGraph` applies the same rule to:
+
+- id lookup and keyword/FTS search;
+- incoming/outgoing neighbor traversal;
+- temporal snapshot, history, and changes;
+- namespace/status/coverage statistics; and
+- endpoint validation for MCP write proposals.
+
+Temporal snapshots additionally require returned edge endpoints to be both
+visible and active in that snapshot.
+
+## Write scope
+
+`propose_change` and `review_note` do not trust a caller-supplied namespace.
+They derive active namespaces from the server's verified scope, remove the
+implicit `public` when an explicit scope exists, and overwrite proposal
+namespaces before appending the journal.
+
+With several explicit namespaces, accepted facts carry all of them and the
+journal file is routed through the first configured namespace. For predictable
+ownership and least privilege, run a write-capable agent with the narrowest
+practical scope.
+
+Writes are still subject to schema/shape checks, visible endpoint checks, and
+the confidence gate described in [Journal](journal.md). Namespace permission is
+not a substitute for validating content.
+
+## Important boundaries
+
+- The generated wiki is a local projection of the **full graph**, not a
+  per-caller `ScopedGraph` view. Do not publish a wiki directory as though it
+  were namespace-filtered.
+- MCP graph counts and topic coverage are scoped, but static schema plus
+  aggregate compile/pending operational metadata are process-wide. The pending
+  count currently covers every journal and is not filtered per namespace.
+- The backup repository contains durable knowledge from every tracked
+  namespace. Keep it private and control Git access separately.
+- `GraphStore` is intentionally unscoped for compiler, repair, evaluation, and
+  local wiki work. It must not be exposed directly through a new MCP/HTTP path.
+- OIDC/SSO, remote identity-to-namespace mapping, and a shared authenticated
+  server are not implemented.
+
+## Extension rule
+
+Any new query must add a `ScopedGraph` method first and test hidden nodes,
+hidden edge endpoints, `public`, temporal composition, and stats/metadata
+leakage. Calling `GraphStore` directly from a public tool is a permission bug.
+
+## Related
+
+- [Serve and MCP](serve-mcp.md)
+- [Temporal model](temporal.md)
+- [Journal](journal.md)
+- [Data home and backup](../guides/data-home.md)

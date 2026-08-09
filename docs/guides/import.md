@@ -1,45 +1,143 @@
-# Importing agent sessions
+# Importing coding-agent knowledge
 
-`lorekeep import` pulls knowledge from a coding agent's sessions into `raw/`, where `lorekeep compile` turns it into the graph. It is a curator-side feeder — the agent itself never writes to the graph.
+Agent knowledge reaches `raw/` through two different mechanisms:
 
-## Sources
+1. automatic hooks/watcher capture memory files and bounded transcript Markdown
+   without an extra LLM call; and
+2. `lorekeep import` is a manual path whose default deep mode uses the configured
+   provider to summarize a selected session.
 
-| Source | Where it reads | Modes |
-|---|---|---|
-| `claude` | Claude Code's per-project session dir (`~/.claude/projects/<slug>/`) | `--quick` (memory files, no LLM) + deep (LLM-summarized transcript) |
-| `cursor` | Cursor's **global** composer DB (`globalStorage/state.vscdb`) | deep-only (`--quick` rejected) |
+Both produce ordinary Markdown. `lorekeep compile` later extracts graph facts
+from it. Separately, an agent can write a structured proposal directly to a
+namespace journal through MCP; see [Serving over MCP](serve.md#journal-based-writes).
 
-## Claude Code
+## Supported sources
 
-```bash
-uv run lorekeep import --from claude                # deep: memory + LLM-summarized transcript
-uv run lorekeep import --from claude --quick        # quick: copy memory/*.md only, no LLM
+| Source | Memory source | Session source | Manual modes |
+|---|---|---|---|
+| `claude` | `memory/*.md` | project transcript JSONL | `--quick` memory copy; default deep summary |
+| `codex` | `$CODEX_HOME/memories/*.md` | rollout JSONL under `$CODEX_HOME/sessions/` | `--quick` memory copy; default deep summary |
+| `cursor` | none | global Cursor `state.vscdb` composer data | deep only |
+| `opencode` | none | opencode SQLite session database | deep only |
+
+The registry is the source of truth for detection paths, config/hook writers,
+and import functions. `lorekeep agent detect` shows whether each agent is
+installed, has local session data, and is wired.
+
+## Automatic zero-LLM capture
+
+`init`, `mcp add`, and `agent wire` install supported session-end hooks. The
+hidden hook command is an internal integration detail; it:
+
+- copies changed Claude/Codex memory files;
+- renders supported current sessions from all four agents into bounded,
+  deterministic Markdown batches;
+- caps batch count/size and retains only the configured recent sessions; and
+- uses SHA-256 manifests so unchanged content is not rewritten.
+
+`agent watch` also re-discovers memory/session sources while running. Memory or
+transcript output appears in these namespaces:
+
+```text
+raw/claude-memory/     raw/claude-session/
+raw/codex-memory/      raw/codex-session/
+raw/cursor-session/    raw/opencode-session/
 ```
 
-- **quick** copies curated `memory/*.md` verbatim — fast, zero LLM cost.
-- **deep** (default) additionally parses the session transcript and LLM-summarizes it into structured markdown.
-- Writes to `raw/claude-memory/` and `raw/claude-session/` (override with `--memory-ns` / `--session-ns`).
+The hook writes raw Markdown only. With the watcher running, the raw mtime change
+triggers compile on a later cycle. Without it, run `lorekeep compile` yourself.
 
-## Cursor
+Control automatic transcript capture in config:
 
-```bash
-uv run lorekeep import --from cursor                          # uses the global state.vscdb
-CURSOR_STATE_DB=/path/to/state.vscdb uv run lorekeep import --from cursor
-uv run lorekeep import --from cursor --session-path /path/to/globalStorage
+```yaml
+agents:
+  enabled: [claude, codex, cursor, opencode]
+  watch_transcripts: true
+  transcript_max_batches: 20
+  transcript_max_chars: 20000
+  transcript_retain_sessions: 5
 ```
 
-Cursor conversations live **globally** (not per-project), so the importer reads all of them from `globalStorage/state.vscdb` and writes summaries to `raw/cursor-session/`. Each conversation is chunked and LLM-summarized (deep mode).
-
-**Limitation.** Cursor frequently persists only conversation *headers* locally and lazy-loads the full transcript from the cloud. On such installs, conversations with no local content are skipped — `import` reports fewer (or zero) files rather than failing. If you see "0 session files", that means Cursor has no locally-persisted transcript to import.
-
-## Idempotent re-import
-
-Both sources record a content hash per imported item under `raw/<ns>/.import-manifest.json`. Re-running `import` skips unchanged content, so it's safe to run repeatedly before `compile`.
-
-## Next
+## Manual Claude import
 
 ```bash
-uv run lorekeep compile      # raw/ -> graph/facts.jsonl
+lorekeep import --from claude --quick
+lorekeep import --from claude
+lorekeep import --from claude --session-path ~/.claude/projects/<project>
 ```
 
-See [Compiling the graph](compile.md). Path resolution (`LOREKEEP_HOME`, dev mode, XDG) is in [data-home.md](data-home.md).
+- `--quick` copies changed memory Markdown and does not instantiate a provider.
+- Default deep mode also parses and summarizes the selected transcript with the
+  configured provider.
+- Override destinations with `--memory-ns` and `--session-ns`.
+
+## Manual Codex import
+
+```bash
+lorekeep import --from codex --quick --memory-ns codex-memory
+lorekeep import --from codex --session-ns codex-session
+lorekeep import --from codex --session-path /path/to/rollout.jsonl
+```
+
+Codex supports the same quick/deep split. Pass `--memory-ns codex-memory` on the
+manual quick command: the current generic CLI option retains the historical
+`claude-memory` default, while automatic registry-driven capture already uses
+the correct `codex-memory` namespace.
+
+## Manual Cursor import
+
+Cursor's manual importer reads composer records from the global
+`globalStorage/state.vscdb` and summarizes locally available conversations:
+
+```bash
+lorekeep import --from cursor
+CURSOR_STATE_DB=/path/to/state.vscdb lorekeep import --from cursor
+lorekeep import --from cursor --session-path /path/to/globalStorage
+```
+
+`--quick` is rejected because Cursor has no separate curated memory directory.
+Some Cursor installations persist only conversation headers locally and fetch
+the body from cloud storage. Header-only records are skipped, so zero output can
+mean there is no local transcript rather than a broken database.
+
+## Manual opencode import
+
+```bash
+lorekeep import --from opencode
+lorekeep import --from opencode --session-path <session-id>
+```
+
+The importer locates the current project session in opencode's SQLite database,
+then uses the configured provider to summarize it. `--quick` is rejected; the
+automatic hook/watcher transcript renderer is the zero-LLM alternative.
+
+## Preview and idempotency
+
+Use `--dry-run` to inspect destination counts/paths without writing:
+
+```bash
+lorekeep import --from codex --quick --memory-ns codex-memory --dry-run
+```
+
+Import manifests under each generated raw namespace store content hashes.
+Unchanged items are skipped, and deterministic transcript batches preserve an
+unchanged prefix as a session grows. This keeps raw mtimes stable and prevents
+unnecessary compile/cache misses.
+
+## Compile imported Markdown
+
+```bash
+lorekeep compile
+```
+
+Imported material has the same compile-time schema validation and provenance as
+handwritten raw docs. Review generated raw Markdown when source conversations may
+contain sensitive or low-quality content; it is durable and can be included in
+the private backup remote.
+
+## Related
+
+- [Getting started](getting-started.md)
+- [Compiling and resolving](compile.md)
+- [Autonomous agent architecture](../architecture/agent.md)
+- [Data home and paths](data-home.md)

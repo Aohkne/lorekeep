@@ -6,6 +6,11 @@ pages with `[[wikilinks]]`, YAML frontmatter (including relationship fields),
 and tags. **The same `wiki/` folder opens in both Obsidian and Tolaria** — no
 separate build per app.
 
+The wiki is generated from the full local `facts.jsonl`; it is **not** filtered
+through MCP namespace scope. Anyone or any plugin that can read the vault can
+read every namespace present in that local graph. Keep the vault private and do
+not publish/sync it as a substitute for namespace permission.
+
 ## 1. Quick start
 
 One command generates the wiki and opens it in Obsidian:
@@ -17,9 +22,11 @@ uvx lorekeep wiki --open
 (`compile` also auto-generates `wiki/` at the end of every run, so after
 editing raw docs you can jump straight to `wiki --open`.)
 
-**Prerequisites:** [Obsidian](https://obsidian.md) installed. If it isn't (or
-the launcher can't find it), `--open` prints the folder path so you can open it
-manually — the wiki is already generated.
+**Prerequisites:** [Obsidian](https://obsidian.md) installed. The success line
+always prints the generated folder. If the platform launcher executable itself
+is missing, Lorekeep also warns that you must open that folder manually. A
+desktop launcher can still return a non-zero status without Lorekeep detecting
+that Obsidian failed to handle the URL, so use the printed path as the fallback.
 
 ## 2. Open the vault manually
 
@@ -106,12 +113,14 @@ metadata; their original fact values remain available through `props.<key>`.
 Likewise, a custom edge type that collides with metadata or a mirrored prop is
 emitted as `relation_<edge-type>`.
 
-Each connection retains the source edge fact's ID, namespaces, validity window,
-provenance, and properties, so a page can be checked directly against
-`facts.jsonl`. Parallel temporal facts remain distinct. Duplicate logical edges
-with the same type, endpoints, and validity are coalesced during resolve and
-their descriptions/provenance are merged deterministically. The filename and
-frontmatter `id` remain the canonical ontology ID.
+Each connection's technical details retain the source edge fact's ID,
+namespaces, validity window, source locations, and properties, so a page can be
+checked against `facts.jsonl`. The separate structured `provenance` object is
+not currently rendered in wiki pages; inspect the JSONL fact when that agent/
+device metadata matters. Parallel temporal facts remain distinct. Duplicate
+logical edges with the same type, endpoints, and validity are coalesced during
+resolve, with descriptions and source locations merged deterministically. The
+filename and frontmatter `id` remain the canonical ontology ID.
 
 ## 4. Graph view
 
@@ -138,8 +147,8 @@ page kind plus `lorekeep-wiki`.
 
 - **Tag pane** (right sidebar) — click a tag to filter the file list.
 - **Graph coloring** — color groups can key off tags (`#service`, `#backend`).
-- **Search** — `tag:#service [lang:go]` finds Go services using Obsidian's
-  property-search syntax.
+- **Search** — `tag:service [lang:go]` finds Go services using Obsidian's
+  [property-search syntax](https://obsidian.md/help/Plugins/Search#Search%20properties).
 
 ## 6. Dataview queries (community plugin)
 
@@ -223,18 +232,21 @@ are shaped for it:
 - **Portable flat vault** — [Tolaria can recursively discover Markdown notes](https://tolaria.md/reference/file-layout);
   Lorekeep deliberately emits one flat root so the same stable filenames and
   wikilinks behave identically in Tolaria and Obsidian.
-- **Relationship panel + neighborhood** — every out-edge is a frontmatter field
-  holding `[[wikilinks]]` (`depends_on`, `relates_to`, …), which Tolaria detects
-  as relationships. Open an entity → the Inspector's Relationships panel shows
-  them as clickable chips; *Neighborhood* mode pivots the note list by them.
-- **Types** — the `type:` field (`service`, `team`, `decision`, …) drives Tolaria's
-  type grouping in the sidebar.
+- **Properties + neighborhood** — every out-edge is a frontmatter field holding
+  `[[wikilinks]]` (`depends_on`, `relates_to`, …), which
+  [Tolaria detects as a relationship](https://tolaria.md/concepts/relationships).
+  Outgoing and inverse relationships appear in its Properties panel and
+  Neighborhood mode.
+- **Types** — the `type:` field (`service`, `team`, `decision`, …) drives
+  [Tolaria's semantic grouping](https://tolaria.md/concepts/types); type is not
+  inferred from the folder.
 - **Backlinks** — inbound edges (body `[[wikilinks]]`) show in Tolaria's
   backlinks panel.
 
-To open: **File → Open vault** → select the `wiki/` folder (same one as Obsidian
-— you can point either app at it). `lorekeep wiki --open` launches Obsidian; for
-Tolaria, open the printed path manually.
+To open, choose Tolaria's existing-folder/vault action and select `wiki/` (the
+same folder used by Obsidian). `lorekeep wiki --open` launches Obsidian; for
+Tolaria, open the printed path manually. Tolaria currently publishes desktop
+builds for [macOS, Windows, and Linux](https://tolaria.md/reference/supported-platforms).
 
 > **One vault, two apps.** Obsidian and Tolaria read the same files, so you can
 > use either (or both) on the same `wiki/`. Lorekeep keeps the generated vault
@@ -243,10 +255,10 @@ Tolaria, open the printed path manually.
 
 ## 10. Multi-device
 
-The wiki is **derived**, not part of the backup (`lorekeep backup` tracks
-`raw/` + `schema.json`). Each machine regenerates its own `wiki/` from
-`facts.jsonl`. **Don't hand-edit wiki pages** — the next regen overwrites them
-(`log.md` is the only append-only exception).
+The wiki is **derived**, not part of the backup. Durable inputs include `raw/`,
+`schema.json`, and `pending/` journals; each machine rebuilds `facts.jsonl` and
+regenerates its own `wiki/`. **Don't hand-edit wiki pages** — the next regen
+overwrites them (`log.md` is the only append-only exception).
 
 ## Troubleshooting
 

@@ -948,7 +948,7 @@ def _resolve_agent_arg(agent: str):
 
 @mcp_app.command("add")
 def mcp_add(
-    agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode"),
+    agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode | grok | qoder"),
     scope: str = typer.Option("project", "--scope", help="project | user"),
     ns: str = typer.Option(None, "--ns", help="namespace to scope the agent to"),
 ) -> None:
@@ -1071,8 +1071,62 @@ def doctor() -> None:
         f"all checks passed: {len(store.node_ids())} nodes, "
         f"{len(store.all_edges())} edges, namespaces={ns}"
     )
+
+    _doctor_agent_section(config)
+    _doctor_session_section(p)
+
     for note in notes:
         _info(note)
+
+
+def _doctor_agent_section(config: Config) -> None:
+    """Print a compact agent-connection table in the doctor report.
+
+    Reuses ``_agent_report`` but shows only the essentials: name, wired,
+    ingest path. Full details (config paths, hooks) live in ``agent detect``.
+    """
+    scope = _wire_scope(config.agents)
+    rows = _agent_report(scope)
+    installed = [r for r in rows if r["installed"]]
+    if not installed:
+        return  # no agents to report — fresh machine
+
+    typer.echo("")
+    typer.echo("── agents ────────────────────────────────────────")
+    table = [("agent", "mcp wired", "ingest")]
+    for r in installed:
+        table.append((
+            r["name"],
+            "yes" if r["wired"] else "no",
+            " + ".join(r["ingest"]) or "—",
+        ))
+    widths = [max(len(row[i]) for row in table) for i in range(3)]
+    for row in table:
+        typer.echo("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
+
+
+def _doctor_session_section(p: dict) -> None:
+    """Print the most recently imported session per agent namespace.
+
+    Scans ``raw/*-session/`` for the newest ``.md`` per namespace. Silently
+    skips when no session namespace exists (fresh install, tests).
+    """
+    sessions = _last_session_imports(p["raw"])
+    if not sessions:
+        return
+
+    typer.echo("")
+    typer.echo("── last session import ───────────────────────────")
+    table = [("agent", "session", "imported")]
+    for s in sessions:
+        table.append((
+            s["agent"],
+            s["session"],
+            f"{s['ts']} ({_format_relative_time(s['mtime'])})",
+        ))
+    widths = [max(len(row[i]) for row in table) for i in range(3)]
+    for row in table:
+        typer.echo("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
 
 
 def _is_interactive() -> bool:
@@ -2203,6 +2257,54 @@ def _daemon_pid(p: dict) -> int | None:
     except OSError:
         pass                    # alive, just not ours to signal
     return pid
+
+
+def _format_relative_time(ts: float) -> str:
+    """Human-friendly '5 min ago' / '3 hours ago' / '2 days ago' for a mtime.
+
+    Pure function — no I/O, no clock side effects beyond ``time.time()``.
+    """
+    import time as _time
+
+    delta = _time.time() - ts
+    if delta < 60:
+        return "just now"
+    if delta < 3600:
+        return f"{int(delta // 60)} min ago"
+    if delta < 86400:
+        return f"{int(delta // 3600)} hours ago"
+    return f"{int(delta // 86400)} days ago"
+
+
+def _last_session_imports(raw_dir: Path) -> list[dict]:
+    """Newest imported session per ``*-session`` namespace, newest first.
+
+    Scans ``raw/<ns>-session/*.md`` files; the newest mtime identifies the
+    most recent import. Returns ``[]`` when no session namespace exists.
+    """
+    from datetime import datetime
+
+    if not raw_dir.is_dir():
+        return []
+    results: list[dict] = []
+    for ns_dir in sorted(raw_dir.glob("*-session")):
+        if not ns_dir.is_dir():
+            continue
+        md_files = list(ns_dir.glob("*.md"))
+        if not md_files:
+            continue
+        newest = max(md_files, key=lambda f: f.stat().st_mtime)
+        mtime = newest.stat().st_mtime
+        session_key = newest.stem.rsplit("-", 1)[0]
+        results.append({
+            "agent": ns_dir.name.removesuffix("-session"),
+            "session": session_key,
+            "ts": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"),
+            "mtime": mtime,
+            "files": len(md_files),
+        })
+    results.sort(key=lambda r: r["mtime"], reverse=True)
+    return results
 
 
 def _agent_report(scope: str) -> list[dict]:

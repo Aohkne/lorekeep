@@ -1,221 +1,248 @@
 # Getting started
 
-A 10-minute walkthrough from install to a working, agent-readable knowledge
-graph — including the backup setup. For the terse 5-step version, see the
-[Quickstart](../../README.md#quickstart) in the project README.
-
-## What you'll have at the end
-
-- A **data home** (`.lorekeep/` in a source checkout, or an XDG dir for an
-  installed copy) holding your config, schema, raw docs, and compiled graph.
-- A compiled `facts.jsonl` graph built from your markdown.
-- A coding agent (Claude Code / Cursor / Codex / opencode) reading the graph over MCP,
-  scoped to a namespace.
-- A private git backup of the data home, so the graph syncs to your other
-  machines.
+This walkthrough takes a new installation from an empty data home to a compiled
+graph that a coding agent can query. It also makes clear which steps call an LLM
+and which are deterministic local operations.
 
 ## 1. Install
 
-Lorekeep needs Python 3.11+. Run it without installing:
+Lorekeep requires Python 3.11+ and uv. Use `uvx` for an occasional command, or
+install the tool when you want a long-running watcher/service:
 
 ```bash
-uvx lorekeep version      # prints the version
+uvx lorekeep version
+
+uv tool install lorekeep
+lorekeep version
 ```
 
-Or, in a source checkout (development):
+From a source checkout:
 
 ```bash
-git clone https://github.com/manhailua/lorekeep.git
+git clone https://github.com/manhhailua/lorekeep.git
 cd lorekeep
 uv sync
 uv run lorekeep version
 ```
 
-## 2. Bootstrap the data home
+## 2. Initialize the data home
 
 ```bash
-uvx lorekeep init
+lorekeep init
 ```
 
-`init` is idempotent and **interactive on first run** — it asks:
+On the first interactive run, `init` asks for:
 
-1. **LLM provider** — OpenAI / Anthropic / DashScope-Qwen / Ollama (local) /
-   Skip (offline). Pick one; model and API key env are pre-filled from the
-   preset. Override either if you want. The **API key** you type is saved
-   inline into the gitignored `config.yaml` (not an env var).
-2. **Default namespace** — defaults to `me`. This is the permission unit agents
-   are scoped to (e.g. `me`, `backend`, `myproject`).
-3. **Name + bio** — a one-line profile. It becomes the first file,
-   `raw/<ns>/about.md`, so the compiled graph starts with a fact about you.
+1. an extraction provider/model and either an inline local key or the name of an
+   environment variable;
+2. the personal/default namespace, initially `me`; and
+3. your name and one-line bio.
 
-It then writes `config.yaml` + `schema.json`, creates `raw/` + `graph/` dirs,
-writes `raw/<ns>/about.md`, and **auto-detects coding agents** to wire:
+It then performs an idempotent setup chain:
 
-- If you're running `init` **inside** a coding agent (e.g. from opencode's or
-  Claude Code's shell), it wires only that agent.
-- If you're in a **plain shell**, it scans for all installed agents
-  (`~/.claude`, `~/.cursor`, `~/.codex`, `~/.config/opencode`) and wires each.
+- writes `config.yaml` and stock schema v4;
+- creates `raw/`, `graph/`, and `pending/`;
+- writes `raw/<personal-ns>/about.md` and `profile.md`;
+- detects installed Claude Code, Cursor, Codex, and opencode clients;
+- writes their MCP configuration and supported session-end hooks;
+- quick-imports available agent memory files without an LLM;
+- runs the initial compile when a usable provider key exists; and
+- starts `agent watch` in the background when the command is interactive and
+  `--no-watch` was not passed.
 
-Each detected agent gets its MCP config written automatically (`.mcp.json`,
-`.cursor/mcp.json`, `config.toml`, or `opencode.json` — depending on the agent).
-Restart the agent to pick up the new tools.
-
-Non-interactive (CI, scripts): `uvx lorekeep init --yes`. From a source
-checkout it uses the repo's own `.lorekeep/`; for an installed copy it uses
-XDG (`~/.config/lorekeep` for config, `~/.local/share/lorekeep` for data). See
-[Data home & path resolution](data-home.md) for the full precedence table.
-
-Verify the install:
+Re-running `init` preserves existing config/schema and re-runs safe agent
+detection/wiring. A non-interactive invocation does not start a background
+watcher:
 
 ```bash
-uvx lorekeep doctor       # graph loads, schema valid, a tool responds
+lorekeep init --yes --no-watch
 ```
 
-## 3. Add your raw docs
+If no provider key is available, initialization still creates the sources and
+wires agents. Add a key before the first compile.
 
-Drop markdown under `<data-home>/raw/<namespace>/`. A namespace is the
-permission unit an agent is later scoped to — e.g. `backend`, `frontend`,
-`team-alpha`.
+## 3. Configure extraction
+
+All model values use LiteLLM's `{provider}/{model}` form:
 
 ```bash
-# installed copy (XDG)
+lorekeep config set provider.model deepseek/deepseek-chat
+lorekeep config set provider.api_key_env DEEPSEEK_API_KEY
+export DEEPSEEK_API_KEY=...
+```
+
+An OpenRouter example:
+
+```bash
+lorekeep config set provider.model openrouter/deepseek/deepseek-chat
+lorekeep config set provider.api_key_env OPENROUTER_API_KEY
+export OPENROUTER_API_KEY=...
+```
+
+Native cloud providers normally need no `api_base`. Set `api_base` for a custom
+OpenAI-compatible endpoint, or for Ollama when it is not at its normal local
+address. The full validated example is
+[`.lorekeep/config.yaml.example`](../../.lorekeep/config.yaml.example).
+
+The provider is used during `compile`, `agent ingest`, and manual deep import.
+MCP queries, quick capture, resolve, wiki generation, lint, status, and backup do
+not call it.
+
+## 4. Add source Markdown
+
+Put documents under `<data-home>/raw/<namespace>/`. The first directory is the
+fact namespace and therefore a permission boundary:
+
+```bash
 mkdir -p ~/.local/share/lorekeep/raw/backend
-cp your-service.md ~/.local/share/lorekeep/raw/backend/
-
-# source checkout
-mkdir -p .lorekeep/raw/backend
-cp your-service.md .lorekeep/raw/backend/
+cp payments.md ~/.local/share/lorekeep/raw/backend/
 ```
 
-Raw markdown is the **source code**; the graph is the **executable**. Each doc
-becomes one or more facts with `path:line` provenance back to the source.
-
-## 4. Configure a provider (only for real compiles)
-
-`init` already wrote a provider into `config.yaml` during onboarding, with your
-key inline. Edit it here if you want a different one. The key lives in
-`config.yaml`, which is gitignored — so it never gets committed.
-
-```yaml
-provider:
-  model: deepseek/deepseek-chat            # {provider}/{model} — litellm routes by the prefix
-  api_base: null                           # native deepseek provider — no api_base needed
-  api_key: sk-...                          # inline; config.yaml is gitignored
-  temperature: 0.0
-  timeout_seconds: 120
-  max_retries: 2
-```
-
-The model string must be `{provider}/{model}` (e.g. `openai/gpt-4o-mini`,
-`anthropic/claude-sonnet-4-20250514`, `deepseek/deepseek-chat`,
-`dashscope/qwen-plus`, `ollama/llama3`). Native providers (`openai`,
-`anthropic`, `deepseek`, `dashscope`, `gemini`, …) need **no** `api_base` —
-litellm already knows their endpoint. Set `api_base` only for a custom
-OpenAI-compatible endpoint (vllm, lm_studio, a proxy/gateway, or Ollama on a
-non-default host). A bare name like `deepseek-chat` is rejected with a
-suggestion — `lorekeep doctor` will tell you exactly what's wrong.
-
-Prefer an env var instead? Set `api_key_env: DEEPSEEK_API_KEY` (and
-`api_key: null`), then `export DEEPSEEK_API_KEY=sk-...`. Both work.
-
-> **No provider yet?** `init` wires agents and imports memory files
-> regardless. Compile is skipped until you add an API key — the graph
-> will be empty but the MCP tools are wired and ready.
-
-## 5. Compile
+From a source checkout, use `.lorekeep/raw/backend/`. To find/open your personal
+profile source:
 
 ```bash
-uvx lorekeep compile      # raw/*.md -> graph/facts.jsonl + manifest.json
-uvx lorekeep doctor       # full install check: graph, schema, MCP, provider
+lorekeep agent profile
+lorekeep agent profile --open
 ```
 
-Recompiling unchanged input is **byte-identical** (determinism is a hard
-requirement) — unchanged chunks return cached LLM output, so only edited docs
-cost tokens on recompile.
+Edit raw files, not generated wiki pages. Raw Markdown plus schema and journals
+are durable inputs; `facts.jsonl` and the wiki are reproducible outputs.
 
-## 6. Wire additional coding agents
-
-`init` already wired agents it detected. To add more, or to re-scope one:
+## 5. Compile and validate
 
 ```bash
-uvx lorekeep mcp add --agent opencode --ns backend
+lorekeep compile
+lorekeep doctor
 ```
 
-Supported agents: `claude`, `cursor`, `codex`, `opencode`.
+`compile` performs the complete normal pipeline: cached extraction from `raw/`,
+candidate resolution, atomic graph/manifest write, journal replay/merge, and one
+wiki generation from the final facts. Unchanged chunks reuse cached extraction
+output, preserving byte-stable recompiles.
 
-Restart the agent → the 7-tool MCP surface (`search`, `get_node`, `neighbors`,
-`temporal_query`, `context`, `propose_change`, `review_note`) is available,
-scoped to `backend` (+ `public`). Schema, namespaces, and status are also
-available as passive MCP resources. See [Serving the graph](serve.md).
+`doctor` requires a graph. It checks graph/schema loading, scoped MCP response,
+and provider connectivity when a key is available. If setup intentionally has no
+provider/graph yet, add source + provider and compile before running it.
 
-## 7. Keep the graph current (daemon)
+## 6. Verify and wire coding agents
 
-The agent daemon watches for changes and keeps the graph up-to-date automatically:
+Inspect what Lorekeep sees:
 
 ```bash
-uvx lorekeep agent watch &
+lorekeep agent detect
+lorekeep agent detect --json
 ```
 
-It monitors three things:
-
-| Watch | Action | Cost |
-|---|---|---|
-| `raw/<ns>/*.md` changed | Auto-compile (only changed chunks hit the LLM cache) | Chunk-cache hit rate > 90% |
-| `pending/*/journal.jsonl` written | Auto-resolve (merge + dedup pending facts) | **Zero LLM** — pure Python |
-| Claude session `memory/*.md` changed | Delta quick-import into `raw/claude-memory/` → triggers compile | **Zero LLM** — file copy |
-
-The MCP server **lazy-reloads** `facts.jsonl` on every query, so graph updates
-are visible immediately — no reconnect needed. Run `agent watch` in the
-background (or under a process manager) and the graph stays current as you edit
-docs or use the coding agent.
-
-To disable session watching: `uvx lorekeep agent watch --no-watch-sessions`.
-
-## 8. Back up
-
-Push the data home to a **separate private git repo** so it syncs across
-machines (this is independent of the lorekeep tool repo):
+`init` normally wires detected agents. Wire one client explicitly when needed:
 
 ```bash
-git init --bare ~/backups/lorekeep.git     # one-time, anywhere private
-uvx lorekeep backup --init ~/backups/lorekeep.git
+lorekeep mcp add --agent claude --scope project --ns backend
+lorekeep agent wire --agent codex --scope user --ns backend
 ```
 
-Then after any `compile` or raw change:
+`mcp add` is the focused one-client command and prints the recommended agent
+instruction snippet. `agent wire` uses the shared agent registry and can wire all
+detected clients; `--force` includes undetected clients. Both operations are
+idempotent.
+
+Restart the client after configuration/scope changes. The available MCP tools
+are:
+
+```text
+search, get_node, neighbors, temporal_query, context,
+propose_change, review_note
+```
+
+The client receives `backend` plus `public` in this example. A hidden namespace
+is indistinguishable from a missing fact.
+
+## 7. Teach the agent when to query
+
+MCP wiring makes tools available; it does not force every model/client to call
+them. Preserve the snippet printed by `init`/`mcp add` in the client's user or
+project instructions. The recommended lookup flow is:
+
+```text
+context(section="status")
+  → search(query)
+  → get_node(id)
+  → neighbors(id) and/or temporal_query(mode, params)
+```
+
+Ask questions using the domain terms or likely entity names already present in
+the graph, and mention time or namespace when relevant. Examples:
+
+- “Query Lorekeep for the current dependencies of `payments-api`; cite `src`. ”
+- “What did the checkout architecture look like on 2025-03-01?”
+- “Search Lorekeep before answering; if coverage is weak, say so.”
+
+Agents can propose newly verified facts with `propose_change`, but those facts
+remain pending until `resolve` or the watcher merges them.
+
+## 8. Keep the graph current
+
+Foreground watcher:
 
 ```bash
-uvx lorekeep backup
+lorekeep agent watch
 ```
 
-The backup tracks `raw/` + `schema.json`; it ignores `config.yaml` (may hold a
-key), the regenerable `graph/facts.jsonl` / `manifest.json`, `cache.json`, and
-`pending/`. Full lifecycle — restore on a second device, push-conflict
-recovery — is in [Backing up the data home](backup.md).
+Persistent login/restart service:
+
+```bash
+lorekeep agent service install
+lorekeep agent service status
+```
+
+The watcher reacts to raw/schema changes, pending journals, supported memory and
+transcript sources, newly detected agents, package upgrades, and configured Git
+backup. It does not schedule nightly lint or weekly suggestions; run those
+commands directly when wanted.
+
+Without a watcher, use the explicit operations:
+
+```bash
+lorekeep compile    # raw changed; uses the extraction provider
+lorekeep resolve    # only journals changed; zero LLM calls
+lorekeep wiki       # only re-project existing facts; zero LLM calls
+```
+
+The MCP server reloads `facts.jsonl` on the next query after its mtime changes,
+so graph refreshes do not require reconnecting. Scope or MCP config changes do.
+
+## 9. Back up for another device
+
+Use a dedicated private remote:
+
+```bash
+lorekeep backup --init https://github.com/<you>/lorekeep-data.git
+lorekeep backup
+```
+
+Raw docs, schema, and `pending/` journals are durable and synced. Config/secrets
+and derived graph/wiki/cache files are ignored. Git sync is currently sequential;
+simultaneous edits to the same tracked file may need an ordinary manual rebase
+conflict resolution.
+
+See [Backing up and syncing](backup.md) before restoring on a second device.
 
 ## Troubleshooting
 
-- **`lorekeep serve` hangs** — it blocks on stdio waiting for an MCP client.
-  To just confirm it boots, run it under a timeout with stdin closed:
-  `timeout 3 uvx lorekeep serve --transport stdio </dev/null`.
-- **Compile gave 0 nodes** — the provider wasn't reached. Run
-  `lorekeep doctor` first: it pings the provider and reports auth / model /
-  endpoint failures directly. Then check `model` (must be
-  `{provider}/{model}`), `api_base`, and `api_key` / `api_key_env` in
-  `config.yaml`. (The cache key includes the model, so switching it
-  re-extracts automatically — no need to delete `cache.json`.)
-- **`doctor` reports dangling edges** — an edge points at a node that isn't in
-  the graph. Re-open the source doc at the `path:line` in the edge's `src` and
-  fix the reference, then recompile.
-- **Agent can't see a namespace** — serve-time scope comes from `LOREKEEP_NS`
-  (comma-separated) or `config.ns.default`; `mcp add --ns` writes the scoped
-  `.mcp.json` but the running agent must be restarted to pick it up.
+- `serve` appears to hang: stdio transport waits for an MCP client. Use
+  `timeout 3 lorekeep serve --transport stdio </dev/null` only as a boot smoke.
+- Compile reports zero nodes: run `doctor`, then check the prefixed model, key,
+  endpoint, and per-chunk errors in `manifest.json`/runtime logs.
+- An agent cannot see a fact: inspect `context(section="namespaces")` and
+  `context(section="status", topic="...")`; absence can mean out of scope.
+- An agent never queries: confirm wiring with `agent detect`, restart it, and add
+  the Lorekeep lookup snippet to its instructions.
+- A daemon fails silently: run `agent service status`, then `lorekeep support`.
 
-## Next steps
+## Next
 
-- [Compiling](compile.md) — chunking, extraction, the resolve pass.
-- [Importing agent sessions](import.md) — turn Claude Code / Cursor history
-  into raw docs.
-- [Serving the graph](serve.md) — the daemon lifecycle, write tools roadmap,
-  and how lazy-reload works.
-- [Architecture overview](../architecture/overview.md) — the append-and-resolve
-  model and why there's no runtime write path (yet).
+- [Compile and resolve](compile.md)
+- [Import agent sessions](import.md)
+- [Serve over MCP](serve.md)
+- [Browse the wiki](wiki.md)
+- [Data home and paths](data-home.md)

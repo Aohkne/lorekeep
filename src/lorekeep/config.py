@@ -56,7 +56,9 @@ class AgentsConfig(BaseModel):
     wire_scope: str = "user"                 # user | project
     wire_interval_seconds: int = Field(default=900, gt=0)
     enabled: list[str] = Field(
-        default_factory=lambda: ["claude", "codex", "cursor", "opencode"]
+        default_factory=lambda: [
+            "claude", "codex", "cursor", "opencode", "grok", "qoder",
+        ]
     )
     watch_transcripts: bool = True           # zero-LLM dump → raw/<agent>-session/
     transcript_max_batches: int = Field(default=20, gt=0)

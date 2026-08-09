@@ -10,8 +10,10 @@ import pytest
 from lorekeep.integrations import registry
 
 
-def test_agent_names_are_the_four_supported_agents():
-    assert registry.AGENT_NAMES == ("claude", "codex", "cursor", "opencode")
+def test_agent_names_are_the_supported_agents():
+    assert registry.AGENT_NAMES == (
+        "claude", "codex", "cursor", "opencode", "grok", "qoder",
+    )
 
 
 def test_supported_agents_alias_matches_registry():
@@ -32,12 +34,16 @@ def test_supports_hook_matches_reality(spec):
 
 
 @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.name)
-def test_importer_module_imports(spec):
+def test_importer_module_imports_when_present(spec):
+    if not spec.importer_module:
+        pytest.skip(f"{spec.name}: no importer yet")
     assert spec.importer() is not None
 
 
 @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.name)
 def test_every_declared_importer_attr_exists(spec):
+    if not spec.importer_module:
+        pytest.skip(f"{spec.name}: no importer yet")
     importer = spec.importer()
     names = []
     if spec.memory:
@@ -69,11 +75,11 @@ def test_namespaces_are_unique():
 
 @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.name)
 def test_wiring_targets_are_declared(spec):
-    assert spec.project_config and spec.user_config
+    assert spec.user_config and spec.user_config.startswith("~/")
+    if spec.project_config:  # some agents are user-scope only (grok)
+        assert not spec.project_config.startswith(("~", "/"))
     assert spec.supports_hook == bool(spec.project_hook)
     assert spec.supports_hook == bool(spec.user_hook)
-    assert spec.user_config.startswith("~/")
-    assert not spec.project_config.startswith(("~", "/"))
 
 
 @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.name)
@@ -82,9 +88,10 @@ def test_session_handle_kind_is_known(spec):
         assert spec.session.handle_kind in ("dir", "file", "id", "blob")
 
 
-def test_every_agent_has_a_session_source():
-    """Cursor and opencode write no memory files — transcripts are their only path."""
-    assert all(s.session is not None for s in registry.all_specs())
+def test_every_importing_agent_has_a_session_source():
+    """Agents with importers must have at least a session path."""
+    importing = [s for s in registry.all_specs() if s.importer_module]
+    assert all(s.session is not None for s in importing)
 
 
 def test_find_and_get():
