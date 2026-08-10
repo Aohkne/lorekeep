@@ -665,6 +665,15 @@ def serve(
             extra={"event": "serve.mcp_missing"},
         )
         raise typer.Exit(code=1)
+    # Pre-check: facts.jsonl must exist before starting the server.
+    facts_path = p["out"] / "facts.jsonl"
+    if not facts_path.exists():
+        from lorekeep.output import error
+        error(
+            f"No knowledge graph found at {facts_path}.\n"
+            f"Run 'lorekeep compile' first to build it."
+        )
+        raise typer.Exit(code=1)
     try:
         configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
     except (FileNotFoundError, ValueError) as exc:
