@@ -102,7 +102,7 @@ def test_mcp_reference_names_the_exact_runtime_surface() -> None:
     tools = asyncio.run(mcp_server.mcp.list_tools())
     resources = asyncio.run(mcp_server.mcp.list_resources())
 
-    assert len(tools) == 7
+    assert len(tools) == 8
     for tool in tools:
         assert f"`{tool.name}" in reference
     for resource in resources:

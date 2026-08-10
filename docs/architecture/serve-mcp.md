@@ -1,6 +1,6 @@
 # Serve and MCP architecture
 
-`mcp_server.py` exposes one local graph through FastMCP. The seven tool functions
+`mcp_server.py` exposes one local graph through FastMCP. The eight tool functions
 remain plain Python callables so diagnostics and tests exercise the same routing
 without starting a transport.
 
@@ -82,6 +82,14 @@ endpoint, property-container, and scope checks, then namespace-enforced journal
 append. Complete Pydantic/schema validation is repeated/deferred at resolve.
 Update replaces the complete props map of the current visible fact; it is not a
 patch operation.
+
+### `merge_entities(from_id, to_id, reason="")`
+
+Declares that two nodes are the same entity. Creates a `same_as` edge
+(`from`=alias, `to`=canonical) in the pending journal at confidence 1.0.
+On resolve, the alias node merges into the canonical node, and the canonical
+node persists `props.merged_ids` so the decision survives future compiles.
+Cross-type merges are blocked.
 
 ### `review_note(kind, description, fact_ids=None)`
 
