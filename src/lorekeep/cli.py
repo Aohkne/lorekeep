@@ -1665,6 +1665,10 @@ def backup(
     init_remote: str = typer.Option(
         None, "--init", help="remote URL; sets up the backup repo + initial push"
     ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Auto-resolve graph/wiki snapshot conflicts (remote version wins)",
+    ),
 ) -> None:
     """Sync data-home inputs and graph/wiki snapshot to a private Git repo."""
     from lorekeep.backup import BackupError, backup as backup_home, init_backup
@@ -1676,7 +1680,7 @@ def backup(
             init_backup(home, init_remote)
             info(f"backup: repo ready at {home} -> {init_remote}")
         else:
-            pushed = backup_home(home)
+            pushed = backup_home(home, force=force)
             if pushed:
                 ok(f"backup: pushed to remote from {home}")
             else:
@@ -2683,16 +2687,8 @@ def watch(
     session_import_time: dict[str, float] = {}
 
     # Sync from remote at startup (pull changes from other machines)
-    try:
-        from lorekeep.backup import sync_backup, has_remote
-        if has_remote(p["home"]):
-            typer.echo("agent: syncing backup from remote...")
-            sync_backup(p["home"])
-    except Exception as exc:
-        log.warning(
-            "startup backup sync failed error_type=%s", type(exc).__name__,
-            extra={"event": "daemon.backup_failed"},
-        )
+    _try_backup(p["home"], reason="startup",
+                enabled=_acfg.auto_backup if _acfg else True)
 
     # Resolve/replay only after startup sync so remote journal events are visible.
     if pending_dir and pending_dir.exists():
@@ -2791,15 +2787,8 @@ def watch(
 
             # --- auto-backup + sync after compile ---------------------------
             if compiled:
-                try:
-                    from lorekeep.backup import sync_backup
-                    if sync_backup(p["home"]):
-                        typer.echo("agent: backup synced")
-                except Exception as exc:
-                    log.warning(
-                        "post-compile backup sync failed error_type=%s",
-                        type(exc).__name__, extra={"event": "daemon.backup_failed"},
-                    )
+                _try_backup(p["home"], reason="compile",
+                            enabled=_acfg.auto_backup if _acfg else True)
                 resolved = False
                 if has_pending:
                     resolved = _do_auto_resolve(
@@ -2813,6 +2802,10 @@ def watch(
                 )
                 if not resolved or healed:
                     _auto_generate_wiki(p["out"], p.get("wiki"), p.get("schema"))
+                # Backup after resolve + heal (graph may have changed)
+                if resolved or healed:
+                    _try_backup(p["home"], reason="heal",
+                                enabled=_acfg.auto_backup if _acfg else True)
 
             # --- pending/ watch → auto-resolve ------------------------------
             if has_pending:
@@ -2820,9 +2813,12 @@ def watch(
                 pending_mtime = max((f.stat().st_mtime for f in journal_files), default=0.0)
                 if pending_mtime > last_pending_mtime and last_pending_mtime > 0:
                     typer.echo("agent: pending/ changed — resolving...")
-                    _do_auto_resolve(
+                    resolved = _do_auto_resolve(
                         p["out"], pending_dir, p.get("wiki"), p.get("schema"),
                     )
+                    if resolved:
+                        _try_backup(p["home"], reason="resolve",
+                                    enabled=_acfg.auto_backup if _acfg else True)
                 last_pending_mtime = pending_mtime
 
             # --- session watch → delta quick import → raw/ ------------------
@@ -3039,6 +3035,30 @@ def _auto_generate_wiki(
             extra={"event": "wiki.failed"},
         )
         typer.echo(f"wiki: auto-gen skipped: {exc}")
+
+
+def _try_backup(home: Path, *, reason: str = "", enabled: bool = True) -> bool:
+    """Best-effort backup sync from the daemon loop. Never raises."""
+    if not enabled:
+        return False
+    try:
+        from lorekeep.backup import sync_backup, has_remote
+        if not has_remote(home):
+            return False
+        if sync_backup(home, auto_fix=True):
+            typer.echo(f"agent: backup synced ({reason})")
+            log.info(
+                "backup synced reason=%s", reason,
+                extra={"event": "daemon.backup_synced"},
+            )
+            return True
+        return False
+    except Exception as exc:
+        log.warning(
+            "backup failed reason=%s error_type=%s", reason, type(exc).__name__,
+            extra={"event": "daemon.backup_failed"},
+        )
+        return False
 
 
 def _do_self_heal(

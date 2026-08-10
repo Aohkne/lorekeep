@@ -91,5 +91,6 @@ agents:
   transcript_retain_sessions: 5    # older sessions are pruned from raw/<agent>-session/
   deep_import: false               # reserved; use manual `lorekeep import` for LLM summaries
   self_heal: true                  # daemon auto-removes dangling edges, dedupes edges
+  auto_backup: true                # daemon auto-backups after graph changes
 
 install_source: pypi                              # pypi (portable .mcp.json) | local | git+URL | path

@@ -183,13 +183,52 @@ def _remote_sha(home: Path) -> str | None:
     return out.split()[0] if out.strip() else None
 
 
-def _reconcile_remote(home: Path) -> None:
+def _classify_conflicts(paths: str) -> tuple[list[str], list[str]]:
+    """Split conflicted paths into snapshot vs durable.
+
+    Snapshot paths (graph/, wiki/) are regenerable and safe to auto-resolve.
+    Durable paths (raw/, schema.json, pending/) require manual merge.
+    """
+    snapshot = []
+    durable = []
+    for line in paths.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("graph/") or line.startswith("wiki/"):
+            snapshot.append(line)
+        else:
+            durable.append(line)
+    return snapshot, durable
+
+
+def _resolve_snapshot_conflict_inplace(home: Path) -> list[str]:
+    """Resolve snapshot conflicts during an active rebase (in-place).
+
+    Must be called while a rebase is in progress with unmerged paths.
+    For each conflicted graph/wiki path: accepts the remote version
+    (``checkout --ours`` during rebase, which is the upstream/remote),
+    stages it. Returns the list of durable conflicts that could not be
+    auto-resolved.
+    """
+    conflicts = _git(["diff", "--name-only", "--diff-filter=U"], home)
+    snapshot, durable = _classify_conflicts(conflicts)
+    for path in snapshot:
+        # During rebase: --ours = upstream (remote), --theirs = local commit
+        _git(["checkout", "--ours", "--", path], home)
+        _git(["add", "--", path], home)
+    return durable
+
+
+def _reconcile_remote(home: Path, *, auto_fix_snapshots: bool = False) -> None:
     """Fetch + rebase, aborting cleanly rather than leaving a broken repo.
 
     The generated graph/wiki paths use ``-merge`` attributes. If two devices
-    published different snapshots, Git stops instead of line-merging them. The
-    caller receives an actionable error and the local repository is restored
-    to its pre-rebase state.
+    published different snapshots, Git stops instead of line-merging them.
+
+    When *auto_fix_snapshots* is True (daemon mode), snapshot-only conflicts
+    are auto-resolved by accepting the remote version. The daemon recompiles
+    locally afterwards. Durable conflicts always require user intervention.
     """
     _git(["fetch", "origin"], home)
     branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], home)
@@ -203,10 +242,37 @@ def _reconcile_remote(home: Path) -> None:
     try:
         _git(["rebase", f"origin/{branch}"], home)
     except BackupError as exc:
+        # Rebase failed — we're mid-rebase with unmerged paths.
         try:
-            conflicts = _git(["diff", "--name-only", "--diff-filter=U"], home)
+            durable = _resolve_snapshot_conflict_inplace(home) \
+                if auto_fix_snapshots else None
         except BackupError:
-            conflicts = ""
+            durable = None
+
+        if durable is not None and not durable:
+            # All conflicts were snapshot-only and auto-resolved.
+            # GIT_EDITOR=true skips the commit-message editor.
+            import os
+            env = dict(os.environ, GIT_EDITOR="true")
+            proc = subprocess.run(
+                [
+                    "git",
+                    "-c", "user.email=lorekeep@backup.local",
+                    "-c", "user.name=lorekeep backup",
+                    "rebase", "--continue",
+                ],
+                cwd=str(home),
+                capture_output=True, text=True, env=env,
+            )
+            if proc.returncode != 0:
+                raise BackupError(
+                    f"git rebase --continue failed (exit {proc.returncode}): "
+                    f"{proc.stderr.strip()}"
+                )
+            return
+
+        # Either auto_fix disabled, or durable conflicts remain.
+        # Abort to restore pre-rebase state and raise.
         try:
             _git(["rebase", "--abort"], home)
         except BackupError as abort_exc:
@@ -214,7 +280,18 @@ def _reconcile_remote(home: Path) -> None:
                 "backup rebase failed and could not be aborted; inspect the "
                 f"repository at {home}: {abort_exc}"
             ) from exc
-        paths = ", ".join(conflicts.splitlines()) or "unknown paths"
+
+        if durable:
+            paths = ", ".join(durable)
+        else:
+            try:
+                conflicts = _git(["diff", "--name-only", "--diff-filter=U"], home)
+            except BackupError:
+                conflicts = ""
+            paths = ", ".join(
+                p for p in conflicts.splitlines() if p.strip()
+            ) or "unknown paths"
+
         raise BackupError(
             "backup rebase conflict; local repository was restored. "
             f"Conflicts: {paths}. Merge durable raw/schema/pending inputs, "
@@ -234,15 +311,19 @@ def has_remote(home: Path) -> bool:
         return False
 
 
-def sync_backup(home: Path) -> bool:
+def sync_backup(home: Path, *, auto_fix: bool = True) -> bool:
     """Sync backup: pull --rebase from remote, then commit + push.
 
-    Used by daemon after compile. Pulls changes from other machines first
-    (fetch + rebase), then pushes local changes.
+    Used by daemon after compile/resolve/heal. Pulls changes from other
+    machines first (fetch + rebase), then pushes local changes.
+
+    When *auto_fix* is True (default), snapshot conflicts on graph/wiki
+    are auto-resolved by accepting the remote version. The daemon will
+    recompile locally to align with merged durable inputs.
 
     Silently returns False if:
     - No backup repo or remote configured
-    - Network error or conflict (user resolves manually with ``lorekeep backup``)
+    - Network error or durable conflict (user resolves with ``lorekeep backup``)
     """
     if not has_remote(home):
         return False
@@ -251,7 +332,7 @@ def sync_backup(home: Path) -> bool:
         before = _remote_sha(home)
         # Commit first so tracked journal/raw changes do not block rebase.
         _commit(home, "backup")
-        _reconcile_remote(home)
+        _reconcile_remote(home, auto_fix_snapshots=auto_fix)
         _git(["push"], home)
         after = _remote_sha(home)
         return after != before
@@ -282,7 +363,7 @@ def init_backup(home: Path, remote: str) -> None:
     _git(["push", "-u", "origin", "HEAD"], home)
 
 
-def backup(home: Path) -> bool:
+def backup(home: Path, *, force: bool = False) -> bool:
     """Commit local changes, fetch/rebase the remote branch, and push.
 
     Returns ``True`` if the **remote was advanced** (a new commit was pushed
@@ -292,6 +373,10 @@ def backup(home: Path) -> bool:
     Push is always attempted, even without a new commit, so a previously-
     rejected push (remote divergence or a network glitch) is retried
     automatically.
+
+    When *force* is True, snapshot conflicts on graph/wiki are auto-resolved
+    (remote version wins) instead of raising an error. Durable conflicts on
+    raw/schema/pending always require manual merge.
     """
     if not (home / ".git").is_dir():
         raise BackupError(
@@ -300,7 +385,7 @@ def backup(home: Path) -> bool:
     _prepare_repo_metadata(home)
     before = _remote_sha(home)
     _commit(home, "backup")
-    _reconcile_remote(home)
+    _reconcile_remote(home, auto_fix_snapshots=force)
     _git(["push"], home)
     after = _remote_sha(home)
     return after != before

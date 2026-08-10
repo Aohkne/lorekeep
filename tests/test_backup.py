@@ -13,6 +13,7 @@ from lorekeep.backup import (
     init_backup,
     sync_backup,
 )
+from lorekeep.backup import _classify_conflicts
 
 
 def _bare_remote(tmp_path: Path) -> str:
@@ -427,3 +428,162 @@ def test_reconcile_remote_abort_failure_is_actionable(tmp_path: Path, monkeypatc
     monkeypatch.setattr(backup_module, "_git", fake_git)
     with pytest.raises(BackupError, match="could not be aborted"):
         backup_module._reconcile_remote(tmp_path)
+
+
+# ── Auto-resolve snapshot conflict tests ─────────────────────────────────
+
+def test_classify_conflicts_separates_snapshots_and_durable():
+    paths = "graph/facts.jsonl\nwiki/index.md\nraw/ns/doc.md\nschema.json\n"
+    snapshot, durable = _classify_conflicts(paths)
+    assert snapshot == ["graph/facts.jsonl", "wiki/index.md"]
+    assert durable == ["raw/ns/doc.md", "schema.json"]
+
+
+def test_classify_conflicts_empty():
+    snapshot, durable = _classify_conflicts("")
+    assert snapshot == []
+    assert durable == []
+
+
+def test_backup_force_auto_resolves_snapshot_conflict(tmp_path: Path):
+    """--force resolves graph/wiki conflicts by accepting remote version."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    (home / "graph").mkdir()
+    (home / "wiki").mkdir()
+    (home / "graph" / "facts.jsonl").write_text('{"id":"base"}\n')
+    (home / "graph" / "manifest.json").write_text('{"run_id":"base"}\n')
+    (home / "wiki" / "index.md").write_text("# base\n")
+    assert backup(home) is True
+
+    # Remote publishes different snapshots
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", remote, str(other)], check=True)
+    (other / "graph" / "facts.jsonl").write_text('{"id":"remote"}\n')
+    (other / "wiki" / "index.md").write_text("# remote\n")
+    _git_cmd(["add", "-A"], other)
+    _git_cmd(["commit", "-q", "-m", "remote snapshot"], other)
+    subprocess.run(["git", "push", "-q"], cwd=other, check=True)
+
+    # Local publishes conflicting snapshots
+    (home / "graph" / "facts.jsonl").write_text('{"id":"local"}\n')
+    (home / "wiki" / "index.md").write_text("# local\n")
+
+    # With force=True, conflict auto-resolves (remote version wins)
+    # No exception raised = success
+    backup(home, force=True)
+    assert (home / "graph" / "facts.jsonl").read_text() == '{"id":"remote"}\n'
+    assert (home / "wiki" / "index.md").read_text() == "# remote\n"
+    # No leftover rebase state
+    assert not (home / ".git" / "rebase-merge").exists()
+
+
+def test_sync_backup_auto_resolves_snapshot_conflict(tmp_path: Path):
+    """sync_backup auto-resolves snapshot conflicts (daemon mode)."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    (home / "graph").mkdir()
+    (home / "wiki").mkdir()
+    (home / "graph" / "facts.jsonl").write_text('{"id":"base"}\n')
+    (home / "wiki" / "index.md").write_text("# base\n")
+    sync_backup(home)
+
+    # Remote publishes different snapshot
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", remote, str(other)], check=True)
+    (other / "graph" / "facts.jsonl").write_text('{"id":"remote"}\n')
+    _git_cmd(["add", "-A"], other)
+    _git_cmd(["commit", "-q", "-m", "remote snapshot"], other)
+    subprocess.run(["git", "push", "-q"], cwd=other, check=True)
+
+    # Local changes snapshot
+    (home / "graph" / "facts.jsonl").write_text('{"id":"local"}\n')
+
+    # sync_backup with auto_fix=True should resolve silently (no exception)
+    sync_backup(home, auto_fix=True)
+    # Remote version wins
+    assert (home / "graph" / "facts.jsonl").read_text() == '{"id":"remote"}\n'
+    # No leftover rebase state
+    assert not (home / ".git" / "rebase-merge").exists()
+
+
+def test_backup_force_still_raises_on_durable_conflict(tmp_path: Path):
+    """--force cannot auto-resolve conflicts on durable files (raw/schema/pending)."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    (home / "raw" / "ns").mkdir(parents=True)
+    (home / "raw" / "ns" / "shared.md").write_text("# original\n")
+    backup(home)
+
+    # Remote changes the same durable file differently
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", remote, str(other)], check=True)
+    (other / "raw" / "ns" / "shared.md").write_text("# remote version\n")
+    _git_cmd(["add", "-A"], other)
+    _git_cmd(["commit", "-q", "-m", "remote change"], other)
+    subprocess.run(["git", "push", "-q"], cwd=other, check=True)
+
+    # Local changes the same durable file differently
+    (home / "raw" / "ns" / "shared.md").write_text("# local version\n")
+
+    # Even with force, durable conflict should raise
+    with pytest.raises(BackupError, match="Never line-merge"):
+        backup(home, force=True)
+
+
+def test_backup_force_auto_fix_snapshots_then_raise_durable(tmp_path: Path):
+    """Mixed conflict: snapshots auto-resolved, durable conflict still raised."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    (home / "graph").mkdir()
+    (home / "wiki").mkdir()
+    (home / "raw" / "ns").mkdir(parents=True)
+    (home / "raw" / "ns" / "shared.md").write_text("# original\n")
+    (home / "graph" / "facts.jsonl").write_text('{"id":"base"}\n')
+    (home / "wiki" / "index.md").write_text("# base\n")
+    backup(home)
+
+    # Remote changes both durable and snapshot
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", remote, str(other)], check=True)
+    (other / "raw" / "ns" / "shared.md").write_text("# remote\n")
+    (other / "graph" / "facts.jsonl").write_text('{"id":"remote"}\n')
+    _git_cmd(["add", "-A"], other)
+    _git_cmd(["commit", "-q", "-m", "remote mixed"], other)
+    subprocess.run(["git", "push", "-q"], cwd=other, check=True)
+
+    # Local changes both durable and snapshot
+    (home / "raw" / "ns" / "shared.md").write_text("# local\n")
+    (home / "graph" / "facts.jsonl").write_text('{"id":"local"}\n')
+
+    with pytest.raises(BackupError):
+        backup(home, force=True)
+
+
+def test_sync_backup_auto_fix_disabled_raises_silently(tmp_path: Path):
+    """sync_backup with auto_fix=False should silently return False on conflict."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    (home / "graph").mkdir()
+    (home / "graph" / "facts.jsonl").write_text('{"id":"base"}\n')
+    sync_backup(home)
+
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", remote, str(other)], check=True)
+    (other / "graph" / "facts.jsonl").write_text('{"id":"remote"}\n')
+    _git_cmd(["add", "-A"], other)
+    _git_cmd(["commit", "-q", "-m", "remote snap"], other)
+    subprocess.run(["git", "push", "-q"], cwd=other, check=True)
+
+    (home / "graph" / "facts.jsonl").write_text('{"id":"local"}\n')
+
+    # auto_fix=False → conflict not resolved → sync_backup returns False
+    result = sync_backup(home, auto_fix=False)
+    assert result is False
+    # Local version unchanged (rebase was aborted)
+    assert (home / "graph" / "facts.jsonl").read_text() == '{"id":"local"}\n'
