@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.1 (2026-08-10)
+
+## What's Changed
+* docs(daemon): document background compile, auto-backup, self-heal, systemd service by @manhhailua in https://github.com/manhhailua/lorekeep/pull/229
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.30.0...v0.30.1
+
 ## 0.30.0 (2026-08-10)
 
 ## What's Changed
