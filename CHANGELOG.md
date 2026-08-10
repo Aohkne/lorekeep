@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.0 (2026-08-10)
+
+## What's Changed
+* feat(resolve): graph-native entity dedup via same_as edges by @manhhailua in https://github.com/manhhailua/lorekeep/pull/220
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.27.0...v0.28.0
+
 ## 0.27.0 (2026-08-10)
 
 ## What's Changed
