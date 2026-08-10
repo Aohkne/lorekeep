@@ -287,10 +287,36 @@ def _progress_cb(handle):
 
 
 @app.command()
-def compile() -> None:
-    """Compile raw/ → facts.jsonl + merge pending + generate wiki (all-in-one)."""
-    from lorekeep.output import ok
+def compile(
+    foreground: bool = typer.Option(
+        False, "--foreground", "-f",
+        help="Run synchronously (blocking). Default: background in interactive mode, foreground in non-interactive.",
+    ),
+) -> None:
+    """Compile raw/ → facts.jsonl + merge pending + generate wiki.
+
+    By default delegates to the daemon (background) in interactive mode.
+    Falls back to synchronous in non-interactive mode (CI, scripts, tests).
+    """
     p = resolve_paths()
+
+    # Background = default in interactive mode. Foreground in non-interactive
+    # (tests, CI, pipes) unless --foreground is explicitly requested.
+    use_background = not foreground and _is_interactive()
+    if use_background:
+        sentinel = p["home"] / ".compile-requested"
+        sentinel.touch()
+        _start_daemon_if_needed(p)
+        from lorekeep.output import dim
+        typer.echo("  ✓ Compile delegated to daemon.")
+        log_path = p.get("logs", p["home"] / "logs") / "daemon-bootstrap.log"
+        wiki_path = p.get("wiki", p["home"] / "wiki")
+        typer.echo(f"\n  Watch progress:  tail -f {log_path}")
+        typer.echo(f"  Open wiki:       {wiki_path}\n")
+        dim("(use --foreground to run synchronously)")
+        return
+
+    from lorekeep.output import ok
     schema = load_schema(p["schema"])
     config = load_config(p["config"])
     provider = _make_provider(config)
@@ -1242,32 +1268,18 @@ def init(
     _auto_wire_agents(p, ns)
 
     if not config_existed:
-        config = load_config(p["config"])
-        if _has_provider(config):
-            typer.echo("\n  Compiling your docs into the knowledge graph...")
         _auto_import_and_compile(p)
-
-        # Show graph/wiki status after compile
-        facts_path = p["out"] / "facts.jsonl"
-        wiki_path = p["wiki"] / "index.md"
-        if facts_path.exists():
-            from lorekeep.store.graph import GraphStore
-            store = GraphStore.from_jsonl(facts_path)
-            typer.echo(
-                f"  graph: {len(store.all_nodes())} nodes, {len(store.all_edges())} edges"
-            )
-            if wiki_path.exists():
-                typer.echo(f"  wiki: {p['wiki']} (open in Obsidian to browse)")
-        else:
-            typer.echo(
-                "  graph: empty — add docs under raw/ then run `lorekeep compile`"
-            )
-
-        typer.echo("\nRestart your agent → lorekeep tools are available.")
 
     # Daemon: start on fresh init or revive if dead (regardless of config_existed)
     if watch and _is_interactive():
         _start_daemon(p)
+        if not config_existed:
+            log_path = p.get("logs", p["home"] / "logs") / "daemon-bootstrap.log"
+            wiki_path = p.get("wiki", p["home"] / "wiki")
+            typer.echo("\n  Daemon watching raw/ for changes.")
+            typer.echo(f"  Watch progress:  tail -f {log_path}")
+            typer.echo(f"  Open wiki:       {wiki_path}")
+            typer.echo("\nRestart your agent")
     elif watch and not _is_interactive():
         typer.echo("\n  (skipped daemon start in non-interactive mode — run `lorekeep agent watch` manually)")
     else:
@@ -1545,8 +1557,12 @@ def _sync_agent_wiring(
     return changed
 
 
-def _auto_import_and_compile(p: dict) -> None:
-    """Quick-import every agent's memory files, then compile if a provider is available."""
+def _auto_import_and_compile(p: dict, *, defer: bool = False) -> None:
+    """Quick-import every agent's memory files, then compile if a provider is available.
+
+    When *defer* is True, skip the compile step — the daemon will handle it
+    via the .compile-requested sentinel.
+    """
     from lorekeep.integrations.registry import all_specs
 
     # --- Quick import: agent-authored memory files (zero LLM cost) ---------
@@ -1569,6 +1585,9 @@ def _auto_import_and_compile(p: dict) -> None:
                 typer.echo(f"  import error ({spec.name}): {exc}")
 
     # --- Compile (if provider is usable) ----------------------------------
+    if defer:
+        return  # daemon will compile via sentinel
+
     schema = load_schema(p["schema"])
     config = load_config(p["config"])
 
@@ -1618,6 +1637,11 @@ def _auto_import_and_compile(p: dict) -> None:
 
 def _start_daemon(p: dict) -> None:
     """Start agent watch as a background process with PID + log files."""
+    _start_daemon_if_needed(p, quiet=False)
+
+
+def _start_daemon_if_needed(p: dict, *, quiet: bool = True) -> None:
+    """Start daemon if not already running. No-op if alive."""
     import subprocess
     import sys
 
@@ -1631,7 +1655,8 @@ def _start_daemon(p: dict) -> None:
         old_pid = pid_path.read_text().strip()
         try:
             os.kill(int(old_pid), 0)
-            typer.echo(f"  daemon already running (pid={old_pid})")
+            if not quiet:
+                typer.echo(f"  daemon already running (pid={old_pid})")
             return
         except (ProcessLookupError, ValueError):
             pass
@@ -1657,7 +1682,8 @@ def _start_daemon(p: dict) -> None:
         "background daemon started pid=%s", proc.pid,
         extra={"event": "daemon.background_started"},
     )
-    typer.echo(f"  daemon started (pid={proc.pid}, log={log_path})")
+    if not quiet:
+        typer.echo(f"  daemon started (pid={proc.pid}, log={log_path})")
 
 
 @app.command()
@@ -2748,16 +2774,26 @@ def watch(
             compiled = False
 
             should_compile = False
+            compile_reason = ""
+            # Sentinel from explicit `lorekeep compile` (background mode)
+            sentinel = p["home"] / ".compile-requested"
+            if sentinel.exists():
+                should_compile = True
+                compile_reason = " (compile requested)"
+                sentinel.unlink(missing_ok=True)
             if last_raw_count >= 0:
                 if raw_count != last_raw_count:
                     should_compile = True
+                    compile_reason = f" ({raw_count} files)"
                 elif raw_mtime > last_raw_mtime:
                     should_compile = True
+                    compile_reason = " (raw/ mtime changed)"
             if last_schema_mtime > 0 and schema_mtime > last_schema_mtime:
                 should_compile = True
+                compile_reason = " (schema changed)"
 
             if should_compile:
-                typer.echo(f"agent: raw/ changed ({raw_count} files) — compiling...")
+                typer.echo(f"agent: compiling{compile_reason}...")
                 try:
                     schema = load_schema(p["schema"])
                     config = load_config(p["config"])
@@ -2773,7 +2809,9 @@ def watch(
                         )
                     _report_compile_errors(dm, exit_on_total_failure=False)
                     _report_content_quality(dm)
-                    typer.echo("agent: compile done")
+                    typer.echo(
+                        f"agent: compiled {dm.node_count} nodes, {dm.edge_count} edges"
+                    )
                     compiled = True
                 except Exception as exc:
                     log.exception(
