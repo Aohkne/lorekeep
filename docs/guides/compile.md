@@ -75,6 +75,22 @@ Source checkout:
 uv run lorekeep compile
 ```
 
+By default `lorekeep compile` runs in the **background** when invoked from an
+interactive terminal. It touches a `.compile-requested` sentinel file and
+ensures the daemon is running; the daemon detects the sentinel on its next poll
+(default 60&nbsp;s) and runs the full compile → resolve → self-heal → wiki →
+backup chain. This lets you continue editing immediately — open the wiki in
+Obsidian/Tolaria and watch new pages appear as the compile progresses.
+
+For synchronous execution (CI, scripts, non-interactive shells), pass
+`--foreground` (or `-f`):
+
+```bash
+lorekeep compile --foreground
+```
+
+Non-interactive mode always runs synchronously even without the flag.
+
 The command performs these stages:
 
 1. **Ingest** — parse each Markdown file into bounded `DocChunk` values carrying

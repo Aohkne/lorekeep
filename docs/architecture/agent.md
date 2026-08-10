@@ -85,21 +85,29 @@ After the initial baseline, any count change, newer raw mtime, or newer schema
 mtime runs the same compile pipeline as the CLI. File count catches new files
 even on filesystems where mtimes share a coarse tick.
 
+Before checking file changes, the watcher checks for a `.compile-requested`
+sentinel file — written by `lorekeep compile` in interactive mode. If present,
+it triggers a compile and unlinks the sentinel. This is how background compile
+works: the `compile` command touches the sentinel and ensures the daemon is
+running; the daemon detects it on the next poll and runs the full pipeline.
+
 Compile errors are reported/logged but do not kill the daemon. Total provider
 failure does not terminate the loop.
 
 After successful compile it:
 
-1. synchronizes backup if configured;
+1. synchronizes backup if `agents.auto_backup` is true (default);
 2. replays/merges journals;
-3. runs deterministic self-heal when `agents.self_heal` is true; and
-4. generates the wiki once from final facts.
+3. runs deterministic self-heal when `agents.self_heal` is true (default);
+4. synchronizes backup again if self-heal changed facts; and
+5. generates the wiki once from final facts.
 
 ### Journal resolve
 
 The watcher tracks maximum mtime across `pending/**/journal.jsonl`. A later mtime
-triggers immediate auto-resolve in that poll cycle. There is no batch-size or
-five-minute threshold.
+triggers immediate auto-resolve in that poll cycle. After a successful resolve,
+the daemon synchronizes backup if `agents.auto_backup` is true. There is no
+batch-size or five-minute threshold.
 
 ### Memory quick import
 
@@ -120,7 +128,7 @@ Markdown is compiled on a later poll.
 
 ## Self-heal
 
-`agent.self_heal` is deliberately narrow:
+`agents.self_heal` (default `true`) is deliberately narrow:
 
 - remove edges whose real endpoint node is missing;
 - deduplicate edges with identical type/endpoints/validity;
@@ -175,6 +183,11 @@ they are served.
 Each wrapper runs `lorekeep agent watch` and pins `LOREKEEP_HOME` to the home
 resolved at install time. Status delegates to the platform service manager.
 Reinstall when the desired home/command installation changes.
+
+**Install from outside the repo** to avoid dev-mode resolving `LOREKEEP_HOME`
+to `.lorekeep/` — run `cd ~ && lorekeep agent service install` or set
+`LOREKEEP_HOME` explicitly. On Linux, enable lingering (`loginctl enable-linger
+<user>`) so the service starts at boot without requiring an interactive login.
 
 ## Error resilience
 

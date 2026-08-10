@@ -102,6 +102,39 @@ a timestamped commit when needed, fetches/rebases the current remote branch, and
 always attempts a push. A previous network or non-fast-forward failure can be
 retried even when no new local file changed.
 
+### Auto-resolve snapshot conflicts
+
+```bash
+lorekeep backup --force
+```
+
+When two devices publish different graph/wiki snapshots, the rebase conflicts on
+generated files (`facts.jsonl`, `manifest.json`, wiki pages). `--force` resolves
+these automatically by accepting the remote version — the local device will
+publish a fresh, complete snapshot on its next compile. This is safe because
+generated files are deterministic from durable inputs; they are snapshots, not
+independent edits.
+
+Durable input conflicts (`raw/`, `schema.json`, `pending/`) are **never**
+auto-resolved — they raise and abort so you can reconcile manually.
+
+## Automatic backup (daemon)
+
+The daemon (running via `agent watch` or as a persistent service) backs up
+automatically when `agents.auto_backup` is `true` (default). Backup runs at four
+trigger points:
+
+1. **Startup** — syncs with remote before entering the poll loop.
+2. **After compile** — commits new graph/wiki snapshot plus any raw/ changes.
+3. **After self-heal** — if self-heal modified facts (dangling edge removal,
+   dedup), commits and pushes the updated graph.
+4. **After resolve** — when pending journals were merged, commits and pushes.
+
+The daemon always calls backup with `auto_fix=True` (equivalent to `--force`),
+so snapshot conflicts are resolved silently. All backup calls are best-effort:
+network failures, missing remotes, and rebase errors are logged but never crash
+the daemon.
+
 ## Watcher synchronization
 
 When `agent watch` finds a configured remote:
