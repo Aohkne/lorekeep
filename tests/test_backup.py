@@ -3,7 +3,16 @@ from pathlib import Path
 
 import pytest
 
-from lorekeep.backup import BACKUP_GITIGNORE, BackupError, backup, init_backup, has_remote, sync_backup
+import lorekeep.backup as backup_module
+from lorekeep.backup import (
+    BACKUP_GITATTRIBUTES,
+    BACKUP_GITIGNORE,
+    BackupError,
+    backup,
+    has_remote,
+    init_backup,
+    sync_backup,
+)
 
 
 def _bare_remote(tmp_path: Path) -> str:
@@ -42,6 +51,7 @@ def test_init_backup_creates_repo_gitignore_and_remote(tmp_path: Path):
     init_backup(home, remote)
     assert (home / ".git").is_dir()
     assert (home / ".gitignore").read_text() == BACKUP_GITIGNORE
+    assert (home / ".gitattributes").read_text() == BACKUP_GITATTRIBUTES
     refs = subprocess.run(
         ["git", "ls-remote", remote], capture_output=True, text=True, check=True
     ).stdout
@@ -74,7 +84,7 @@ def test_backup_raises_when_not_a_repo(tmp_path: Path):
         backup(home)
 
 
-def test_backup_never_tracks_secret_or_regenerable(tmp_path: Path):
+def test_backup_tracks_snapshots_but_not_device_local_state(tmp_path: Path):
     home = tmp_path / "home"
     remote = _bare_remote(tmp_path)
     init_backup(home, remote)
@@ -82,16 +92,52 @@ def test_backup_never_tracks_secret_or_regenerable(tmp_path: Path):
     (home / "graph").mkdir()
     (home / "graph" / "facts.jsonl").write_text("{}")
     (home / "graph" / "manifest.json").write_text("{}")
+    (home / "graph" / "fts.sqlite").write_text("local index")
     (home / "wiki").mkdir()
-    (home / "wiki" / "index.md").write_text("# secret in wiki")
+    (home / "wiki" / "index.md").write_text("# snapshot")
+    (home / "wiki" / ".obsidian").mkdir()
+    (home / "wiki" / ".obsidian" / "workspace.json").write_text("{}")
     (home / "cache.json").write_text("{}")
+    (home / "logs").mkdir()
+    (home / "logs" / "runtime.log").write_text("local diagnostics")
+    (home / ".daemon.pid").write_text("12345")
     backup(home)
     tracked = _tracked(home)
     assert "config.yaml" not in tracked
-    assert "graph/facts.jsonl" not in tracked
-    assert "graph/manifest.json" not in tracked
-    assert "wiki/index.md" not in tracked
+    assert "graph/facts.jsonl" in tracked
+    assert "graph/manifest.json" in tracked
+    assert "wiki/index.md" in tracked
     assert "cache.json" not in tracked
+    assert "graph/fts.sqlite" not in tracked
+    assert "wiki/.obsidian/workspace.json" not in tracked
+    assert "logs/runtime.log" not in tracked
+    assert ".daemon.pid" not in tracked
+
+
+def test_backup_migrates_legacy_ignores_and_preserves_custom_rules(tmp_path: Path):
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    (home / ".gitignore").write_text(
+        "config.yaml\ngraph/facts.jsonl\ngraph/manifest.json\nwiki/\n"
+        "cache.json\nfts.sqlite\n*.lock\ncustom-local/\n"
+    )
+    (home / "graph").mkdir()
+    (home / "graph" / "facts.jsonl").write_text("{}\n")
+    (home / "graph" / "manifest.json").write_text("{}\n")
+    (home / "wiki").mkdir()
+    (home / "wiki" / "index.md").write_text("# restored without compile\n")
+
+    assert backup(home) is True
+
+    ignore = (home / ".gitignore").read_text()
+    assert "graph/facts.jsonl" not in ignore
+    assert "graph/manifest.json" not in ignore
+    assert "\nwiki/\n" not in f"\n{ignore}"
+    assert "custom-local/" in ignore
+    assert "logs/" in ignore
+    assert "graph/facts.jsonl" in _tracked(home)
+    assert "wiki/index.md" in _tracked(home)
 
 
 def test_backup_tracks_journals_for_cross_device_replay(tmp_path: Path):
@@ -138,6 +184,64 @@ def test_backup_retries_previously_rejected_push(tmp_path: Path):
         check=True,
     ).stdout.strip()
     assert remote_head == local_head
+
+
+def test_backup_rebases_disjoint_device_changes_before_push(tmp_path: Path):
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", remote, str(other)], check=True)
+    remote_file = other / "raw" / "remote" / "remote.md"
+    remote_file.parent.mkdir(parents=True)
+    remote_file.write_text("# remote")
+    _git_cmd(["add", "-A"], other)
+    _git_cmd(["commit", "-q", "-m", "remote raw"], other)
+    subprocess.run(["git", "push", "-q"], cwd=other, check=True)
+
+    local_file = home / "raw" / "local" / "local.md"
+    local_file.parent.mkdir(parents=True)
+    local_file.write_text("# local")
+
+    assert backup(home) is True
+    assert (home / "raw" / "remote" / "remote.md").exists()
+    assert local_file.exists()
+
+
+def test_backup_generated_snapshot_conflict_aborts_without_line_merge(tmp_path: Path):
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    (home / "graph").mkdir()
+    (home / "wiki").mkdir()
+    (home / "graph" / "facts.jsonl").write_text('{"id":"base"}\n')
+    (home / "graph" / "manifest.json").write_text('{"run_id":"base"}\n')
+    (home / "wiki" / "index.md").write_text("# base\n")
+    assert backup(home) is True
+
+    other = tmp_path / "other-snapshot"
+    subprocess.run(["git", "clone", "-q", remote, str(other)], check=True)
+    (other / "graph" / "facts.jsonl").write_text('{"id":"remote"}\n')
+    (other / "wiki" / "index.md").write_text("# remote\n")
+    _git_cmd(["add", "-A"], other)
+    _git_cmd(["commit", "-q", "-m", "remote snapshot"], other)
+    subprocess.run(["git", "push", "-q"], cwd=other, check=True)
+
+    (home / "graph" / "facts.jsonl").write_text('{"id":"local"}\n')
+    (home / "wiki" / "index.md").write_text("# local\n")
+    with pytest.raises(BackupError, match="Never line-merge graph/ or wiki/"):
+        backup(home)
+
+    assert not (home / ".git" / "rebase-merge").exists()
+    assert not (home / ".git" / "rebase-apply").exists()
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=home,
+        capture_output=True, text=True, check=True,
+    ).stdout
+    assert status == ""
+    assert (home / "graph" / "facts.jsonl").read_text() == '{"id":"local"}\n'
+    assert (home / "wiki" / "index.md").read_text() == "# local\n"
 
 
 def test_init_backup_idempotent_on_diverged_remote(tmp_path: Path):
@@ -267,3 +371,59 @@ def test_sync_backup_handles_network_error(tmp_path: Path):
     # Should not raise — returns False silently
     result = sync_backup(home)
     assert result is False
+
+
+def test_reconcile_remote_detached_head_skips_rebase(tmp_path: Path, monkeypatch):
+    calls = []
+
+    def fake_git(args, _cwd):
+        calls.append(args)
+        return "HEAD" if args[:2] == ["rev-parse", "--abbrev-ref"] else ""
+
+    monkeypatch.setattr(backup_module, "_git", fake_git)
+    backup_module._reconcile_remote(tmp_path)
+    assert not any(args[0] == "rebase" for args in calls)
+
+
+def test_reconcile_remote_without_matching_remote_branch_skips(tmp_path: Path, monkeypatch):
+    def fake_git(args, _cwd):
+        if args[:2] == ["rev-parse", "--abbrev-ref"]:
+            return "main"
+        if args[:2] == ["rev-parse", "--verify"]:
+            raise BackupError("missing ref")
+        return ""
+
+    monkeypatch.setattr(backup_module, "_git", fake_git)
+    backup_module._reconcile_remote(tmp_path)
+
+
+def test_reconcile_remote_unknown_conflict_still_aborts(tmp_path: Path, monkeypatch):
+    def fake_git(args, _cwd):
+        if args[:2] == ["rev-parse", "--abbrev-ref"]:
+            return "main"
+        if args[0] == "rebase" and args[1] != "--abort":
+            raise BackupError("conflict")
+        if args[:3] == ["diff", "--name-only", "--diff-filter=U"]:
+            raise BackupError("cannot inspect")
+        return ""
+
+    monkeypatch.setattr(backup_module, "_git", fake_git)
+    with pytest.raises(BackupError, match="Conflicts: unknown paths"):
+        backup_module._reconcile_remote(tmp_path)
+
+
+def test_reconcile_remote_abort_failure_is_actionable(tmp_path: Path, monkeypatch):
+    def fake_git(args, _cwd):
+        if args[:2] == ["rev-parse", "--abbrev-ref"]:
+            return "main"
+        if args[0] == "rebase":
+            if args[1] == "--abort":
+                raise BackupError("abort failed")
+            raise BackupError("conflict")
+        if args[:3] == ["diff", "--name-only", "--diff-filter=U"]:
+            return "graph/facts.jsonl"
+        return ""
+
+    monkeypatch.setattr(backup_module, "_git", fake_git)
+    with pytest.raises(BackupError, match="could not be aborted"):
+        backup_module._reconcile_remote(tmp_path)

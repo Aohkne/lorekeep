@@ -226,10 +226,11 @@ lorekeep backup --init https://github.com/<you>/lorekeep-data.git
 lorekeep backup
 ```
 
-Raw docs, schema, and `pending/` journals are durable and synced. Config/secrets
-and derived graph/wiki/cache files are ignored. Git sync is currently sequential;
-simultaneous edits to the same tracked file may need an ordinary manual rebase
-conflict resolution.
+Raw docs, schema, `pending/` journals, and the latest graph/wiki snapshot are
+synced. A new device can query/read that snapshot immediately. Config/secrets,
+cache, FTS, logs, and app-local settings are ignored. Git sync is sequential;
+generated snapshots are non-mergeable, so concurrent publishers must reconcile
+durable inputs and compile once rather than line-merging graph/wiki files.
 
 See [Backing up and syncing](backup.md) before restoring on a second device.
 

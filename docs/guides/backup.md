@@ -4,11 +4,13 @@
 home** and pushes it to a private remote. This is independent of the Lorekeep
 source-code repository.
 
-Use backup for durable knowledge inputs, not generated graph output.
+Backup contains both durable knowledge inputs and the latest published
+graph/wiki snapshot. A restored device can query the graph and open the wiki
+without paying for an immediate LLM recompile.
 
 ## What is durable
 
-The important tracked inputs are:
+The tracked durable inputs are:
 
 - `raw/` source Markdown, including deterministic session captures and import
   manifests;
@@ -16,31 +18,52 @@ The important tracked inputs are:
 - `pending/` journals, including accepted, pending, flagged, or quarantined
   entries needed for replay and audit on another device.
 
+The tracked read-through snapshot is:
+
+- `graph/facts.jsonl` and `graph/manifest.json`; and
+- generated Markdown under `wiki/`, including its append-only `log.md`.
+
+Durable inputs remain the source of truth. Graph/wiki files are a convenience
+snapshot, not an independently editable copy of the knowledge base.
+
 The generated backup `.gitignore` excludes:
 
 ```text
 config.yaml
-graph/facts.jsonl
-graph/manifest.json
-wiki/
 cache.json
 fts.sqlite
+graph/fts.sqlite
+graph/*.tmp
+.wiki-build.tmp/
+.wiki-rollback.tmp/
+wiki/.obsidian/
+wiki/.trash/
+wiki/.DS_Store
+logs/
+.daemon.pid
 *.lock
 ```
 
 Git stages all other unignored files under the data home with `git add -A`; it is
 not an allowlist implementation. Keep the data home dedicated to Lorekeep and
-inspect what will be committed. Runtime logs are privacy-redacted but are not
-currently in the generated ignore list. Add `logs/` to that backup repository's
-`.gitignore` (and untrack already committed logs) when you do not want
-operational metadata synced.
+inspect what will be committed. Existing backup repositories are migrated on
+the next backup or watcher sync: obsolete graph/wiki ignore rules are removed,
+custom ignore rules are preserved, and already tracked device-local files are
+removed from the index without deleting local copies.
 
 `config.yaml` is deliberately ignored because it may contain an inline API key.
 Each device configures its own provider credentials.
 
 Journals can contain sensitive facts and review notes, including quarantined
-content. The remote must be private even though derived artifacts and config are
-excluded.
+content. The graph and wiki project the full local graph rather than a caller's
+namespace-scoped view. The remote must therefore be private and protected for
+the most sensitive namespace it contains.
+
+Lorekeep also writes a managed `.gitattributes` block. `facts.jsonl`, the
+manifest, and generated wiki pages are marked non-mergeable. This prevents Git
+from silently combining lines from two independent compiles into a graph/wiki
+snapshot that Lorekeep never produced. `wiki/log.md` retains normal text merge
+behavior because it is append-only human-readable history.
 
 ## Initialize a private remote
 
@@ -74,21 +97,19 @@ lorekeep backup --init /secure/path/lorekeep-data.git
 lorekeep backup
 ```
 
-The command stages current unignored changes, creates a timestamped commit when
-needed, and always attempts a push. That final push means a previous network or
-non-fast-forward failure can be retried even when no new local file changed.
-
-Manual backup does **not** automatically fetch/rebase before every push. If the
-remote moved, it reports the Git failure so you can reconcile explicitly.
+The command migrates backup metadata, stages current unignored changes, creates
+a timestamped commit when needed, fetches/rebases the current remote branch, and
+always attempts a push. A previous network or non-fast-forward failure can be
+retried even when no new local file changed.
 
 ## Watcher synchronization
 
 When `agent watch` finds a configured remote:
 
 - startup attempts fetch + rebase before journal replay, so remote journal
-  events are visible locally first;
-- after a successful compile it commits local durable changes, fetches/rebases,
-  and pushes; and
+  events and the latest snapshot are visible locally first;
+- after a successful compile it commits local durable changes plus graph/wiki
+  snapshot, fetches/rebases, and pushes; and
 - network/rebase conflicts are logged and skipped so the watcher stays alive.
 
 No remote means these steps are silent no-ops. Use `lorekeep support` or inspect
@@ -104,29 +125,39 @@ Custom explicit home example:
 ```bash
 git clone https://github.com/<you>/lorekeep-data.git ~/lorekeep-data
 export LOREKEEP_HOME=~/lorekeep-data
-lorekeep init --yes --no-watch
-# configure this device's provider key/model
-lorekeep compile
+# Avoid an eager compile while init creates the local-only config.
+env -u OPENAI_API_KEY lorekeep init --yes --no-watch
+# Configure this device's provider key/model when future inputs need compile.
 lorekeep doctor
 ```
 
 For the normal installed layout, clone into the data directory
 (`~/.lorekeep`). See [Data home and paths](data-home.md) for custom locations.
 
-`init` preserves the cloned schema/raw/journals, creates missing local config and
-directories, and rewires agents. Compile rebuilds the ignored graph, manifest,
-wiki, and cache. Accepted journal entries are replayed so agent-contributed facts
-survive the rebuild.
+`init` preserves the cloned schema/raw/journals/graph/wiki, creates missing local
+config and directories, and rewires agents. The cloned MCP graph and wiki are
+immediately usable; FTS is rebuilt lazily. Run `compile` only after inputs have
+changed, when the restored manifest is stale, or when you intentionally want a
+new provider/schema extraction. Accepted journal entries are replayed on that
+next compile so agent-contributed facts survive publication.
 
 ## Resolve a multi-device conflict
 
-Git sync is sequential rather than conflict-free. If another device pushed first:
+Git sync is sequential rather than conflict-free. `lorekeep backup` handles a
+clean/disjoint remote advance with fetch + rebase automatically. If both devices
+changed the same durable input or both published different snapshots, Lorekeep
+aborts the failed rebase and restores the local repository instead of leaving it
+stuck. Reconcile explicitly:
 
 ```bash
 cd <resolved-data-home>
 git fetch origin
 git rebase origin/$(git branch --show-current)
-# resolve ordinary text conflicts if Git stops
+# Resolve raw/, schema.json, and pending/ as ordinary source conflicts.
+# If graph/ or wiki/ conflicts, do not combine their lines; rebuild the one
+# complete snapshot from the now-combined durable inputs.
+lorekeep compile
+git add raw schema.json pending graph wiki
 git rebase --continue
 cd -
 lorekeep backup
@@ -140,15 +171,20 @@ lorekeep resolve
 lorekeep doctor
 ```
 
-Conflicts in generated `facts.jsonl`, manifest, cache, or wiki should not occur
-because those paths are ignored and rebuilt locally.
+`cache.json`, FTS, runtime logs, and Obsidian device settings remain local and
+cannot conflict. A concurrent graph/wiki conflict necessarily requires one
+compile after durable inputs converge: neither device's old snapshot can fully
+represent the union of both devices' new inputs. Outside that concurrency case,
+the backed-up snapshot avoids recompilation on restore.
 
 ## Current multi-device guarantee
 
 Lorekeep currently provides:
 
 - private Git transport;
+- immediately restorable graph/wiki snapshots;
 - deterministic rebuild of `facts.jsonl` from durable inputs;
+- non-mergeable generated snapshots with clean rebase abort on conflict;
 - process-safe local journal append/status rewrite;
 - collision-resistant journal entry ids and deterministic merge ordering; and
 - accepted-journal replay after remote synchronization.

@@ -5,9 +5,16 @@
 *.sqlite
 *.sqlite-*
 
-.mcp.json
-opencode.json
-.opencode/
+# Coding-agent local wiring (generated per checkout; never committed)
+/.claude/
+/.codex/
+/.cursor/
+/.opencode/
+/.grok/
+/.qoder/
+/.mcp.json
+/config.toml
+/opencode.json
 
 # Python
 __pycache__/

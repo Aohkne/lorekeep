@@ -253,10 +253,12 @@ builds for [macOS, Windows, and Linux](https://tolaria.md/reference/supported-pl
 
 ## 10. Multi-device
 
-The wiki is **derived**, not part of the backup. Durable inputs include `raw/`,
-`schema.json`, and `pending/` journals; each machine rebuilds `facts.jsonl` and
-regenerates its own `wiki/`. **Don't hand-edit wiki pages** — the next regen
-overwrites them (`log.md` is the only append-only exception).
+The wiki is **derived but included in the private backup** as a read-through
+snapshot together with `graph/`. A restored machine can open it immediately;
+`raw/`, `schema.json`, and `pending/` remain the source of truth. Generated wiki
+pages are non-mergeable across devices, so concurrent updates converge inputs
+and regenerate one complete snapshot. **Don't hand-edit generated pages** — the
+next regen overwrites them (`log.md` is the only append-only exception).
 
 ## Troubleshooting
 

@@ -43,14 +43,17 @@ import and `agent ingest` are explicit additional provider-using operations.
 | `schema.json` | Ontology/extraction contract | durable |
 | `pending/<ns>/journal.jsonl` | Proposed/accepted/review history | durable and private |
 | `config.yaml` | Local provider, scope, automation settings | local; may contain secrets |
-| `graph/facts.jsonl` | Sorted served graph | derived |
-| `graph/manifest.json` | Compile/resolve diagnostics | derived |
-| `wiki/` | Human-readable full-graph projection | derived |
+| `graph/facts.jsonl` | Sorted served graph | derived; backed-up snapshot |
+| `graph/manifest.json` | Compile/resolve diagnostics | derived; backed-up snapshot |
+| `wiki/` | Human-readable full-graph projection | derived; backed-up snapshot |
 | `cache.json`, `fts.sqlite` | Extraction and search caches | derived/local |
 
-The backup Git repository ignores config and derived graph/wiki/cache artifacts.
-Each device rebuilds the graph and replays accepted journals after synchronizing
-durable inputs.
+The backup Git repository keeps durable source/schema/journal state plus the
+latest graph/wiki read-through snapshot. Config/secrets, extraction/FTS caches,
+logs, app-local wiki settings, and transient files remain ignored. Generated
+snapshot paths are non-mergeable so Git cannot synthesize a graph from two
+independent compile publications; a real concurrent update converges durable
+inputs and recompiles once.
 
 ## Three knowledge-entry paths
 
