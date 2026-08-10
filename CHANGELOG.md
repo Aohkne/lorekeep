@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.0 (2026-08-10)
+
+## What's Changed
+* feat(backup): sync graph and wiki snapshots by @manhhailua in https://github.com/manhhailua/lorekeep/pull/217
+* chore: gitignore coding-agent local config dirs by @manhhailua in https://github.com/manhhailua/lorekeep/pull/218
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.26.0...v0.27.0
+
 ## 0.26.0 (2026-08-09)
 
 ## What's Changed
