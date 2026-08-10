@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.29.0 (2026-08-10)
+
+## What's Changed
+* feat(backup): autonomous backup + snapshot conflict auto-resolve by @manhhailua in https://github.com/manhhailua/lorekeep/pull/225
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.28.1...v0.29.0
+
 ## 0.28.1 (2026-08-10)
 
 ## What's Changed
