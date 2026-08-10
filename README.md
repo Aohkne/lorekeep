@@ -292,17 +292,19 @@ lorekeep backup --init https://github.com/<you>/lorekeep-data.git
 lorekeep backup
 ```
 
-The generated backup ignore rules exclude local configuration/secrets and
-derived graph, manifest, wiki, cache, FTS, and lock files. Raw docs,
-`schema.json`, and `pending/` journals are durable inputs and are committed.
-Journals can contain sensitive context, including quarantined proposals, so the
-remote must remain private.
+The backup commits durable raw/schema/journal inputs **and** the latest compiled
+`graph/` + `wiki/` snapshot, so a restored device can query and browse without
+an immediate LLM compile. Local config/secrets, extraction cache, FTS, runtime
+logs, Obsidian device settings, and transient files remain ignored. Both inputs
+and the full-graph snapshot can contain sensitive context, so the remote must
+remain private.
 
 The watcher fetches/rebases at startup and synchronizes after a successful
-compile. Manual `lorekeep backup` pushes the current branch; if two devices
-changed the same tracked content, resolve the ordinary Git rebase conflict and
-retry. Lorekeep does not yet provide conflict-free simultaneous editing or a
-central reconciler.
+compile. Manual `lorekeep backup` also fetches/rebases before pushing. Generated
+graph/wiki files are marked non-mergeable: Git may merge durable source files,
+but it cannot silently line-merge two compiled snapshots. Concurrent snapshot
+publication requires resolving durable inputs and compiling once. Lorekeep does
+not yet provide conflict-free simultaneous editing or a central reconciler.
 
 ## Diagnostics and support
 

@@ -1657,7 +1657,7 @@ def backup(
         None, "--init", help="remote URL; sets up the backup repo + initial push"
     ),
 ) -> None:
-    """Commit + push the data home to your private backup repo."""
+    """Sync data-home inputs and graph/wiki snapshot to a private Git repo."""
     from lorekeep.backup import BackupError, backup as backup_home, init_backup
     from lorekeep.output import dim, error, info, ok
 

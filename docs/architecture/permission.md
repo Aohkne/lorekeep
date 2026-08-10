@@ -74,8 +74,9 @@ not a substitute for validating content.
 - MCP graph counts and topic coverage are scoped, but static schema plus
   aggregate compile/pending operational metadata are process-wide. The pending
   count currently covers every journal and is not filtered per namespace.
-- The backup repository contains durable knowledge from every tracked
-  namespace. Keep it private and control Git access separately.
+- The backup repository contains durable knowledge and a full-graph graph/wiki
+  snapshot from every tracked namespace. It is not caller-scoped. Keep it
+  private and control Git access separately.
 - `GraphStore` is intentionally unscoped for compiler, repair, evaluation, and
   local wiki work. It must not be exposed directly through a new MCP/HTTP path.
 - OIDC/SSO, remote identity-to-namespace mapping, and a shared authenticated

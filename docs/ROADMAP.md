@@ -27,7 +27,8 @@ every question.
   transcript capture.
 - Event-driven watcher for raw/schema/journal/session changes, idempotent agent
   wiring, self-heal, backup sync, and installed-version restart.
-- Private Git backup of durable inputs and deterministic per-device rebuild.
+- Private Git backup of durable inputs plus an immediately usable graph/wiki
+  snapshot, with deterministic rebuild after real concurrent input changes.
 - Runtime logs, redacted support bundle, doctor checks, and optional deduplicated
   GitHub issue reporting.
 

@@ -116,22 +116,20 @@ def test_backup_remote_sha_detached_head(tmp_path: Path, monkeypatch):
     assert _remote_sha(fake_home) is None
 
 
-def test_backup_reconcile_catches_error(tmp_path: Path, monkeypatch):
-    """_reconcile_remote catches BackupError silently."""
+def test_backup_reconcile_propagates_fetch_error(tmp_path: Path, monkeypatch):
+    """Manual callers see fetch failures; daemon sync catches them upstream."""
     from lorekeep.backup import _reconcile_remote, BackupError
     fake_home = tmp_path / "home"
     fake_home.mkdir()
 
-    call_count = [0]
-
     def fail_git(args, cwd):
-        call_count[0] += 1
         if "fetch" in args:
             raise BackupError("fetch failed")
         return "main"
 
     monkeypatch.setattr("lorekeep.backup._git", fail_git)
-    _reconcile_remote(fake_home)  # should not raise
+    with pytest.raises(BackupError, match="fetch failed"):
+        _reconcile_remote(fake_home)
 
 
 # ======================================================================
