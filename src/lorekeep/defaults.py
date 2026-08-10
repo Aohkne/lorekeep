@@ -224,6 +224,7 @@ agents:
   transcript_retain_sessions: 5
   deep_import: false
   self_heal: true
+  auto_backup: true
 install_source: pypi
 """
 

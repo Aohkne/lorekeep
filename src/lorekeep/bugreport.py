@@ -35,6 +35,7 @@ _warned_no_token = False
 # and should never trigger an auto-reported issue.
 _SKIP_EVENTS = frozenset({
     "compile.chunk_failed",     # expected: LLM produced truncated/empty/malformed JSON
+    "compile.aborted_fatal",    # fatal provider error (auth/network) — user config, not a code bug
     "compile.manifest_error",   # always a consequence of compile.chunk_failed
     "serve.mcp_missing",        # user needs to install/pin mcp — not a code bug
     "serve.no_graph",           # user needs to run compile first — not a code bug
