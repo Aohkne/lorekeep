@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.0 (2026-08-10)
+
+## What's Changed
+* feat(compile): default to background via daemon sentinel by @manhhailua in https://github.com/manhhailua/lorekeep/pull/227
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.29.0...v0.30.0
+
 ## 0.29.0 (2026-08-10)
 
 ## What's Changed
