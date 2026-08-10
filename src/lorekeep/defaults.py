@@ -80,6 +80,11 @@ DEFAULT_SCHEMA_V3 = {
             "from": "document",
             "to": ["service", "project", "decision", "domain"],
         },
+        # entity resolution: merge alias nodes into canonical
+        "same_as": {
+            "from": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
+            "to": ["person", "service", "project", "decision", "team", "domain", "skill", "role", "goal", "document"],
+        },
     },
 }
 
@@ -120,6 +125,7 @@ _EDGE_DISPLAY = {
     "prefers": ("Prefers", "Preferred by"),
     "relates_to": ("Relates to", "Relates to"),
     "documents": ("Documents", "Documented by"),
+    "same_as": ("Same as", "Alias of"),
 }
 
 DEFAULT_SCHEMA = {
