@@ -10,9 +10,12 @@ the existing graph with priority: raw/ > import > agent-propose.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
+
+log = logging.getLogger("lorekeep.resolve")
 
 from lorekeep.models import Edge, JournalEntry, Node, Schema
 
@@ -106,6 +109,47 @@ def _normalize_text(value: str) -> str:
         if part.strip()
     ]
     return "\n\n".join(paragraphs)
+
+
+def _extract_same_as_aliases(
+    nodes: list[Node], edges: list[Edge],
+) -> dict[str, str]:
+    """Read ``same_as`` edges and ``props.merged_ids`` → ``{alias_id: canonical_id}``.
+
+    ``same_as`` edges express explicit merge decisions stored in the graph.
+    ``props.merged_ids`` persists those decisions across compiles (the raw
+    source does not carry them, so the resolved graph must remember).
+
+    Cross-type merges are blocked: a ``person`` can never merge into a
+    ``service`` even if a ``same_as`` edge connects them.
+    """
+    node_types = {n.id: n.type for n in nodes}
+    result: dict[str, str] = {}
+
+    # 1) same_as edges: from = alias, to = canonical
+    for edge in edges:
+        if edge.type != "same_as":
+            continue
+        from_type = node_types.get(edge.from_)
+        to_type = node_types.get(edge.to)
+        if from_type and to_type and from_type != to_type:
+            log.warning(
+                "same_as cross-type blocked: %s (%s) → %s (%s)",
+                edge.from_, from_type, edge.to, to_type,
+            )
+            continue
+        result[edge.from_] = edge.to
+
+    # 2) props.merged_ids: canonical node remembers its absorbed aliases
+    for node in nodes:
+        merged_ids = node.props.get("merged_ids")
+        if not isinstance(merged_ids, list):
+            continue
+        for mid in merged_ids:
+            if isinstance(mid, str) and mid != node.id:
+                result.setdefault(mid, node.id)
+
+    return result
 
 
 def _richer_summary(left: object, right: object) -> object:
@@ -203,7 +247,12 @@ def resolve(
                 ))
         nodes = valid_nodes
 
-    alias_map = _build_alias_map(nodes, name_aliases, aliases_map)
+    # Graph-native dedup: same_as edges + persisted merged_ids
+    same_as_map = _extract_same_as_aliases(nodes, edges)
+    # explicit aliases_map (caller) wins over same_as, same_as wins over auto
+    combined_explicit = {**same_as_map, **(aliases_map or {})}
+
+    alias_map = _build_alias_map(nodes, name_aliases, combined_explicit)
 
     # collapse nodes
     canon_nodes: dict[str, Node] = {}
@@ -230,6 +279,25 @@ def resolve(
             # normalize stored node id to the canonical key so node identity and
             # dict key can never diverge (covers explicit_map to a non-node id)
             canon_nodes[cid] = nd if nd.id == cid else nd.model_copy(update={"id": cid})
+
+    # Persist merged_ids: canonical node remembers which aliases it absorbed.
+    # This survives across compiles — next compile starts from raw/ and may
+    # re-create alias nodes; resolve reads merged_ids to re-apply the merge.
+    canon_to_origins: dict[str, list[str]] = {}
+    for nd in nodes:
+        cid = _canonical(nd.id, alias_map)
+        if cid != nd.id:
+            canon_to_origins.setdefault(cid, []).append(nd.id)
+    for cid, origins in canon_to_origins.items():
+        if cid not in canon_nodes:
+            continue
+        node = canon_nodes[cid]
+        existing = node.props.get("merged_ids")
+        existing_list = existing if isinstance(existing, list) else []
+        all_merged = sorted(set(str(x) for x in existing_list) | set(origins))
+        if all_merged != existing_list:
+            updated_props = {**node.props, "merged_ids": all_merged}
+            canon_nodes[cid] = node.model_copy(update={"props": updated_props})
 
     out_nodes = [canon_nodes[node_id] for node_id in sorted(canon_nodes)]
     node_ids = set(canon_nodes.keys())
@@ -260,7 +328,7 @@ def resolve(
             quarantined.append((ed.model_dump(mode="json", by_alias=True),
                                 "self-loop"))
             continue
-        if schema is not None:
+        if schema is not None and ed.type != "same_as":
             from_type = canon_nodes[f].type
             to_type = canon_nodes[t].type
             if not schema.is_valid_edge_endpoints(ed.type, from_type, to_type):
@@ -384,7 +452,7 @@ def merge_journals(
                 result.quarantined.append((entry, f"unknown node type: {fact.type}"))
                 continue
 
-        if schema is not None and fact.kind == "edge":
+        if schema is not None and fact.kind == "edge" and fact.type != "same_as":
             from_node = nodes_by_id.get(fact.from_)
             to_node = nodes_by_id.get(fact.to)
             if (

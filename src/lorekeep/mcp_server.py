@@ -356,6 +356,40 @@ def propose_change(
 
 
 @mcp.tool()
+def merge_entities(from_id: str, to_id: str, reason: str = "") -> dict:
+    """Declare that two nodes are the same entity (from_id is an alias of to_id).
+
+    Creates a ``same_as`` edge in the pending journal. On the next resolve,
+    ``from_id`` merges into ``to_id`` (``to_id`` is canonical). Cross-type
+    merges are blocked. The merge decision persists in the graph via
+    ``props.merged_ids`` on the canonical node, surviving future compiles.
+    """
+    scoped = _require()
+    from_node = scoped.get_node(from_id)
+    if from_node is None:
+        return {"error": f"node not found or out of scope: {from_id}"}
+    to_node = scoped.get_node(to_id)
+    if to_node is None:
+        return {"error": f"node not found or out of scope: {to_id}"}
+    if from_node.type != to_node.type:
+        return {
+            "error": f"cross-type merge blocked: {from_id} ({from_node.type}) "
+            f"≠ {to_id} ({to_node.type})",
+        }
+    return _write_journal(
+        {
+            "kind": "edge",
+            "id": "",
+            "type": "same_as",
+            "from": from_id,
+            "to": to_id,
+            "props": {"description": reason} if reason else {},
+        },
+        confidence=1.0,
+    )
+
+
+@mcp.tool()
 def review_note(
     kind: Literal["contradiction", "improvement"],
     description: str,

@@ -38,14 +38,14 @@ def _entries(pending: Path) -> list[dict]:
     return result
 
 
-def test_server_exposes_exactly_seven_composable_tools():
+def test_server_exposes_exactly_eight_composable_tools():
     tools = _tool_map()
 
     assert tuple(tools) == (
         "search", "get_node", "neighbors", "temporal_query", "context",
-        "propose_change", "review_note",
+        "propose_change", "merge_entities", "review_note",
     )
-    assert len(tools) == 7
+    assert len(tools) == 8
     assert set(tools["temporal_query"].inputSchema["properties"]["mode"]["enum"]) == {
         "at_time", "history", "changes",
     }

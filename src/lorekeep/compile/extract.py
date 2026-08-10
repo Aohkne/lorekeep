@@ -67,6 +67,16 @@ TEMPORAL_RULE = (
     "both endpoint service nodes remain open."
 )
 
+ENTITY_RESOLUTION_RULE = (
+    "Entity resolution rule: when you recognize that two extracted nodes refer to "
+    "the same real-world entity (e.g. 'person:user' and 'person:manhpt1' are the "
+    "same person, or 'svc:api-gw' and 'svc:api-gateway' are the same service), "
+    "emit a same_as edge (from=alias_id, to=canonical_id). Choose the more "
+    "specific or human-readable id as canonical (to). Only use same_as for "
+    "true identity — never for mere relationships (use depends_on, relates_to, "
+    "etc. for those)."
+)
+
 # Subject-centric extraction for the personal namespace: anchor on the person,
 # capture role/skill/domain/goal/preference, link to team entities cross-ns.
 SUBJECT_PROMPT = (
@@ -119,6 +129,7 @@ def build_system_prompt(
         OUTPUT_LANGUAGE_RULE.format(language=language),
         ALTITUDE_RULE,
         TEMPORAL_RULE,
+        ENTITY_RESOLUTION_RULE,
         f"Allowed node_types and preferred props: {node_types}",
         f"Allowed edge_types: {edge_types}",
     ]
