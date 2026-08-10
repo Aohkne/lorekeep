@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.1 (2026-08-10)
+
+## What's Changed
+* fix(serve): pre-check facts.jsonl to stop spurious auto-reports by @manhhailua in https://github.com/manhhailua/lorekeep/pull/222
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.28.0...v0.28.1
+
 ## 0.28.0 (2026-08-10)
 
 ## What's Changed
