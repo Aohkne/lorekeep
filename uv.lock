@@ -1030,7 +1030,7 @@ wheels = [
 
 [[package]]
 name = "lorekeep"
-version = "0.32.1"
+version = "0.32.2"
 source = { editable = "." }
 dependencies = [
     { name = "litellm" },
