@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.32.3 (2026-08-11)
+
+## What's Changed
+* fix(extract): enforce deterministic node ID prefixes via schema by @manhhailua in https://github.com/manhhailua/lorekeep/pull/240
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.32.2...v0.32.3
+
 ## 0.32.2 (2026-08-11)
 
 ## What's Changed
