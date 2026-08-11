@@ -1827,19 +1827,34 @@ def backup(
     ),
 ) -> None:
     """Sync data-home inputs and graph/wiki snapshot to a private Git repo."""
-    from lorekeep.backup import BackupError, backup as backup_home, init_backup
+    from lorekeep.backup import (
+        BackupError,
+        _resolve_durable_conflicts,
+        backup as backup_home,
+        init_backup,
+    )
     from lorekeep.config import load_config
     from lorekeep.output import dim, error, info, ok
 
     p = resolve_paths()
     home = p["home"]
-    branch = load_config(p["config"]).backup.branch
+    cfg = load_config(p["config"])
+    bcfg = cfg.backup
+    durable_resolver = None
+    if bcfg.auto_resolve_durable:
+        prov = _make_provider(cfg)
+        durable_resolver = lambda h, paths: _resolve_durable_conflicts(
+            h, paths, prov,
+        )
     try:
         if init_remote:
-            init_backup(home, init_remote, branch=branch)
+            init_backup(home, init_remote, branch=bcfg.branch)
             info(f"backup: repo ready at {home} -> {init_remote}")
         else:
-            pushed = backup_home(home, force=force, branch=branch)
+            pushed = backup_home(
+                home, force=force, branch=bcfg.branch,
+                durable_resolver=durable_resolver,
+            )
             if pushed:
                 ok(f"backup: pushed to remote from {home}")
             else:
@@ -2986,7 +3001,8 @@ def watch(
             # --- auto-backup + sync after compile ---------------------------
             if compiled:
                 _try_backup(p["home"], reason="compile",
-                            enabled=_acfg.auto_backup if _acfg else True)
+                            enabled=_acfg.auto_backup if _acfg else True,
+                            provider=provider)
                 resolved = False
                 if has_pending:
                     resolved = _do_auto_resolve(
@@ -3235,18 +3251,38 @@ def _auto_generate_wiki(
         typer.echo(f"wiki: auto-gen skipped: {exc}")
 
 
-def _try_backup(home: Path, *, reason: str = "", enabled: bool = True) -> bool:
+def _try_backup(
+    home: Path,
+    *,
+    reason: str = "",
+    enabled: bool = True,
+    provider: object | None = None,
+) -> bool:
     """Best-effort backup sync from the daemon loop. Never raises."""
     if not enabled:
         return False
     try:
-        from lorekeep.backup import sync_backup, has_remote
+        from lorekeep.backup import (
+            _resolve_durable_conflicts,
+            has_remote,
+            sync_backup,
+        )
         from lorekeep.config import load_config
         from lorekeep.paths import resolve_paths
         if not has_remote(home):
             return False
-        branch = load_config(resolve_paths()["config"]).backup.branch
-        if sync_backup(home, auto_fix=True, branch=branch):
+        cfg = load_config(resolve_paths()["config"])
+        bcfg = cfg.backup
+        durable_resolver = None
+        if bcfg.auto_resolve_durable:
+            prov = provider or _make_provider(cfg)
+            durable_resolver = lambda h, paths: _resolve_durable_conflicts(
+                h, paths, prov,
+            )
+        if sync_backup(
+            home, auto_fix=True, branch=bcfg.branch,
+            durable_resolver=durable_resolver,
+        ):
             typer.echo(f"agent: backup synced ({reason})")
             log.info(
                 "backup synced reason=%s", reason,
