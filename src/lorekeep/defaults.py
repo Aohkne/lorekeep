@@ -247,6 +247,7 @@ agents:
   auto_backup: true
 backup:
   branch: main
+  auto_resolve_durable: false
 install_source: pypi
 """
 

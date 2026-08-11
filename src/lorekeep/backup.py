@@ -11,6 +11,7 @@ into a synthetic snapshot that no compile actually published.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -237,6 +238,148 @@ def _ensure_branch(home: Path, target: str = "main") -> None:
     _delete_remote_branch_if_exists(home, current)
 
 
+# ── Durable conflict resolution ──────────────────────────────────────────
+
+_MERGE_SYSTEM_PROMPT = (
+    "You are a documentation merge assistant. Two versions of a markdown file "
+    "conflicted during git rebase. Merge them into a single coherent document.\n\n"
+    "Rules:\n"
+    "1. Preserve ALL content from both versions — never delete information.\n"
+    "2. When both versions have the same section heading with different content, "
+    "combine the content under that heading.\n"
+    "3. When a section appears in only one version, keep it as-is.\n"
+    "4. Maintain markdown formatting and heading hierarchy.\n"
+    "5. Output ONLY the merged document — no commentary, no explanation."
+)
+
+
+def _get_rebase_versions(home: Path, path: str) -> tuple[str, str]:
+    """Get ours (remote) and theirs (local) text during an active rebase.
+
+    During rebase: stage 2 = ours (upstream/remote), stage 3 = theirs (local).
+    """
+    ours = _git(["show", f":2:{path}"], home)
+    theirs = _git(["show", f":3:{path}"], home)
+    return ours, theirs
+
+
+def _merge_json(home: Path, path: str) -> bool:
+    """Deep-merge two JSON versions (union dict keys, remote wins on conflict)."""
+    try:
+        ours_raw, theirs_raw = _get_rebase_versions(home, path)
+        ours = json.loads(ours_raw)
+        theirs = json.loads(theirs_raw)
+    except (json.JSONDecodeError, BackupError):
+        return False
+
+    # Start with local, overlay remote (remote wins on scalar conflicts).
+    merged = {**theirs, **ours}
+
+    # For dict-valued keys, do a shallow union so local-only entries survive.
+    for key, val in list(merged.items()):
+        if isinstance(val, dict):
+            local_val = theirs.get(key, {})
+            if isinstance(local_val, dict):
+                merged[key] = {**local_val, **val}
+
+    (home / path).write_text(
+        json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return True
+
+
+def _merge_jsonl(home: Path, path: str) -> bool:
+    """Union two JSONL versions by entry_id (or full-line dedup)."""
+    try:
+        ours_raw, theirs_raw = _get_rebase_versions(home, path)
+    except BackupError:
+        return False
+
+    seen_ids: set[str] = set()
+    seen_lines: set[str] = set()
+    merged: list[str] = []
+
+    for raw_text in (ours_raw, theirs_raw):
+        for line in raw_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                entry_id = obj.get("entry_id") or obj.get("id") or line
+            except json.JSONDecodeError:
+                entry_id = line
+
+            if entry_id not in seen_ids and line not in seen_lines:
+                seen_ids.add(entry_id)
+                seen_lines.add(line)
+                merged.append(line)
+
+    if not merged:
+        return False
+
+    (home / path).write_text("\n".join(merged) + "\n", encoding="utf-8")
+    return True
+
+
+def _merge_markdown(home: Path, path: str, provider: object) -> bool:
+    """LLM-assisted semantic merge of two markdown versions."""
+    try:
+        ours, theirs = _get_rebase_versions(home, path)
+    except BackupError:
+        return False
+
+    user_msg = (
+        f"=== REMOTE VERSION ===\n{ours}\n\n"
+        f"=== LOCAL VERSION ===\n{theirs}\n\n"
+        f"=== MERGED ==="
+    )
+    try:
+        merged = provider.complete(system=_MERGE_SYSTEM_PROMPT, user=user_msg)
+    except Exception:
+        return False
+
+    if not merged or not merged.strip():
+        return False
+
+    (home / path).write_text(merged, encoding="utf-8")
+    return True
+
+
+def _resolve_durable_file(
+    home: Path, path: str, provider: object | None = None,
+) -> bool:
+    """Attempt to resolve a single durable conflict by file type.
+
+    Returns True if resolved, False if unresolvable.
+    """
+    if path.endswith(".json"):
+        return _merge_json(home, path)
+    if path.endswith(".jsonl"):
+        return _merge_jsonl(home, path)
+    if path.endswith(".md"):
+        if provider is None:
+            return False
+        return _merge_markdown(home, path, provider)
+    return False  # unknown file type — never auto-merge
+
+
+def _resolve_durable_conflicts(
+    home: Path,
+    durable_paths: list[str],
+    provider: object | None = None,
+) -> list[str]:
+    """Attempt to resolve all durable conflicts. Return list of unresolved paths."""
+    unresolved: list[str] = []
+    for path in durable_paths:
+        if _resolve_durable_file(home, path, provider):
+            _git(["add", "--", path], home)
+        else:
+            unresolved.append(path)
+    return unresolved
+
+
 def _classify_conflicts(paths: str) -> tuple[list[str], list[str]]:
     """Split conflicted paths into snapshot vs durable.
 
@@ -256,7 +399,9 @@ def _classify_conflicts(paths: str) -> tuple[list[str], list[str]]:
     return snapshot, durable
 
 
-def _resolve_snapshot_conflict_inplace(home: Path) -> list[str]:
+def _resolve_snapshot_conflict_inplace(
+    home: Path, *, durable_resolver=None,
+) -> list[str]:
     """Resolve snapshot conflicts during an active rebase (in-place).
 
     Must be called while a rebase is in progress with unmerged paths.
@@ -264,6 +409,9 @@ def _resolve_snapshot_conflict_inplace(home: Path) -> list[str]:
     (``checkout --ours`` during rebase, which is the upstream/remote),
     stages it. Returns the list of durable conflicts that could not be
     auto-resolved.
+
+    If *durable_resolver* is provided, it is called with the durable paths
+    and should return the subset it could not resolve.
     """
     conflicts = _git(["diff", "--name-only", "--diff-filter=U"], home)
     snapshot, durable = _classify_conflicts(conflicts)
@@ -271,10 +419,17 @@ def _resolve_snapshot_conflict_inplace(home: Path) -> list[str]:
         # During rebase: --ours = upstream (remote), --theirs = local commit
         _git(["checkout", "--ours", "--", path], home)
         _git(["add", "--", path], home)
+    if durable and durable_resolver:
+        durable = durable_resolver(home, durable)
     return durable
 
 
-def _reconcile_remote(home: Path, *, auto_fix_snapshots: bool = False) -> None:
+def _reconcile_remote(
+    home: Path,
+    *,
+    auto_fix_snapshots: bool = False,
+    durable_resolver=None,
+) -> None:
     """Fetch + rebase, aborting cleanly rather than leaving a broken repo.
 
     The generated graph/wiki paths use ``-merge`` attributes. If two devices
@@ -282,7 +437,11 @@ def _reconcile_remote(home: Path, *, auto_fix_snapshots: bool = False) -> None:
 
     When *auto_fix_snapshots* is True (daemon mode), snapshot-only conflicts
     are auto-resolved by accepting the remote version. The daemon recompiles
-    locally afterwards. Durable conflicts always require user intervention.
+    locally afterwards.
+
+    When *durable_resolver* is provided, durable conflicts (raw/, schema.json,
+    pending/) are passed to it for automatic resolution. Any durable conflicts
+    it cannot resolve still require user intervention.
     """
     _git(["fetch", "origin"], home)
     branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], home)
@@ -298,8 +457,9 @@ def _reconcile_remote(home: Path, *, auto_fix_snapshots: bool = False) -> None:
     except BackupError as exc:
         # Rebase failed — we're mid-rebase with unmerged paths.
         try:
-            durable = _resolve_snapshot_conflict_inplace(home) \
-                if auto_fix_snapshots else None
+            durable = _resolve_snapshot_conflict_inplace(
+                home, durable_resolver=durable_resolver,
+            ) if auto_fix_snapshots else None
         except BackupError:
             durable = None
 
@@ -365,7 +525,13 @@ def has_remote(home: Path) -> bool:
         return False
 
 
-def sync_backup(home: Path, *, auto_fix: bool = True, branch: str = "main") -> bool:
+def sync_backup(
+    home: Path,
+    *,
+    auto_fix: bool = True,
+    branch: str = "main",
+    durable_resolver=None,
+) -> bool:
     """Sync backup: pull --rebase from remote, then commit + push.
 
     Used by daemon after compile/resolve/heal. Pulls changes from other
@@ -390,7 +556,9 @@ def sync_backup(home: Path, *, auto_fix: bool = True, branch: str = "main") -> b
         _commit(home, "backup")
         _ensure_branch(home, branch)
         before = _remote_sha(home)
-        _reconcile_remote(home, auto_fix_snapshots=auto_fix)
+        _reconcile_remote(
+            home, auto_fix_snapshots=auto_fix, durable_resolver=durable_resolver,
+        )
         _git(["push"], home)
         after = _remote_sha(home)
         return after != before
@@ -429,7 +597,13 @@ def init_backup(home: Path, remote: str, *, branch: str = "main") -> None:
     _git(["push", "-u", "origin", branch], home)
 
 
-def backup(home: Path, *, force: bool = False, branch: str = "main") -> bool:
+def backup(
+    home: Path,
+    *,
+    force: bool = False,
+    branch: str = "main",
+    durable_resolver=None,
+) -> bool:
     """Commit local changes, fetch/rebase the remote branch, and push.
 
     Returns ``True`` if the **remote was advanced** (a new commit was pushed
@@ -455,7 +629,9 @@ def backup(home: Path, *, force: bool = False, branch: str = "main") -> bool:
     _commit(home, "backup")
     _ensure_branch(home, branch)
     before = _remote_sha(home)
-    _reconcile_remote(home, auto_fix_snapshots=force)
+    _reconcile_remote(
+        home, auto_fix_snapshots=force, durable_resolver=durable_resolver,
+    )
     _git(["push"], home)
     after = _remote_sha(home)
     return after != before

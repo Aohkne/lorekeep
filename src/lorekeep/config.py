@@ -74,6 +74,7 @@ class AgentsConfig(BaseModel):
 class BackupConfig(BaseModel):
     """Backup repository configuration."""
     branch: str = "main"                     # git branch for the backup repo
+    auto_resolve_durable: bool = False       # LLM-assisted merge for durable conflicts
 
 
 class Config(BaseModel):

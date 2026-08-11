@@ -97,7 +97,16 @@ agents:
 # `lorekeep backup --init <remote>` creates a git repo inside the data home
 # and pushes to your private remote.  The branch defaults to 'main'.
 # Existing repos on a legacy branch (e.g. 'master') are migrated automatically.
+#
+# When auto_resolve_durable is true, durable conflicts (raw/, schema.json,
+# pending/) are resolved automatically during backup sync:
+#   - JSON files (schema.json) → structural deep merge (union keys)
+#   - JSONL files (pending/) → union by entry_id (deduplicate)
+#   - Markdown files (raw/) → LLM-assisted semantic merge
+# If the LLM merge fails or no provider is available, the conflict falls back
+# to manual resolution (existing abort + raise behavior).
 backup:
   branch: main
+  auto_resolve_durable: false
 
 install_source: pypi                              # pypi (portable .mcp.json) | local | git+URL | path
