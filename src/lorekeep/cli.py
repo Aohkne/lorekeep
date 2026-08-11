@@ -1828,15 +1828,18 @@ def backup(
 ) -> None:
     """Sync data-home inputs and graph/wiki snapshot to a private Git repo."""
     from lorekeep.backup import BackupError, backup as backup_home, init_backup
+    from lorekeep.config import load_config
     from lorekeep.output import dim, error, info, ok
 
-    home = resolve_paths()["home"]
+    p = resolve_paths()
+    home = p["home"]
+    branch = load_config(p["config"]).backup.branch
     try:
         if init_remote:
-            init_backup(home, init_remote)
+            init_backup(home, init_remote, branch=branch)
             info(f"backup: repo ready at {home} -> {init_remote}")
         else:
-            pushed = backup_home(home, force=force)
+            pushed = backup_home(home, force=force, branch=branch)
             if pushed:
                 ok(f"backup: pushed to remote from {home}")
             else:
@@ -3238,9 +3241,12 @@ def _try_backup(home: Path, *, reason: str = "", enabled: bool = True) -> bool:
         return False
     try:
         from lorekeep.backup import sync_backup, has_remote
+        from lorekeep.config import load_config
+        from lorekeep.paths import resolve_paths
         if not has_remote(home):
             return False
-        if sync_backup(home, auto_fix=True):
+        branch = load_config(resolve_paths()["config"]).backup.branch
+        if sync_backup(home, auto_fix=True, branch=branch):
             typer.echo(f"agent: backup synced ({reason})")
             log.info(
                 "backup synced reason=%s", reason,

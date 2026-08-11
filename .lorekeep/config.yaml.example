@@ -93,4 +93,11 @@ agents:
   self_heal: true                  # daemon auto-removes dangling edges, dedupes edges
   auto_backup: true                # daemon auto-backups after graph changes
 
+# ── backup ───────────────────────────────────────────────────────────────────
+# `lorekeep backup --init <remote>` creates a git repo inside the data home
+# and pushes to your private remote.  The branch defaults to 'main'.
+# Existing repos on a legacy branch (e.g. 'master') are migrated automatically.
+backup:
+  branch: main
+
 install_source: pypi                              # pypi (portable .mcp.json) | local | git+URL | path

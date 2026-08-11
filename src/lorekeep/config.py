@@ -71,6 +71,11 @@ class AgentsConfig(BaseModel):
     auto_backup: bool = True                 # daemon auto-backups after graph changes
 
 
+class BackupConfig(BaseModel):
+    """Backup repository configuration."""
+    branch: str = "main"                     # git branch for the backup repo
+
+
 class Config(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
@@ -78,6 +83,7 @@ class Config(BaseModel):
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     bugreport: BugReportConfig = Field(default_factory=BugReportConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    backup: BackupConfig = Field(default_factory=BackupConfig)
     install_source: str | None = None      # pypi | local | git+URL | path
 
 

@@ -20,6 +20,11 @@ def _bare_remote(tmp_path: Path) -> str:
     """A local bare repo usable as a push remote (file:// not required for path remote)."""
     bare = tmp_path / "bare.git"
     subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+    # Set HEAD to main so clones check out the right branch.
+    subprocess.run(
+        ["git", "symbolic-ref", "HEAD", "refs/heads/main"],
+        cwd=str(bare), check=True,
+    )
     return str(bare)
 
 
@@ -587,3 +592,161 @@ def test_sync_backup_auto_fix_disabled_raises_silently(tmp_path: Path):
     assert result is False
     # Local version unchanged (rebase was aborted)
     assert (home / "graph" / "facts.jsonl").read_text() == '{"id":"local"}\n'
+
+
+# ── Branch name + migration tests (issue #235) ──────────────────────────
+
+
+def _current_branch(home: Path) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=home, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
+def _remote_branches(remote: str) -> list[str]:
+    out = subprocess.run(
+        ["git", "ls-remote", "--heads", remote],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    return [line.split("\t")[1].split("/")[-1] for line in out.splitlines() if line.strip()]
+
+
+def _make_legacy_repo(home: Path, remote: str, branch: str = "master") -> None:
+    """Create a backup repo on a legacy branch (simulating pre-fix state)."""
+    home.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=home, check=True)
+    subprocess.run(
+        ["git", "symbolic-ref", "HEAD", f"refs/heads/{branch}"],
+        cwd=home, check=True,
+    )
+    _git_cmd(["remote", "add", "origin", remote], home)
+    (home / "raw").mkdir(parents=True)
+    (home / "raw" / "initial.md").write_text("# initial")
+    _git_cmd(["add", "-A"], home)
+    _git_cmd(["commit", "-q", "-m", "initial"], home)
+    subprocess.run(
+        ["git", "push", "-u", "-q", "origin", branch],
+        cwd=home, check=True,
+    )
+
+
+def test_init_backup_uses_main_branch(tmp_path: Path):
+    """New repos must be created on 'main', not the system default 'master'."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)
+    assert _current_branch(home) == "main"
+    assert "main" in _remote_branches(remote)
+
+
+def test_init_backup_custom_branch(tmp_path: Path):
+    """A custom branch name is respected by init_backup."""
+    home = tmp_path / "home"
+    # Custom bare remote with HEAD pointing to a custom branch
+    bare = tmp_path / "custom.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+    subprocess.run(
+        ["git", "symbolic-ref", "HEAD", "refs/heads/lorekeep"],
+        cwd=str(bare), check=True,
+    )
+    init_backup(home, str(bare), branch="lorekeep")
+    assert _current_branch(home) == "lorekeep"
+    assert "lorekeep" in _remote_branches(str(bare))
+
+
+def test_sync_backup_migrates_legacy_master_branch(tmp_path: Path):
+    """An existing repo on 'master' is migrated to 'main' by sync_backup."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    _make_legacy_repo(home, remote, "master")
+
+    assert _current_branch(home) == "master"
+
+    sync_backup(home, branch="main")
+
+    assert _current_branch(home) == "main"
+    assert "main" in _remote_branches(remote)
+    assert "master" not in _remote_branches(remote)
+
+
+def test_backup_migrates_legacy_master_branch(tmp_path: Path):
+    """An existing repo on 'master' is migrated to 'main' by backup()."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    _make_legacy_repo(home, remote, "master")
+
+    (home / "raw" / "new.md").write_text("# new")
+    backup(home, branch="main")
+
+    assert _current_branch(home) == "main"
+    assert "main" in _remote_branches(remote)
+    assert "master" not in _remote_branches(remote)
+
+
+def test_init_backup_reinit_migrates_legacy_branch(tmp_path: Path):
+    """Re-init on an existing 'master' repo migrates to the configured branch."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    _make_legacy_repo(home, remote, "master")
+
+    init_backup(home, remote, branch="main")
+
+    assert _current_branch(home) == "main"
+    assert "main" in _remote_branches(remote)
+    assert "master" not in _remote_branches(remote)
+
+
+def test_sync_backup_noop_when_branch_already_correct(tmp_path: Path):
+    """sync_backup does nothing when the branch already matches."""
+    home = tmp_path / "home"
+    remote = _bare_remote(tmp_path)
+    init_backup(home, remote)  # creates repo on 'main'
+
+    pushed = sync_backup(home, branch="main")
+    assert pushed is False
+    assert _current_branch(home) == "main"
+
+
+def test_sync_backup_multi_device_branch_migration(tmp_path: Path):
+    """Device B migrates after device A already renamed on the remote.
+
+    Device A migrates master→main and pushes. Device B is still on master
+    locally. sync_backup on device B should rebase onto origin/main, rename,
+    and push without losing either device's commits.
+    """
+    home_a = tmp_path / "device_a"
+    home_b = tmp_path / "device_b"
+    remote = _bare_remote(tmp_path)
+
+    # Both devices start on master
+    _make_legacy_repo(home_a, remote, "master")
+    _make_legacy_repo(home_b, remote, "master")  # B's push may fail if A pushed first
+
+    # Device A migrates first
+    sync_backup(home_a, branch="main")
+    assert "master" not in _remote_branches(remote)
+    assert "main" in _remote_branches(remote)
+
+    # Device B adds a file, then migrates
+    (home_b / "raw" / "device_b.md").write_text("# from device B")
+    sync_backup(home_b, branch="main")
+
+    assert _current_branch(home_b) == "main"
+    assert (home_b / "raw" / "device_b.md").read_text() == "# from device B"
+
+
+def test_ensure_branch_skips_when_already_correct(tmp_path: Path):
+    """_ensure_branch is a no-op when the branch already matches."""
+    home = tmp_path / "home"
+    home.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=home, check=True)
+    subprocess.run(
+        ["git", "symbolic-ref", "HEAD", "refs/heads/main"],
+        cwd=home, check=True,
+    )
+    (home / "file.txt").write_text("test")
+    _git_cmd(["add", "-A"], home)
+    _git_cmd(["commit", "-q", "-m", "initial"], home)
+    backup_module._ensure_branch(home, "main")
+    assert _current_branch(home) == "main"
