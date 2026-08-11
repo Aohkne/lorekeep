@@ -77,6 +77,7 @@ class TypeSpec(BaseModel):
     label: str | None = None
     plural: str | None = None
     display_prop: str | None = None
+    id_prefix: str | None = None       # canonical slug prefix, e.g. "svc" for service
 
 
 class EndpointSpec(BaseModel):

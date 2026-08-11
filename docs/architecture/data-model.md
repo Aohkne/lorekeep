@@ -95,7 +95,9 @@ model so older and custom graphs can load.
 
 - integer `version`;
 - `node_types`, each with prop type hints plus optional human `label`, `plural`,
-  and `display_prop`;
+  `display_prop`, and `id_prefix` (canonical slug prefix, e.g. `svc` for
+  `service`, `prj` for `project` — enforced deterministically by
+  `parse_response`);
 - `edge_types`, each with allowed `from`/`to` node types, prop hints, forward
   `label`, and `inverse_label`; and
 - optional `common_node_props` and `common_edge_props`.

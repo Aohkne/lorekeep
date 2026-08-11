@@ -15,9 +15,12 @@ SYSTEM_PROMPT_BASE = (
     "You are a knowledge-graph extractor. Read the document chunk and emit a JSON "
     'object {"nodes":[...], "edges":[...], "aliases":{...}}. '
     "Only use node_types and edge_types listed in the provided schema. "
-    "For every node give id (stable slug prefixed by type, e.g. svc:payments-api), "
-    "type, optional props using the preferred keys for that type, and optional "
-    "valid_from/valid_to (ISO dates, null = unknown). "
+    "For every node give id (stable slug prefixed by type, e.g. svc:payments-api "
+    "for a service, prj:checkout-redesign for a project, person:alice for a person). "
+    "Use the id_prefix shown for each type in the schema — e.g. if a type has "
+    "id_prefix 'svc', name it svc:my-service, NOT service:my-service. "
+    "Give each node a type, optional props using the preferred keys for that type, "
+    "and optional valid_from/valid_to (ISO dates, null = unknown). "
     "For every edge give type, from (node id), to (node id), optional props, "
     "and optional valid_from/valid_to. "
     "aliases maps a canonical name to surface variants. Emit NO text outside the JSON."
@@ -111,6 +114,7 @@ def build_system_prompt(
             f"{prop}:{kind}"
             for prop, kind in {**spec.props, **schema.common_node_props}.items()
         )
+        + (f"; id_prefix={spec.id_prefix}" if spec.id_prefix else "")
         + ")"
         for name, spec in schema.node_types.items()
     )
@@ -288,10 +292,40 @@ def _extract_json(raw: str, chunk: DocChunk) -> str:
     )
 
 
+def _normalize_node_id(
+    raw_id: str,
+    ntype: str,
+    schema: Schema | None,
+) -> str:
+    """Enforce the canonical ``id_prefix:slug`` format for a node id.
+
+    Strips any LLM-supplied prefix (``service:``, ``svc:``, ``srv:``, etc.)
+    and replaces it with the schema-defined ``id_prefix`` for the node type.
+    If the id has no ``:`` prefix, one is prepended.
+
+    When the schema does not define ``id_prefix`` for a type (legacy/custom
+    schemas), the id is returned unchanged so existing graphs are not
+    destabilised.
+    """
+    if schema is None:
+        return raw_id
+    spec = schema.node_types.get(ntype)
+    if spec is None or not spec.id_prefix:
+        return raw_id
+    prefix = spec.id_prefix
+    # Strip everything before the first ':' if present, then re-prefix.
+    slug = raw_id.split(":", 1)[1] if ":" in raw_id else raw_id
+    return f"{prefix}:{slug}"
+
+
 def parse_response(
     raw: str, chunk: DocChunk, schema: Schema | None = None,
 ) -> tuple[list[Node], list[Edge], dict[str, list[str]]]:
     data = json.loads(_extract_json(raw, chunk))
+
+    # Build a remap table: LLM id → normalized id, so edge endpoints follow.
+    id_remap: dict[str, str] = {}
+
     nodes: list[Node] = []
     for n in data.get("nodes", []):
         ntype = n.get("type")
@@ -305,8 +339,15 @@ def parse_response(
         for key in ("name", "title", "summary", "description"):
             if key in n and key not in props:
                 props[key] = n[key]
+        raw_id = n["id"]
+        norm_id = _normalize_node_id(raw_id, ntype, schema)
+        id_remap[raw_id] = norm_id
+        if norm_id != raw_id:
+            log.debug(
+                "normalized node id %r → %r (type=%s)", raw_id, norm_id, ntype,
+            )
         nodes.append(Node(
-            id=n["id"],
+            id=norm_id,
             type=ntype,
             ns=(chunk.namespace,),
             valid_from=_parse_date(n.get("valid_from")),
@@ -329,8 +370,8 @@ def parse_response(
         edges.append(Edge(
             id="",                      # assigned deterministically in resolve
             type=etype,
-            **{"from": e["from"]},
-            to=e["to"],
+            **{"from": id_remap.get(e["from"], e["from"])},
+            to=id_remap.get(e["to"], e["to"]),
             ns=(chunk.namespace,),
             valid_from=_parse_date(e.get("valid_from")),
             valid_to=_parse_date(e.get("valid_to")),
