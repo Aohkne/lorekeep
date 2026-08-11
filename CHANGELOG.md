@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.33.1 (2026-08-11)
+
+## What's Changed
+* fix(resolve): union-find entity resolution for same_as cycles by @manhhailua in https://github.com/manhhailua/lorekeep/pull/244
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.33.0...v0.33.1
+
 ## 0.33.0 (2026-08-11)
 
 ## What's Changed
