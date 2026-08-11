@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.31.0 (2026-08-11)
+
+## What's Changed
+* feat(agent): show daemon version in agent status output by @manhhailua in https://github.com/manhhailua/lorekeep/pull/231
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.30.1...v0.31.0
+
 ## 0.30.1 (2026-08-10)
 
 ## What's Changed
