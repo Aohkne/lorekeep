@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.32.2 (2026-08-11)
+
+## What's Changed
+* fix(backup): use configurable branch instead of system default 'master' by @manhhailua in https://github.com/manhhailua/lorekeep/pull/238
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.32.1...v0.32.2
+
 ## 0.32.1 (2026-08-11)
 
 ## What's Changed
