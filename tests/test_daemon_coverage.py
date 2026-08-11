@@ -345,6 +345,40 @@ class TestAgentStatusCommand:
         assert result.exit_code == 0
         assert "nodes:" in result.stdout
 
+    def test_status_daemon_stopped(self, seeded_graph):
+        result = runner.invoke(app, ["agent", "status"])
+        assert result.exit_code == 0
+        assert "daemon: stopped" in result.stdout
+
+    def test_status_daemon_running_with_version(self, seeded_graph, isolated_home):
+        """Status shows daemon PID + version when .daemon.version exists."""
+        import os
+        (isolated_home / ".daemon.pid").write_text(str(os.getpid()))
+        (isolated_home / ".daemon.version").write_text("9.9.9")
+        result = runner.invoke(app, ["agent", "status"])
+        assert result.exit_code == 0
+        assert "running" in result.stdout
+        assert str(os.getpid()) in result.stdout
+        assert "version=9.9.9" in result.stdout
+
+    def test_status_daemon_running_no_version_file(self, seeded_graph, isolated_home):
+        """Daemon running but no .daemon.version — falls back to CLI version."""
+        import os
+        (isolated_home / ".daemon.pid").write_text(str(os.getpid()))
+        # No .daemon.version
+        result = runner.invoke(app, ["agent", "status"])
+        assert result.exit_code == 0
+        assert "running" in result.stdout
+
+    def test_status_daemon_version_mismatch(self, seeded_graph, isolated_home):
+        """Daemon version != CLI version → warns about restart."""
+        import os
+        (isolated_home / ".daemon.pid").write_text(str(os.getpid()))
+        (isolated_home / ".daemon.version").write_text("0.1.0")
+        result = runner.invoke(app, ["agent", "status"])
+        assert result.exit_code == 0
+        assert "restart needed" in result.stdout
+
 
 # ── agent detect ────────────────────────────────────────────────────────────
 
@@ -876,6 +910,16 @@ class TestDaemonWatchLoop:
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
         assert "monitoring" in result.stdout.lower()
+
+    def test_watch_writes_version_file(self, isolated_home, monkeypatch, fixtures):
+        """watch() writes .daemon.version at startup."""
+        self._setup_watch_env(isolated_home, monkeypatch, fixtures)
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
+        result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
+        assert result.exit_code == 0
+        version_file = isolated_home / ".daemon.version"
+        assert version_file.exists()
+        assert version_file.read_text().strip() != ""
 
     def test_watch_pid_file_running(self, isolated_home, monkeypatch, fixtures):
         """Watch exits 1 when another daemon is already running."""
