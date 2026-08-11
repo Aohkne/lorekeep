@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.33.0 (2026-08-11)
+
+## What's Changed
+* feat(backup): LLM-assisted durable conflict resolution by @manhhailua in https://github.com/manhhailua/lorekeep/pull/242
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.32.3...v0.33.0
+
 ## 0.32.3 (2026-08-11)
 
 ## What's Changed
