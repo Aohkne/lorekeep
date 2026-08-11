@@ -225,6 +225,8 @@ provider:
 compile:
   chunk_lines: 60
   language: en
+  max_workers: 4
+  flush_interval: 10
 ns:
   default: [me]
   personal: me

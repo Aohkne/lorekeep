@@ -484,6 +484,8 @@ def compile(
             personal_ns=config.ns.personal_namespace,
             language=config.compile.language,
             prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
+            max_workers=config.compile.max_workers,
+            flush_interval=config.compile.flush_interval,
         )
 
     ok(f"compiled: {manifest.node_count} nodes, {manifest.edge_count} edges, "
@@ -663,6 +665,8 @@ def eval_locomo_cmd(
             personal_ns=config.ns.personal_namespace,
             language=config.compile.language,
             prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
+            max_workers=config.compile.max_workers,
+            flush_interval=config.compile.flush_interval,
         )
         typer.echo(f"eval-locomo: compiled {manifest.node_count} nodes, {manifest.edge_count} edges")
 
@@ -1772,6 +1776,8 @@ def _auto_import_and_compile(p: dict, *, defer: bool = False) -> None:
                 personal_ns=config.ns.personal_namespace,
                 language=config.compile.language,
                 prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
+            max_workers=config.compile.max_workers,
+            flush_interval=config.compile.flush_interval,
             )
         _report_compile_errors(manifest, exit_on_total_failure=False)
         _report_content_quality(manifest)
@@ -3010,6 +3016,8 @@ def watch(
                             personal_ns=config.ns.personal_namespace,
                             language=config.compile.language,
                             prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
+            max_workers=config.compile.max_workers,
+            flush_interval=config.compile.flush_interval,
                         )
                     _report_compile_errors(dm, exit_on_total_failure=False)
                     _report_content_quality(dm)

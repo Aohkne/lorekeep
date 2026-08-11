@@ -485,3 +485,37 @@ def test_default_schema_has_id_prefix_for_all_types():
     from lorekeep.defaults import DEFAULT_SCHEMA
     for name, spec in DEFAULT_SCHEMA["node_types"].items():
         assert spec.get("id_prefix"), f"node type '{name}' missing id_prefix"
+
+
+# ── thread safety ─────────────────────────────────────────────────────────
+
+def test_fake_provider_is_thread_safe():
+    """Concurrent extract_json calls must not corrupt the response queue."""
+    import concurrent.futures
+    import json as _json
+    responses = [_json.dumps({"nodes": [], "edges": [], "aliases": {}})
+                 for _ in range(20)]
+    provider = FakeProvider(responses)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(
+            lambda _: provider.extract_json("sys", "user"),
+            range(20),
+        ))
+    assert len(results) == 20
+    assert len(provider.calls) == 20
+
+
+def test_extraction_cache_is_thread_safe(tmp_path: Path):
+    """Concurrent cache get/set must not corrupt the dict."""
+    import concurrent.futures
+    cache = ExtractionCache(tmp_path / "cache.json")
+    keys = [f"key_{i}" for i in range(20)]
+
+    def _write(key):
+        cache.set(key, "value")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(_write, keys))
+
+    for key in keys:
+        assert cache.get(key) == "value"

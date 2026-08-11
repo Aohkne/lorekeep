@@ -618,23 +618,32 @@ def _remote_branches(remote: str) -> list[str]:
     return [line.split("\t")[1].split("/")[-1] for line in out.splitlines() if line.strip()]
 
 
-def _make_legacy_repo(home: Path, remote: str, branch: str = "master") -> None:
-    """Create a backup repo on a legacy branch (simulating pre-fix state)."""
+def _make_legacy_repo(
+    home: Path, remote: str | None, branch: str = "master", *, push: bool = True,
+) -> None:
+    """Create a backup repo on a legacy branch (simulating pre-fix state).
+
+    If remote is None, init local only. If push=False, configure remote
+    but skip the initial push (used for multi-device tests where pushing
+    would conflict with an earlier device's migration).
+    """
     home.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=home, check=True)
     subprocess.run(
         ["git", "symbolic-ref", "HEAD", f"refs/heads/{branch}"],
         cwd=home, check=True,
     )
-    _git_cmd(["remote", "add", "origin", remote], home)
+    if remote is not None:
+        _git_cmd(["remote", "add", "origin", remote], home)
     (home / "raw").mkdir(parents=True)
     (home / "raw" / "initial.md").write_text("# initial")
     _git_cmd(["add", "-A"], home)
     _git_cmd(["commit", "-q", "-m", "initial"], home)
-    subprocess.run(
-        ["git", "push", "-u", "-q", "origin", branch],
-        cwd=home, check=True,
-    )
+    if remote is not None and push:
+        subprocess.run(
+            ["git", "push", "-u", "-q", "origin", branch],
+            cwd=home, check=True,
+        )
 
 
 def test_init_backup_uses_main_branch(tmp_path: Path):
@@ -727,7 +736,9 @@ def test_sync_backup_multi_device_branch_migration(tmp_path: Path):
 
     # Both devices start on master
     _make_legacy_repo(home_a, remote, "master")
-    _make_legacy_repo(home_b, remote, "master")  # B's push may fail if A pushed first
+    # Device B initializes locally with remote configured but does NOT push —
+    # sync_backup will handle the fetch/rebase/push after A migrates.
+    _make_legacy_repo(home_b, remote, "master", push=False)
 
     # Device A migrates first
     sync_backup(home_a, branch="main")

@@ -21,6 +21,11 @@ class CompileConfig(BaseModel):
     chunk_lines: int = 60
     # ISO 639-1 alpha-2 code, normalized to lowercase by contract.
     language: str = Field(default="en", pattern=r"^[a-z]{2}$")
+    # Parallel extraction: ThreadPoolExecutor worker count (1 = sequential).
+    max_workers: int = Field(default=4, ge=1, le=32)
+    # Streaming flush: resolve + write facts.jsonl every N completed chunks.
+    # 0 = no intermediate flush (write only at the end — legacy behavior).
+    flush_interval: int = Field(default=10, ge=0, le=500)
 
 
 class NsConfig(BaseModel):

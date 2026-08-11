@@ -96,6 +96,7 @@ class TestCompileShortCircuit:
                 raw_root=raw, out_dir=tmp_path / "graph",
                 schema=schema, provider=provider,
                 cache_path=tmp_path / "cache.json", chunk_lines=60,
+                max_workers=1,  # sequential to test deterministic short-circuit
             )
 
         # Only one chunk was attempted (short-circuit).
