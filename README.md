@@ -37,81 +37,77 @@ Simultaneous edits to the same raw document or journal can still require manual
 conflict resolution. A shared authenticated team server is roadmap work, not a
 shipped capability.
 
-## Install
+## Get started
 
-Python 3.11+ and [uv](https://docs.astral.sh/uv/) are required.
-
-```bash
-# Run without a permanent install
-uvx lorekeep version
-
-# Recommended when using the daemon/service continuously
-uv tool install lorekeep
-lorekeep version
-```
-
-**Without uv** (pipx or pip):
+**One-liner install** (no uv needed — uses pipx or pip):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/manhhailua/lorekeep/main/scripts/install.sh | bash
-```
-
-For development from source:
-
-```bash
-git clone https://github.com/manhhailua/lorekeep.git
-cd lorekeep
-uv sync
-uv run lorekeep version
-```
-
-### Update
-
-```bash
-lorekeep update          # upgrade to latest
-lorekeep update --check  # show current vs latest without upgrading
-```
-
-## Quickstart
-
-```bash
-# 1. Interactive setup: config + schema + profile + agent wiring + initial import
 lorekeep init
+```
 
-# 2. Add Markdown under the raw directory printed by init
-mkdir -p ~/.local/share/lorekeep/raw/backend
+That's it. `init` sets up config, schema, provider, agent wiring, compiles any
+existing markdown, and starts a background daemon that auto-compiles future
+changes. Open the wiki in Obsidian/Tolaria and watch pages appear as the
+compile finishes.
+
+**Or with uv:**
+
+```bash
+uv tool install lorekeep
+lorekeep init
+```
+
+**Non-interactive** (CI, scripts):
+
+```bash
+lorekeep init --yes
+```
+
+### What `init` does
+
+Configures provider + namespace → writes `about.md` + `profile.md` → detects
+and wires coding agents (Claude Code, Cursor, Codex, opencode) → quick-imports
+available memory files → compiles if a provider key exists → starts the daemon.
+Idempotent — re-run anytime to pick up newly installed agents.
+
+### Add documents
+
+```bash
+# Drop Markdown under raw/<namespace>/
 cp your-docs.md ~/.local/share/lorekeep/raw/backend/
 
-# 3. Compile raw docs, merge journals, and regenerate the wiki
+# Compile runs in the background by default — wiki updates automatically
 lorekeep compile
 
-# 4. Inspect installed/active/wired coding agents
-lorekeep agent detect
-
-# 5. Validate graph, schema, MCP, and provider connectivity
+# Validate graph, schema, MCP, and provider
 lorekeep doctor
 ```
 
-`init` is idempotent. On its first interactive run it selects a provider and
-namespace, writes `about.md` + `profile.md`, detects installed coding agents,
-writes their MCP configuration and supported session-end hooks, quick-imports
-available memory files, compiles when a usable provider key exists, and starts a
-background watcher unless `--no-watch` is passed.
+The daemon watches `raw/` and auto-compiles on file changes. No need to run
+`compile` manually unless you want immediate results.
 
-If an agent was not detected, wire it explicitly:
+### Make the daemon persistent (survives reboot)
 
 ```bash
-lorekeep mcp add --agent codex --scope user --ns backend
-# or use the registry-aware command:
+lorekeep agent service install   # systemd (Linux) / launchd (macOS)
+```
+
+### Upgrade
+
+```bash
+lorekeep update          # upgrade to latest from PyPI
+lorekeep update --check  # preview without upgrading
+```
+
+### Wire an agent that wasn't auto-detected
+
+```bash
 lorekeep agent wire --agent codex --scope user --ns backend
 ```
 
-Restart the coding agent after its MCP configuration changes. Open the generated
-wiki with `lorekeep wiki --open`, or select the printed `wiki/` directory in
-Obsidian/Tolaria.
-
-For non-interactive setup, use `lorekeep init --yes --no-watch`; add a provider
-key and run `lorekeep compile` afterwards.
+Restart the agent after its MCP config changes. Open the wiki with
+`lorekeep wiki --open`.
 
 ## Runtime model
 
@@ -296,28 +292,38 @@ All platforms (Linux, macOS, Windows) default to `~/.lorekeep/` for both
 config and data. See the
 [data-home guide](docs/guides/data-home.md) for other platforms and overrides.
 
-## Backup and multi-device use
+## Multi-device backup
 
-Initialize a separate **private** Git remote for the resolved data home:
+Lorekeep backs up to a **private** Git remote — durable inputs (raw markdown,
+schema, journals) plus the latest graph/wiki snapshot:
 
 ```bash
+# One-time setup (create a private repo first on GitHub)
 lorekeep backup --init https://github.com/<you>/lorekeep-data.git
+```
+
+After that, the daemon auto-syncs after every compile, resolve, and self-heal.
+Manual sync:
+
+```bash
 lorekeep backup
 ```
 
-The backup commits durable raw/schema/journal inputs **and** the latest compiled
-`graph/` + `wiki/` snapshot, so a restored device can query and browse without
-an immediate LLM compile. Local config/secrets, extraction cache, FTS, runtime
-logs, Obsidian device settings, and transient files remain ignored. Both inputs
-and the full-graph snapshot can contain sensitive context, so the remote must
-remain private.
+**Restore on a new device:**
 
-The watcher fetches/rebases at startup and synchronizes after a successful
-compile. Manual `lorekeep backup` also fetches/rebases before pushing. Generated
-graph/wiki files are marked non-mergeable: Git may merge durable source files,
-but it cannot silently line-merge two compiled snapshots. Concurrent snapshot
-publication requires resolving durable inputs and compiling once. Lorekeep does
-not yet provide conflict-free simultaneous editing or a central reconciler.
+```bash
+# Install lorekeep, then clone the backup into the data home:
+git clone https://github.com/<you>/lorekeep-data.git ~/.lorekeep
+lorekeep init --yes    # creates local config, rewires agents, preserves data
+```
+
+The restored graph and wiki are immediately usable — no recompile needed.
+Config/secrets, cache, FTS, logs, and Obsidian settings stay local and are
+never backed up.
+
+Generated graph/wiki files are marked non-mergeable: Git may merge durable
+inputs but never silently combines two compiled snapshots. If both devices
+changed durable sources, reconcile and compile once.
 
 ## Diagnostics and support
 
@@ -355,7 +361,10 @@ describe only current behavior unless a section is explicitly marked planned.
 ## Development
 
 ```bash
+git clone https://github.com/manhhailua/lorekeep.git
+cd lorekeep
 uv sync
+uv run lorekeep init          # uses .lorekeep/ in the repo (dev mode)
 uv run pytest
 uv run pytest tests/test_core_regression.py -q
 uv run python scripts/generate_cli_reference.py --check

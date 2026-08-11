@@ -6,7 +6,7 @@ pages describe implemented behavior unless a paragraph is explicitly marked
 and implementation plans are historical material, not a runtime contract.
 
 New to Lorekeep? Use the [getting-started guide](guides/getting-started.md) or the
-short [project quickstart](../README.md#quickstart).
+short [project quickstart](../README.md#get-started).
 
 ## Guides
 
