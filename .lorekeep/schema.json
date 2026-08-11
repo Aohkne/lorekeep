@@ -8,18 +8,18 @@
     "description": "string"
   },
   "node_types": {
-    "person": {"props": {"name": "string", "handle": "string", "org": "string"}, "label": "Person", "plural": "People", "display_prop": "name"},
-    "role": {"props": {"name": "string", "domain": "string"}, "label": "Role", "plural": "Roles", "display_prop": "name"},
-    "skill": {"props": {"name": "string", "domain": "string", "level": "string"}, "label": "Skill", "plural": "Skills", "display_prop": "name"},
-    "domain": {"props": {"name": "string", "description": "string"}, "label": "Domain", "plural": "Domains", "display_prop": "name"},
-    "preference": {"props": {"name": "string", "description": "string"}, "label": "Preference", "plural": "Preferences", "display_prop": "name"},
-    "value": {"props": {"name": "string", "description": "string"}, "label": "Value", "plural": "Values", "display_prop": "name"},
-    "goal": {"props": {"title": "string", "timeframe": "string", "status": "string"}, "label": "Goal", "plural": "Goals", "display_prop": "title"},
-    "service": {"props": {"name": "string", "lang": "string", "status": "string"}, "label": "Service", "plural": "Services", "display_prop": "name"},
-    "project": {"props": {"name": "string", "status": "string", "start_date": "string"}, "label": "Project", "plural": "Projects", "display_prop": "name"},
-    "decision": {"props": {"title": "string", "status": "string", "decided_on": "string"}, "label": "Decision", "plural": "Decisions", "display_prop": "title"},
-    "team": {"props": {"name": "string", "org": "string"}, "label": "Team", "plural": "Teams", "display_prop": "name"},
-    "document": {"props": {"title": "string", "kind": "string"}, "label": "Document", "plural": "Documents", "display_prop": "title"}
+    "person": {"props": {"name": "string", "handle": "string", "org": "string"}, "label": "Person", "plural": "People", "display_prop": "name", "id_prefix": "person"},
+    "role": {"props": {"name": "string", "domain": "string"}, "label": "Role", "plural": "Roles", "display_prop": "name", "id_prefix": "role"},
+    "skill": {"props": {"name": "string", "domain": "string", "level": "string"}, "label": "Skill", "plural": "Skills", "display_prop": "name", "id_prefix": "skill"},
+    "domain": {"props": {"name": "string", "description": "string"}, "label": "Domain", "plural": "Domains", "display_prop": "name", "id_prefix": "domain"},
+    "preference": {"props": {"name": "string", "description": "string"}, "label": "Preference", "plural": "Preferences", "display_prop": "name", "id_prefix": "pref"},
+    "value": {"props": {"name": "string", "description": "string"}, "label": "Value", "plural": "Values", "display_prop": "name", "id_prefix": "value"},
+    "goal": {"props": {"title": "string", "timeframe": "string", "status": "string"}, "label": "Goal", "plural": "Goals", "display_prop": "title", "id_prefix": "goal"},
+    "service": {"props": {"name": "string", "lang": "string", "status": "string"}, "label": "Service", "plural": "Services", "display_prop": "name", "id_prefix": "svc"},
+    "project": {"props": {"name": "string", "status": "string", "start_date": "string"}, "label": "Project", "plural": "Projects", "display_prop": "name", "id_prefix": "prj"},
+    "decision": {"props": {"title": "string", "status": "string", "decided_on": "string"}, "label": "Decision", "plural": "Decisions", "display_prop": "title", "id_prefix": "dec"},
+    "team": {"props": {"name": "string", "org": "string"}, "label": "Team", "plural": "Teams", "display_prop": "name", "id_prefix": "team"},
+    "document": {"props": {"title": "string", "kind": "string"}, "label": "Document", "plural": "Documents", "display_prop": "title", "id_prefix": "doc"}
   },
   "edge_types": {
     "depends_on": {"from": "service", "to": "service", "props": {}, "label": "Depends on", "inverse_label": "Depended on by"},

@@ -107,6 +107,25 @@ _NODE_DISPLAY = {
     "document": ("Document", "Documents", "title"),
 }
 
+# Canonical slug prefix for each node type.  The LLM is told to use these
+# prefixes, and ``parse_response`` enforces them deterministically so a
+# ``service`` always gets ``svc:`` regardless of which abbreviation the
+# model chose (``service:``, ``svc:``, ``srv:`` all normalize to ``svc:``).
+_NODE_ID_PREFIX = {
+    "person": "person",
+    "role": "role",
+    "skill": "skill",
+    "domain": "domain",
+    "preference": "pref",
+    "value": "value",
+    "goal": "goal",
+    "service": "svc",
+    "project": "prj",
+    "decision": "dec",
+    "team": "team",
+    "document": "doc",
+}
+
 _EDGE_DISPLAY = {
     "depends_on": ("Depends on", "Depended on by"),
     "part_of": ("Part of", "Contains"),
@@ -144,6 +163,7 @@ DEFAULT_SCHEMA = {
             "label": _NODE_DISPLAY[name][0],
             "plural": _NODE_DISPLAY[name][1],
             "display_prop": _NODE_DISPLAY[name][2],
+            "id_prefix": _NODE_ID_PREFIX[name],
         }
         for name, spec in DEFAULT_SCHEMA_V3["node_types"].items()
     },

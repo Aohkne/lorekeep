@@ -2,7 +2,13 @@ from datetime import date
 import json
 import pytest
 from lorekeep.models import DocChunk, Schema
-from lorekeep.compile.extract import build_prompt, build_system_prompt, parse_response, SYSTEM_PROMPT_BASE
+from lorekeep.compile.extract import (
+    _normalize_node_id,
+    build_prompt,
+    build_system_prompt,
+    parse_response,
+    SYSTEM_PROMPT_BASE,
+)
 
 
 SCHEMA = Schema.load({
@@ -12,6 +18,21 @@ SCHEMA = Schema.load({
                    "decision": {"props": {"title": "string"}}},
     "edge_types": {"depends_on": {"from": "service", "to": "service"},
                    "decided_by": {"from": "decision", "to": "team"}},
+})
+
+# Schema with id_prefix — used for prefix enforcement tests.
+SCHEMA_WITH_PREFIX = Schema.load({
+    "version": 4,
+    "node_types": {
+        "service": {"props": {"name": "string"}, "id_prefix": "svc"},
+        "project": {"props": {"name": "string"}, "id_prefix": "prj"},
+        "person": {"props": {"name": "string"}, "id_prefix": "person"},
+        "decision": {"props": {"title": "string"}, "id_prefix": "dec"},
+    },
+    "edge_types": {
+        "depends_on": {"from": "service", "to": "service"},
+        "decided_by": {"from": "decision", "to": "person"},
+    },
 })
 
 
@@ -371,3 +392,96 @@ def test_extract_json_value_error_includes_src():
     c = make_chunk()
     with pytest.raises(ValueError, match="a.md"):
         _extract_json("not json at all", c)
+
+
+# ── Node ID prefix enforcement ────────────────────────────────────────────
+
+
+def test_normalize_id_service_prefix_normalized_to_svc():
+    """LLM-supplied 'service:x' normalizes to 'svc:x' when schema has id_prefix."""
+    assert _normalize_node_id("service:payments", "service", SCHEMA_WITH_PREFIX) == "svc:payments"
+
+
+def test_normalize_id_already_correct_unchanged():
+    """Correct prefix is idempotent."""
+    assert _normalize_node_id("svc:payments", "service", SCHEMA_WITH_PREFIX) == "svc:payments"
+
+
+def test_normalize_id_no_prefix_prepended():
+    """An id without a ':' prefix gets one added."""
+    assert _normalize_node_id("payments", "service", SCHEMA_WITH_PREFIX) == "svc:payments"
+
+
+def test_normalize_id_wrong_abbreviation_replaced():
+    """'srv:x' for service normalizes to 'svc:x'."""
+    assert _normalize_node_id("srv:api", "service", SCHEMA_WITH_PREFIX) == "svc:api"
+
+
+def test_normalize_id_project_prefix():
+    """Project type uses 'prj' prefix."""
+    assert _normalize_node_id("project:checkout", "project", SCHEMA_WITH_PREFIX) == "prj:checkout"
+
+
+def test_normalize_id_legacy_schema_no_id_prefix_passthrough():
+    """Schema without id_prefix leaves the id unchanged (backward compat)."""
+    assert _normalize_node_id("svc:a", "service", SCHEMA) == "svc:a"
+    assert _normalize_node_id("service:a", "service", SCHEMA) == "service:a"
+
+
+def test_normalize_id_no_schema_passthrough():
+    """No schema = no normalization (used by some test paths)."""
+    assert _normalize_node_id("anything:here", "service", None) == "anything:here"
+
+
+def test_parse_response_normalizes_node_and_edge_ids():
+    """parse_response normalizes node ids and remaps edge endpoints."""
+    c = make_chunk()
+    payload = {
+        "nodes": [
+            {"id": "service:api", "type": "service", "name": "api"},
+            {"id": "service:auth", "type": "service", "name": "auth"},
+        ],
+        "edges": [
+            {"type": "depends_on", "from": "service:api", "to": "service:auth",
+             "description": "api depends on auth"},
+        ],
+        "aliases": {},
+    }
+    nodes, edges, _ = parse_response(json.dumps(payload), c, schema=SCHEMA_WITH_PREFIX)
+    assert len(nodes) == 2
+    assert nodes[0].id == "svc:api"
+    assert nodes[1].id == "svc:auth"
+    assert len(edges) == 1
+    assert edges[0].from_ == "svc:api"
+    assert edges[0].to == "svc:auth"
+
+
+def test_parse_response_mixed_type_prefixes_all_normalized():
+    """Multiple node types in one response all get correct prefixes."""
+    c = make_chunk()
+    payload = {
+        "nodes": [
+            {"id": "service:api", "type": "service", "name": "api"},
+            {"id": "project:redesign", "type": "project", "name": "redesign"},
+            {"id": "person:alice", "type": "person", "name": "alice"},
+        ],
+        "edges": [],
+        "aliases": {},
+    }
+    nodes, _, _ = parse_response(json.dumps(payload), c, schema=SCHEMA_WITH_PREFIX)
+    ids = {n.id for n in nodes}
+    assert ids == {"svc:api", "prj:redesign", "person:alice"}
+
+
+def test_system_prompt_includes_id_prefix():
+    """The system prompt should show id_prefix so the LLM uses correct prefixes."""
+    s = build_system_prompt(SCHEMA_WITH_PREFIX)
+    assert "id_prefix=svc" in s
+    assert "id_prefix=prj" in s
+
+
+def test_default_schema_has_id_prefix_for_all_types():
+    """Every default node type must have an id_prefix."""
+    from lorekeep.defaults import DEFAULT_SCHEMA
+    for name, spec in DEFAULT_SCHEMA["node_types"].items():
+        assert spec.get("id_prefix"), f"node type '{name}' missing id_prefix"
