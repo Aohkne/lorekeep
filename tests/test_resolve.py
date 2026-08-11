@@ -180,3 +180,163 @@ class TestAutoMergeByNormalizedId:
         nodes = [n("svc:auth", type="service"), n("domain:auth", type="domain")]
         result = resolve(nodes, [])
         assert len(result.nodes) == 2
+
+
+# ── union-find entity resolution (same_as cycles + merged_ids) ────────────
+
+class TestUnionFindSameAs:
+    """same_as edges with conflicting directions, multi-targets, and cycles
+    must all collapse via union-find."""
+
+    def test_conflicting_directions_merges(self):
+        """A→B AND B→A: both directions → one canonical."""
+        nodes = [
+            n("person:manhpt1", type="person"),
+            n("person:user", type="person"),
+        ]
+        edges = [
+            e(type="same_as", frm="person:manhpt1", to="person:user"),
+            e(type="same_as", frm="person:user", to="person:manhpt1"),
+        ]
+        result = resolve(nodes, edges)
+        assert len(result.nodes) == 1
+
+    def test_three_way_conflicting_merges(self):
+        """person:manhpt1, person:user, person:manhhailua with cycle edges."""
+        nodes = [
+            n("person:manhpt1", type="person"),
+            n("person:user", type="person"),
+            n("person:manhhailua", type="person"),
+        ]
+        edges = [
+            e(type="same_as", frm="person:manhpt1", to="person:user"),
+            e(type="same_as", frm="person:user", to="person:manhpt1"),
+            e(type="same_as", frm="person:user", to="person:manhhailua"),
+        ]
+        result = resolve(nodes, edges)
+        assert len(result.nodes) == 1
+        # Canonical node must carry merged_ids
+        canon = result.nodes[0]
+        merged = set(canon.props.get("merged_ids", []))
+        aliases = {"person:manhpt1", "person:user", "person:manhhailua"}
+        assert aliases - {canon.id} <= merged
+
+    def test_multi_target_merges(self):
+        """A→B and A→C: all three collapse."""
+        nodes = [
+            n("svc:api-gw", type="service"),
+            n("svc:api-gateway", type="service"),
+            n("svc:gateway", type="service"),
+        ]
+        edges = [
+            e(type="same_as", frm="svc:api-gw", to="svc:api-gateway"),
+            e(type="same_as", frm="svc:api-gw", to="svc:gateway"),
+        ]
+        result = resolve(nodes, edges)
+        assert len(result.nodes) == 1
+
+    def test_transitive_chain_merges(self):
+        """A→B→C: all collapse into one."""
+        nodes = [
+            n("svc:db", type="service"),
+            n("svc:database", type="service"),
+            n("svc:postgres", type="service"),
+        ]
+        edges = [
+            e(type="same_as", frm="svc:db", to="svc:database"),
+            e(type="same_as", frm="svc:database", to="svc:postgres"),
+        ]
+        result = resolve(nodes, edges)
+        assert len(result.nodes) == 1
+        # Deterministic: both get 1 vote, same length → lexicographic
+        assert result.nodes[0].id == "svc:database"
+
+    def test_cycle_three_nodes_merges(self):
+        """A→B→C→A: full cycle → all merge."""
+        nodes = [
+            n("svc:x", type="service"),
+            n("svc:y", type="service"),
+            n("svc:z", type="service"),
+        ]
+        edges = [
+            e(type="same_as", frm="svc:x", to="svc:y"),
+            e(type="same_as", frm="svc:y", to="svc:z"),
+            e(type="same_as", frm="svc:z", to="svc:x"),
+        ]
+        result = resolve(nodes, edges)
+        assert len(result.nodes) == 1
+
+    def test_cross_type_same_as_blocked(self):
+        """person→service same_as must NOT merge (different types)."""
+        nodes = [
+            n("person:alice", type="person"),
+            n("svc:auth", type="service"),
+        ]
+        edges = [
+            e(type="same_as", frm="person:alice", to="svc:auth"),
+        ]
+        result = resolve(nodes, edges)
+        assert len(result.nodes) == 2
+
+    def test_same_as_edges_are_consumed_not_emitted(self):
+        """After collapse, same_as edges become self-loops and are quarantined."""
+        nodes = [
+            n("person:a", type="person"),
+            n("person:b", type="person"),
+        ]
+        edges = [
+            e(type="same_as", frm="person:a", to="person:b"),
+        ]
+        result = resolve(nodes, edges)
+        assert len(result.nodes) == 1
+        assert len(result.edges) == 0  # same_as consumed
+        assert any("self-loop" in q[1] for q in result.quarantined)
+
+
+class TestCanonicalCycleBreak:
+    """_canonical() must break cycles deterministically."""
+
+    def test_direct_cycle_resolves(self):
+        from lorekeep.compile.resolve import _canonical
+        alias_map = {"a": "b", "b": "a"}
+        # Both should resolve to the same canonical
+        assert _canonical("a", alias_map) == _canonical("b", alias_map)
+
+    def test_cycle_is_deterministic(self):
+        from lorekeep.compile.resolve import _canonical
+        alias_map = {"x": "y", "y": "x"}
+        assert _canonical("x", alias_map) == _canonical("y", alias_map)
+        # Must be stable across calls
+        assert _canonical("x", alias_map) == _canonical("x", alias_map)
+
+
+class TestMergedIdsPersistence:
+    """merged_ids props on input nodes must drive resolution."""
+
+    def test_merged_ids_on_input_drives_collapse(self):
+        """Nodes carrying merged_ids from a prior resolve must re-merge."""
+        nodes = [
+            Node(
+                id="person:user", type="person", ns=("team",),
+                props={"name": "User", "merged_ids": ["person:manhpt1", "person:manhhailua"]},
+            ),
+            n("person:manhpt1", type="person"),
+            n("person:manhhailua", type="person"),
+        ]
+        result = resolve(nodes, [])
+        assert len(result.nodes) == 1
+        assert result.nodes[0].id == "person:user"
+
+    def test_merged_ids_survive_resolve(self):
+        """After resolve, canonical node must carry the full merged_ids list."""
+        nodes = [
+            n("person:manhpt1", type="person"),
+            n("person:user", type="person"),
+        ]
+        edges = [e(type="same_as", frm="person:manhpt1", to="person:user")]
+        result = resolve(nodes, edges)
+        assert len(result.nodes) == 1
+        canon = result.nodes[0]
+        assert "merged_ids" in canon.props
+        assert "person:manhpt1" in canon.props["merged_ids"] or \
+               "person:user" in canon.props["merged_ids"]

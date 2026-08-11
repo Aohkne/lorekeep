@@ -127,3 +127,53 @@ def test_pipeline_per_chunk_failure_logs_exception(tmp_path: Path, fixtures: Pat
     assert manifest.errors                      # short message preserved
     assert any("compile: chunk failed" in r.message for r in caplog.records)
     assert any(r.exc_info for r in caplog.records)  # traceback attached
+
+
+def test_compile_prev_aliases_forces_merge(tmp_path: Path, fixtures: Path):
+    """prev_aliases parameter carries forward merge decisions across recompiles."""
+    raw = tmp_path / "raw"
+    copy_fixture(fixtures / "raw/backend/payments.md",
+                 raw / "teams/backend/payments.md")
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+
+    canned = json.dumps({
+        "nodes": [
+            {"id": "svc:payments-api", "type": "service", "name": "payments-api"},
+            {"id": "svc:pay", "type": "service", "name": "pay"},
+        ],
+        "edges": [],
+        "aliases": {},
+    })
+    provider = FakeProvider([canned])
+
+    manifest = compile_graph(
+        raw_root=raw, out_dir=tmp_path / "graph", schema=schema,
+        provider=provider, cache_path=tmp_path / "cache.json",
+        prev_aliases={"svc:pay": "svc:payments-api"},
+    )
+    # svc:pay must be merged into svc:payments-api
+    assert manifest.node_count == 1
+
+
+def test_compile_without_prev_aliases_no_merge(tmp_path: Path, fixtures: Path):
+    """Without prev_aliases, two distinct service nodes remain separate."""
+    raw = tmp_path / "raw"
+    copy_fixture(fixtures / "raw/backend/payments.md",
+                 raw / "teams/backend/payments.md")
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+
+    canned = json.dumps({
+        "nodes": [
+            {"id": "svc:payments-api", "type": "service", "name": "payments-api"},
+            {"id": "svc:pay", "type": "service", "name": "pay"},
+        ],
+        "edges": [],
+        "aliases": {},
+    })
+    provider = FakeProvider([canned])
+
+    manifest = compile_graph(
+        raw_root=raw, out_dir=tmp_path / "graph", schema=schema,
+        provider=provider, cache_path=tmp_path / "cache.json",
+    )
+    assert manifest.node_count == 2

@@ -101,3 +101,73 @@ def test_store_search_scan(fixtures: Path):
     g = store_from_gold(fixtures)
     ids = g.search("payments")
     assert "svc:payments-api" in ids
+
+
+# ── alias resolution ──────────────────────────────────────────────────────
+
+def _store_with_aliases() -> GraphStore:
+    """Build a store with a canonical node that has merged_ids."""
+    from lorekeep.models import Node, Edge
+    nodes = [
+        Node(
+            id="person:manhpt1", type="person", ns=("team",),
+            props={"name": "ManhPT1", "merged_ids": ["person:user", "person:manhhailua"]},
+        ),
+        Node(id="svc:auth", type="service", ns=("team",), props={"name": "auth"}),
+    ]
+    edges = [
+        Edge(id="e1", type="maintains", **{"from": "person:manhpt1"}, to="svc:auth", ns=("team",)),
+    ]
+    return GraphStore(nodes, edges)
+
+
+def test_get_node_resolves_alias():
+    g = _store_with_aliases()
+    node = g.get_node("person:manhhailua")
+    assert node is not None
+    assert node.id == "person:manhpt1"
+
+
+def test_get_node_resolves_second_alias():
+    g = _store_with_aliases()
+    node = g.get_node("person:user")
+    assert node is not None
+    assert node.id == "person:manhpt1"
+
+
+def test_get_node_canonical_id_unchanged():
+    g = _store_with_aliases()
+    node = g.get_node("person:manhpt1")
+    assert node is not None
+    assert node.id == "person:manhpt1"
+
+
+def test_get_node_unknown_alias_returns_none():
+    g = _store_with_aliases()
+    assert g.get_node("person:unknown") is None
+
+
+def test_resolve_alias_passthrough():
+    g = _store_with_aliases()
+    assert g.resolve_alias("svc:auth") == "svc:auth"
+    assert g.resolve_alias("person:manhpt1") == "person:manhpt1"
+
+
+def test_resolve_alias_returns_canonical():
+    g = _store_with_aliases()
+    assert g.resolve_alias("person:user") == "person:manhpt1"
+    assert g.resolve_alias("person:manhhailua") == "person:manhpt1"
+
+
+def test_neighbors_resolves_alias():
+    g = _store_with_aliases()
+    nb = g.neighbors("person:manhhailua", depth=1)
+    ids = {n.id for n in nb["nodes"]}
+    assert "person:manhpt1" in ids
+    assert "svc:auth" in ids
+
+
+def test_history_resolves_alias():
+    g = _store_with_aliases()
+    h = g.history("person:user")
+    assert h[0]["id"] == "person:manhpt1"

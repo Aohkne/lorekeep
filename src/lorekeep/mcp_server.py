@@ -153,11 +153,19 @@ def search(query: str, limit: int = 10) -> list:
 
 @mcp.tool()
 def get_node(id: str) -> dict:
-    """Return a node by id, or an error when absent or out of scope."""
+    """Return a node by id, or an error when absent or out of scope.
+
+    Alias IDs are resolved automatically: if the requested id was absorbed
+    into a canonical entity during resolve, the canonical node is returned
+    with ``_resolved_from_alias`` set to the original id.
+    """
     node = _require().get_node(id)
     if node is None:
         return {"error": "not found or out of scope"}
-    return node.model_dump(mode="json", by_alias=True)
+    result = node.model_dump(mode="json", by_alias=True)
+    if id != node.id:
+        result["_resolved_from_alias"] = id
+    return result
 
 
 @mcp.tool()
