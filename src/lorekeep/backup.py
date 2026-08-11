@@ -183,6 +183,60 @@ def _remote_sha(home: Path) -> str | None:
     return out.split()[0] if out.strip() else None
 
 
+def _rebase_if_remote_exists(home: Path, remote_ref: str) -> None:
+    """Rebase onto ``remote_ref`` (e.g. ``origin/main``) if it exists.
+
+    Silently skips if the ref does not exist on the remote.
+    """
+    try:
+        _git(["rev-parse", "--verify", f"refs/remotes/{remote_ref}"], home)
+        _git(["rebase", remote_ref], home)
+    except BackupError:
+        pass
+
+
+def _delete_remote_branch_if_exists(home: Path, branch: str) -> None:
+    """Delete a remote branch if it exists. Failures are non-fatal."""
+    try:
+        ref = _git(["ls-remote", "--heads", "origin", branch], home)
+        if ref.strip():
+            _git(["push", "origin", "--delete", branch], home)
+    except BackupError:
+        pass
+
+
+def _ensure_branch(home: Path, target: str = "main") -> None:
+    """Ensure the local branch is *target*, migrating from legacy names.
+
+    Handles the one-time rename from ``master`` (or any other name) to the
+    configured branch.  Fetches remote history under both the old and new
+    branch names to handle multi-device migration (device A may have already
+    renamed and pushed, while device B is still on the old branch).  After
+    migration the old remote branch is deleted to prevent divergence.
+    """
+    current = _git(["rev-parse", "--abbrev-ref", "HEAD"], home)
+    if not current or current == "HEAD" or current == target:
+        return
+
+    _git(["fetch", "origin"], home)
+
+    # Integrate any remote history under the old branch name (e.g. origin/master).
+    _rebase_if_remote_exists(home, f"origin/{current}")
+
+    # Rename the local branch.
+    _git(["branch", "-M", target], home)
+
+    # Integrate remote history under the new branch name — another device may
+    # have already migrated and pushed to origin/<target>.
+    _rebase_if_remote_exists(home, f"origin/{target}")
+
+    # Push the renamed branch and set up tracking.
+    _git(["push", "-u", "origin", target], home)
+
+    # Clean up the old remote branch to prevent future divergence.
+    _delete_remote_branch_if_exists(home, current)
+
+
 def _classify_conflicts(paths: str) -> tuple[list[str], list[str]]:
     """Split conflicted paths into snapshot vs durable.
 
@@ -311,7 +365,7 @@ def has_remote(home: Path) -> bool:
         return False
 
 
-def sync_backup(home: Path, *, auto_fix: bool = True) -> bool:
+def sync_backup(home: Path, *, auto_fix: bool = True, branch: str = "main") -> bool:
     """Sync backup: pull --rebase from remote, then commit + push.
 
     Used by daemon after compile/resolve/heal. Pulls changes from other
@@ -321,6 +375,10 @@ def sync_backup(home: Path, *, auto_fix: bool = True) -> bool:
     are auto-resolved by accepting the remote version. The daemon will
     recompile locally to align with merged durable inputs.
 
+    *branch* is the configured backup branch name. On first run after
+    upgrade, an existing repo on a legacy branch (e.g. ``master``) is
+    migrated to this name.
+
     Silently returns False if:
     - No backup repo or remote configured
     - Network error or durable conflict (user resolves with ``lorekeep backup``)
@@ -329,9 +387,9 @@ def sync_backup(home: Path, *, auto_fix: bool = True) -> bool:
         return False
     try:
         _prepare_repo_metadata(home)
-        before = _remote_sha(home)
-        # Commit first so tracked journal/raw changes do not block rebase.
         _commit(home, "backup")
+        _ensure_branch(home, branch)
+        before = _remote_sha(home)
         _reconcile_remote(home, auto_fix_snapshots=auto_fix)
         _git(["push"], home)
         after = _remote_sha(home)
@@ -340,17 +398,24 @@ def sync_backup(home: Path, *, auto_fix: bool = True) -> bool:
         return False
 
 
-def init_backup(home: Path, remote: str) -> None:
+def init_backup(home: Path, remote: str, *, branch: str = "main") -> None:
     """Init a git repo, write managed metadata, set origin, commit, and push.
 
     Idempotent: safe to re-run.  On re-init (``.git`` already present) it
     fetches and rebases on the remote before pushing, so commits pushed by
     another device are preserved.
+
+    *branch* sets the initial branch name for new repos and migrates
+    existing repos from a legacy branch name (e.g. ``master``) to the
+    configured name.
     """
     home.mkdir(parents=True, exist_ok=True)
     already_repo = (home / ".git").is_dir()
     if not already_repo:
         _git(["init", "-q"], home)
+        # Set the initial branch explicitly — works on all Git versions
+        # (older Git without ``init -b`` would otherwise default to ``master``).
+        _git(["symbolic-ref", "HEAD", f"refs/heads/{branch}"], home)
     _prepare_repo_metadata(home)
     remotes = _git(["remote"], home).split()
     if "origin" in remotes:
@@ -359,11 +424,12 @@ def init_backup(home: Path, remote: str) -> None:
         _git(["remote", "add", "origin", remote], home)
     _commit(home, "backup init")
     if already_repo:
+        _ensure_branch(home, branch)
         _reconcile_remote(home)
-    _git(["push", "-u", "origin", "HEAD"], home)
+    _git(["push", "-u", "origin", branch], home)
 
 
-def backup(home: Path, *, force: bool = False) -> bool:
+def backup(home: Path, *, force: bool = False, branch: str = "main") -> bool:
     """Commit local changes, fetch/rebase the remote branch, and push.
 
     Returns ``True`` if the **remote was advanced** (a new commit was pushed
@@ -377,14 +443,18 @@ def backup(home: Path, *, force: bool = False) -> bool:
     When *force* is True, snapshot conflicts on graph/wiki are auto-resolved
     (remote version wins) instead of raising an error. Durable conflicts on
     raw/schema/pending always require manual merge.
+
+    *branch* migrates an existing repo from a legacy branch name (e.g.
+    ``master``) to the configured name on first run after upgrade.
     """
     if not (home / ".git").is_dir():
         raise BackupError(
             f"not a backup repo at {home} — run `lorekeep backup --init <remote>` first"
         )
     _prepare_repo_metadata(home)
-    before = _remote_sha(home)
     _commit(home, "backup")
+    _ensure_branch(home, branch)
+    before = _remote_sha(home)
     _reconcile_remote(home, auto_fix_snapshots=force)
     _git(["push"], home)
     after = _remote_sha(home)

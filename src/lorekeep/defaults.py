@@ -225,6 +225,8 @@ agents:
   deep_import: false
   self_heal: true
   auto_backup: true
+backup:
+  branch: main
 install_source: pypi
 """
 
