@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.32.0 (2026-08-11)
+
+## What's Changed
+* feat(cli): add lorekeep update command and shell install script by @manhhailua in https://github.com/manhhailua/lorekeep/pull/233
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.31.0...v0.32.0
+
 ## 0.31.0 (2026-08-11)
 
 ## What's Changed
