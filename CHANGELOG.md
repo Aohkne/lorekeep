@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.32.1 (2026-08-11)
+
+## What's Changed
+* docs(readme): streamline install to one-liner + multi-device backup by @manhhailua in https://github.com/manhhailua/lorekeep/pull/236
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.32.0...v0.32.1
+
 ## 0.32.0 (2026-08-11)
 
 ## What's Changed
