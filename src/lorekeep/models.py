@@ -72,7 +72,10 @@ Fact = Node | Edge
 
 
 class TypeSpec(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # extra="ignore" — schema is stored data that may grow new fields across
+    # versions; rejecting unknown keys would crash serve when a newer schema
+    # is loaded by an older tool (issue #246).
+    model_config = ConfigDict(frozen=True, extra="ignore")
     props: dict[str, str] = Field(default_factory=dict)
     label: str | None = None
     plural: str | None = None
@@ -81,7 +84,7 @@ class TypeSpec(BaseModel):
 
 
 class EndpointSpec(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(frozen=True, extra="ignore", populate_by_name=True)
     from_: str | tuple[str, ...] = Field(alias="from")
     to: str | tuple[str, ...]
     props: dict[str, str] = Field(default_factory=dict)
