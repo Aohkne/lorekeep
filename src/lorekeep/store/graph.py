@@ -22,10 +22,24 @@ def parse_date(value: str | None) -> date | None:
 class GraphStore:
     def __init__(self, nodes: list[Node], edges: list[Edge]) -> None:
         self._G = nx.MultiDiGraph()
+        self._alias_to_canonical: dict[str, str] = {}
         for n in nodes:
             self._G.add_node(n.id, node=n)
+            # Build reverse alias index from merged_ids props
+            for mid in n.props.get("merged_ids", []):
+                if isinstance(mid, str) and mid != n.id:
+                    self._alias_to_canonical[mid] = n.id
         for e in edges:
             self._G.add_edge(e.from_, e.to, key=e.id, edge=e)
+
+    def resolve_alias(self, id: str) -> str:
+        """Resolve an alias ID to its canonical ID.
+
+        Returns the ID unchanged if it is not a known alias. This enables
+        query-time alias resolution: ``get_node("person:manhhailua")``
+        returns the canonical node (e.g. ``person:manhpt1``) that absorbed it.
+        """
+        return self._alias_to_canonical.get(id, id)
 
     @classmethod
     def from_jsonl(cls, path: Path) -> "GraphStore":
@@ -38,9 +52,10 @@ class GraphStore:
         return set(self._G.nodes)
 
     def get_node(self, id: str) -> Node | None:
-        if id not in self._G:
+        cid = self.resolve_alias(id)
+        if cid not in self._G:
             return None
-        return self._G.nodes[id]["node"]
+        return self._G.nodes[cid]["node"]
 
     def get_edge(self, id: str) -> Edge | None:
         for edge in self.all_edges():
@@ -72,13 +87,14 @@ class GraphStore:
 
     def neighbors(self, id: str, edge_type: str | None = None, depth: int = 1) -> dict:
         """BFS over both directions up to `depth`. Returns {nodes:[Node], edges:[Edge]}."""
-        if id not in self._G:
+        cid = self.resolve_alias(id)
+        if cid not in self._G:
             return {"nodes": [], "edges": []}
-        seen_nodes = {id}
+        seen_nodes = {cid}
         seen_edges: set[str] = set()
         out_nodes: list[Node] = []
         out_edges: list[Edge] = []
-        frontier = [id]
+        frontier = [cid]
         for _ in range(max(depth, 0)):
             nxt: list[str] = []
             for u in frontier:
@@ -113,10 +129,11 @@ class GraphStore:
 
     def history(self, id: str) -> list[dict]:
         """Node + all edges touching it, ordered by valid_from (None first)."""
-        node = self.get_node(id)
+        cid = self.resolve_alias(id)
+        node = self.get_node(cid)
         if node is None:
             return []
-        touching = self.out_edges(id) + self.in_edges(id)
+        touching = self.out_edges(cid) + self.in_edges(cid)
         touching.sort(key=lambda e: e.valid_from or date.min)
         items: list[dict] = [{"kind": "node", **node.model_dump(mode="json", by_alias=True)}]
         for e in touching:

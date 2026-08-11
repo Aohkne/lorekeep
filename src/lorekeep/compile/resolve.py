@@ -111,22 +111,76 @@ def _normalize_text(value: str) -> str:
     return "\n\n".join(paragraphs)
 
 
+class _UnionFind:
+    """Union-find with path compression and union-by-rank.
+
+    Used for entity resolution: same_as edges and merged_ids declare that
+    two IDs refer to the same entity. Union-find groups them into connected
+    components without caring about edge direction, which solves the cycle
+    problem (conflicting A→B and B→A same_as edges).
+    """
+
+    def __init__(self) -> None:
+        self._parent: dict[str, str] = {}
+        self._rank: dict[str, int] = {}
+
+    def add(self, x: str) -> None:
+        if x not in self._parent:
+            self._parent[x] = x
+            self._rank[x] = 0
+
+    def find(self, x: str) -> str:
+        self.add(x)
+        root = x
+        while self._parent[root] != root:
+            root = self._parent[root]
+        # path compression
+        cur = x
+        while self._parent[cur] != root:
+            self._parent[cur], cur = root, self._parent[cur]
+        return root
+
+    def union(self, a: str, b: str) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return
+        if self._rank[ra] < self._rank[rb]:
+            ra, rb = rb, ra
+        self._parent[rb] = ra
+        if self._rank[ra] == self._rank[rb]:
+            self._rank[ra] += 1
+
+    def components(self) -> dict[str, list[str]]:
+        """Return {root: [member_ids]} for all known IDs."""
+        groups: dict[str, list[str]] = {}
+        for x in self._parent:
+            root = self.find(x)
+            groups.setdefault(root, []).append(x)
+        return groups
+
+
 def _extract_same_as_aliases(
     nodes: list[Node], edges: list[Edge],
 ) -> dict[str, str]:
-    """Read ``same_as`` edges and ``props.merged_ids`` → ``{alias_id: canonical_id}``.
+    """Build ``{alias_id: canonical_id}`` from ``same_as`` edges and ``merged_ids``.
 
-    ``same_as`` edges express explicit merge decisions stored in the graph.
-    ``props.merged_ids`` persists those decisions across compiles (the raw
-    source does not carry them, so the resolved graph must remember).
+    Uses union-find so that conflicting directions (A→B AND B→A) and
+    transitive chains (A→B→C) all collapse into one canonical node.
+    ``props.merged_ids`` persists previous merge decisions across compiles.
 
     Cross-type merges are blocked: a ``person`` can never merge into a
     ``service`` even if a ``same_as`` edge connects them.
     """
     node_types = {n.id: n.type for n in nodes}
-    result: dict[str, str] = {}
+    uf = _UnionFind()
 
-    # 1) same_as edges: from = alias, to = canonical
+    # Ensure all node IDs are in the union-find
+    for nd in nodes:
+        uf.add(nd.id)
+
+    # 1) same_as edges: union endpoints (direction-agnostic).
+    #    Track votes for canonical selection (to-endpoint gets +1).
+    votes: dict[str, int] = {}
     for edge in edges:
         if edge.type != "same_as":
             continue
@@ -138,16 +192,42 @@ def _extract_same_as_aliases(
                 edge.from_, from_type, edge.to, to_type,
             )
             continue
-        result[edge.from_] = edge.to
+        uf.union(edge.from_, edge.to)
+        votes[edge.to] = votes.get(edge.to, 0) + 1
 
-    # 2) props.merged_ids: canonical node remembers its absorbed aliases
+    # 2) props.merged_ids: union canonical with each absorbed alias
     for node in nodes:
         merged_ids = node.props.get("merged_ids")
         if not isinstance(merged_ids, list):
             continue
         for mid in merged_ids:
             if isinstance(mid, str) and mid != node.id:
-                result.setdefault(mid, node.id)
+                uf.union(node.id, mid)
+
+    # 3) Build alias_map from connected components
+    result: dict[str, str] = {}
+    for members in uf.components().values():
+        if len(members) <= 1:
+            continue
+        # Only nodes present in this extraction can be canonical candidates.
+        # Aliases from merged_ids that aren't re-extracted are still mapped.
+        candidates = [m for m in members if m in node_types]
+        if not candidates:
+            continue
+        # Deterministic canonical: most same_as votes, then shortest
+        # normalized id, then lexicographic — device-independent.
+        canonical = min(
+            candidates,
+            key=lambda mid: (
+                -votes.get(mid, 0),
+                len(_normalize_id(mid)),
+                _normalize_id(mid),
+                mid,
+            ),
+        )
+        for mid in members:
+            if mid != canonical:
+                result[mid] = canonical
 
     return result
 
@@ -219,10 +299,16 @@ def _stable_union(*values: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _canonical(node_id: str, alias_map: dict[str, str]) -> str:
-    seen: set[str] = set()
+    """Follow alias chain to canonical ID. Breaks cycles deterministically."""
+    seen: list[str] = []
     cur = node_id
-    while cur in alias_map and cur not in seen:
-        seen.add(cur)
+    while cur in alias_map:
+        if cur in seen:
+            # Cycle detected (can arise from strategy interaction in
+            # _build_alias_map). Break by picking deterministic canonical.
+            cycle = seen[seen.index(cur):]
+            return min(cycle, key=lambda x: (_normalize_id(x), x))
+        seen.append(cur)
         cur = alias_map[cur]
     return cur
 

@@ -108,6 +108,7 @@ def compile_graph(
     on_progress: ProgressCb | None = None,
     personal_ns: str = "me",
     language: str = "en",
+    prev_aliases: dict[str, str] | None = None,
 ) -> Manifest:
     chunks = ingest(raw_root, chunk_lines=chunk_lines)
     cache = ExtractionCache(cache_path)
@@ -154,7 +155,8 @@ def compile_graph(
     cache.save()
 
     resolved = resolve(
-        all_nodes, all_edges, name_aliases=all_aliases, schema=schema,
+        all_nodes, all_edges, name_aliases=all_aliases,
+        aliases_map=prev_aliases, schema=schema,
     )
     content_quality = measure_content_quality(resolved.nodes, resolved.edges, schema)
 

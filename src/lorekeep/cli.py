@@ -306,6 +306,31 @@ def hook() -> None:
         )
 
 
+def _load_prev_aliases(facts_path: Path) -> dict[str, str]:
+    """Extract alias→canonical map from existing ``facts.jsonl``.
+
+    Reads ``props.merged_ids`` on every node and builds ``{alias_id: canonical_id}``.
+    This carries forward merge decisions across recompiles so that manual and
+    LLM-detected entity merges are not lost when ``compile_graph`` rebuilds from
+    ``raw/*.md``.
+    """
+    if not facts_path.exists():
+        return {}
+    from lorekeep.facts_io import read_facts
+    from lorekeep.models import Node as _Node
+    prev: dict[str, str] = {}
+    try:
+        for fact in read_facts(facts_path):
+            if not isinstance(fact, _Node):
+                continue
+            for mid in fact.props.get("merged_ids", []):
+                if isinstance(mid, str) and mid != fact.id:
+                    prev[mid] = fact.id
+    except Exception:
+        log.debug("failed to load prev_aliases from %s", facts_path, exc_info=True)
+    return prev
+
+
 def _report_compile_errors(manifest, *, exit_on_total_failure: bool = True) -> None:
     """Surface compile errors from a :class:`~lorekeep.models.Manifest`.
 
@@ -458,6 +483,7 @@ def compile(
             on_progress=_progress_cb(handle),
             personal_ns=config.ns.personal_namespace,
             language=config.compile.language,
+            prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
         )
 
     ok(f"compiled: {manifest.node_count} nodes, {manifest.edge_count} edges, "
@@ -636,6 +662,7 @@ def eval_locomo_cmd(
             chunk_lines=config.compile.chunk_lines,
             personal_ns=config.ns.personal_namespace,
             language=config.compile.language,
+            prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
         )
         typer.echo(f"eval-locomo: compiled {manifest.node_count} nodes, {manifest.edge_count} edges")
 
@@ -1744,6 +1771,7 @@ def _auto_import_and_compile(p: dict, *, defer: bool = False) -> None:
                 on_progress=_progress_cb(handle),
                 personal_ns=config.ns.personal_namespace,
                 language=config.compile.language,
+                prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
             )
         _report_compile_errors(manifest, exit_on_total_failure=False)
         _report_content_quality(manifest)
@@ -2981,6 +3009,7 @@ def watch(
                             on_progress=_progress_cb(handle),
                             personal_ns=config.ns.personal_namespace,
                             language=config.compile.language,
+                            prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
                         )
                     _report_compile_errors(dm, exit_on_total_failure=False)
                     _report_content_quality(dm)
