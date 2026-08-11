@@ -2258,6 +2258,31 @@ def suggest() -> None:
 def status() -> None:
     """Print a graph health dashboard."""
     p = resolve_paths()
+
+    # --- Daemon status (PID, version) ---------------------------------------
+    daemon_pid = _daemon_pid(p)
+    version_file = p["home"] / ".daemon.version"
+    daemon_version = None
+    if version_file.exists():
+        try:
+            daemon_version = version_file.read_text().strip() or None
+        except OSError:
+            pass
+
+    if daemon_pid:
+        parts = [f"running (pid={daemon_pid}"]
+        if daemon_version:
+            parts.append(f", version={daemon_version}")
+        cli_version = __version__
+        if daemon_version and cli_version and daemon_version != cli_version:
+            parts.append(f", CLI={cli_version} (restart needed)")
+        elif not daemon_version and cli_version:
+            parts.append(f", CLI={cli_version}")
+        parts.append(")")
+        typer.echo(f"daemon: {''.join(parts)}")
+    else:
+        typer.echo(f"daemon: stopped (CLI version={__version__})")
+
     facts_path = p["out"] / "facts.jsonl"
     if not facts_path.exists():
         typer.echo("status: no graph — run `lorekeep compile` first")
@@ -2674,6 +2699,7 @@ def watch(
     )
 
     pid_file = p["home"] / ".daemon.pid"
+    version_file = p["home"] / ".daemon.version"
     if pid_file.exists():
         try:
             old_pid = int(pid_file.read_text().strip())
@@ -2684,17 +2710,18 @@ def watch(
             pass
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     pid_file.write_text(str(os.getpid()))
+    startup_version = _on_disk_version()
+    if startup_version:
+        version_file.write_text(startup_version)
 
-    # --- SIGTERM handler: clean PID file on kill / systemctl stop -------------
+    # --- SIGTERM handler: clean PID + version files on kill / systemctl stop --
     def _on_sigterm(signum, frame):
         pid_file.unlink(missing_ok=True)
+        version_file.unlink(missing_ok=True)
         log.info("daemon received SIGTERM — shutting down", extra={"event": "daemon.sigterm"})
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, _on_sigterm)
-
-    # --- Capture startup version for auto-restart-on-upgrade -----------------
-    startup_version = _on_disk_version()
 
     # --- Load agents config for auto-wire + transcript dump ------------------
     try:
