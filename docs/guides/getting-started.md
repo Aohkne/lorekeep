@@ -16,6 +16,12 @@ uv tool install lorekeep
 lorekeep version
 ```
 
+Without uv (uses pipx or pip under the hood):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/manhhailua/lorekeep/main/scripts/install.sh | bash
+```
+
 From a source checkout:
 
 ```bash
@@ -23,6 +29,13 @@ git clone https://github.com/manhhailua/lorekeep.git
 cd lorekeep
 uv sync
 uv run lorekeep version
+```
+
+To upgrade later:
+
+```bash
+lorekeep update          # upgrade to latest from PyPI
+lorekeep update --check  # preview current vs latest
 ```
 
 ## 2. Initialize the data home
