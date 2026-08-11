@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.34.0 (2026-08-11)
+
+## What's Changed
+* feat(compile): parallel extraction with streaming flush by @manhhailua in https://github.com/manhhailua/lorekeep/pull/247
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.33.1...v0.34.0
+
 ## 0.33.1 (2026-08-11)
 
 ## What's Changed
