@@ -12,23 +12,30 @@ class LLMProvider(Protocol):
 
 
 class FakeProvider:
-    """Returns canned responses in order. Used by tests; never hits a network."""
+    """Returns canned responses in order. Used by tests; never hits a network.
+
+    Thread-safe: concurrent extraction workers can safely call extract_json.
+    """
 
     def __init__(self, responses: list[str]) -> None:
+        import threading
+        self._lock = threading.Lock()
         self._responses = list(responses)
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, str]] = []
 
     def extract_json(self, system: str, user: str) -> str:
-        self.calls.append(("json", system, user))
-        if not self._responses:
-            raise RuntimeError("FakeProvider: no canned response left")
-        return self._responses.pop(0)
+        with self._lock:
+            self.calls.append(("json", system, user))
+            if not self._responses:
+                raise RuntimeError("FakeProvider: no canned response left")
+            return self._responses.pop(0)
 
     def complete(self, system: str, user: str) -> str:
-        self.calls.append(("complete", system, user))
-        if not self._responses:
-            raise RuntimeError("FakeProvider: no canned response left")
-        return self._responses.pop(0)
+        with self._lock:
+            self.calls.append(("complete", system, user))
+            if not self._responses:
+                raise RuntimeError("FakeProvider: no canned response left")
+            return self._responses.pop(0)
 
     def ping(self) -> str:
         """Offline connectivity probe. Returns 'OK' without consuming the

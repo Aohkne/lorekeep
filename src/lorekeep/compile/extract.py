@@ -389,9 +389,14 @@ from lorekeep.compile.providers import LLMProvider
 
 
 class ExtractionCache:
-    """Maps (chunk_hash, schema_version) -> raw LLM response. Local only."""
+    """Maps (chunk_hash, schema_version) -> raw LLM response. Local only.
+
+    Thread-safe: concurrent extraction workers can safely call get/set.
+    """
 
     def __init__(self, path: Path) -> None:
+        import threading
+        self._lock = threading.Lock()
         self.path = Path(path)
         self._data: dict[str, str] = {}
         if self.path.exists():
@@ -415,10 +420,12 @@ class ExtractionCache:
         return h.hexdigest()
 
     def get(self, key: str) -> str | None:
-        return self._data.get(key)
+        with self._lock:
+            return self._data.get(key)
 
     def set(self, key: str, raw: str) -> None:
-        self._data[key] = raw
+        with self._lock:
+            self._data[key] = raw
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

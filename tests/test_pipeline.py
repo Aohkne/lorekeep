@@ -177,3 +177,190 @@ def test_compile_without_prev_aliases_no_merge(tmp_path: Path, fixtures: Path):
         provider=provider, cache_path=tmp_path / "cache.json",
     )
     assert manifest.node_count == 2
+
+
+# ── streaming compile (parallel extraction + flush) ───────────────────────
+
+def _make_multi_chunk_raw(raw: Path, fixtures: Path, copies: int = 3):
+    """Create raw/ with multiple chunk-producing files for parallel testing."""
+    src = fixtures / "raw/backend/payments.md"
+    for i in range(copies):
+        dst = raw / f"teams/backend/payments_{i}.md"
+        copy_fixture(src, dst)
+
+
+def test_parallel_extraction_produces_same_result_as_sequential(
+    tmp_path: Path, fixtures: Path,
+):
+    """max_workers=4 must produce identical output to max_workers=1."""
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+    canned = json.dumps({
+        "nodes": [
+            {"id": "svc:api", "type": "service", "name": "api"},
+            {"id": "svc:db", "type": "service", "name": "db"},
+        ],
+        "edges": [{"type": "depends_on", "from": "svc:api", "to": "svc:db"}],
+        "aliases": {},
+    })
+
+    # Parallel run
+    raw1 = tmp_path / "raw1"
+    _make_multi_chunk_raw(raw1, fixtures, copies=3)
+    m_parallel = compile_graph(
+        raw_root=raw1, out_dir=tmp_path / "g1", schema=schema,
+        provider=FakeProvider([canned] * 3),
+        cache_path=tmp_path / "c1.json",
+        max_workers=4, flush_interval=0,
+    )
+
+    # Sequential run
+    raw2 = tmp_path / "raw2"
+    _make_multi_chunk_raw(raw2, fixtures, copies=3)
+    m_seq = compile_graph(
+        raw_root=raw2, out_dir=tmp_path / "g2", schema=schema,
+        provider=FakeProvider([canned] * 3),
+        cache_path=tmp_path / "c2.json",
+        max_workers=1, flush_interval=0,
+    )
+
+    # Same node/edge counts
+    assert m_parallel.node_count == m_seq.node_count
+    assert m_parallel.edge_count == m_seq.edge_count
+    # Byte-identical facts.jsonl
+    assert (tmp_path / "g1/facts.jsonl").read_bytes() == \
+           (tmp_path / "g2/facts.jsonl").read_bytes()
+
+
+def test_streaming_flush_writes_intermediate_graph(
+    tmp_path: Path, fixtures: Path,
+):
+    """flush_interval=2 must write facts.jsonl before all chunks complete."""
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+
+    def _canned(i):
+        return json.dumps({
+            "nodes": [{"id": f"svc:svc-{i}", "type": "service", "name": f"svc-{i}"}],
+            "edges": [],
+            "aliases": {},
+        })
+
+    raw = tmp_path / "raw"
+    _make_multi_chunk_raw(raw, fixtures, copies=5)
+
+    compile_graph(
+        raw_root=raw, out_dir=tmp_path / "graph", schema=schema,
+        provider=FakeProvider([_canned(i) for i in range(5)]),
+        cache_path=tmp_path / "cache.json",
+        max_workers=1,  # sequential to ensure deterministic flush timing
+        flush_interval=2,
+    )
+
+    # Final output must have all 5 nodes (after dedup)
+    facts = (tmp_path / "graph/facts.jsonl").read_text()
+    import json as _json
+    nodes = [_json.loads(l) for l in facts.splitlines() if l and _json.loads(l)["kind"] == "node"]
+    assert len(nodes) == 5
+
+
+def test_streaming_flush_applies_prev_aliases(
+    tmp_path: Path, fixtures: Path,
+):
+    """Intermediate flushes must apply prev_aliases for graph dedup."""
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+
+    # Two chunks produce aliases that should merge via prev_aliases
+    canned_a = json.dumps({
+        "nodes": [{"id": "svc:payments-api", "type": "service", "name": "payments-api"}],
+        "edges": [], "aliases": {},
+    })
+    canned_b = json.dumps({
+        "nodes": [{"id": "svc:pay", "type": "service", "name": "pay"}],
+        "edges": [], "aliases": {},
+    })
+
+    raw = tmp_path / "raw"
+    _make_multi_chunk_raw(raw, fixtures, copies=2)
+
+    manifest = compile_graph(
+        raw_root=raw, out_dir=tmp_path / "graph", schema=schema,
+        provider=FakeProvider([canned_a, canned_b]),
+        cache_path=tmp_path / "cache.json",
+        max_workers=1, flush_interval=1,
+        prev_aliases={"svc:pay": "svc:payments-api"},
+    )
+    # Must merge into 1 node despite 2 chunks
+    assert manifest.node_count == 1
+
+
+def test_max_workers_1_is_sequential(tmp_path: Path, fixtures: Path):
+    """max_workers=1 must behave exactly like the old sequential loop."""
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+    canned = json.dumps({
+        "nodes": [{"id": "svc:x", "type": "service", "name": "x"}],
+        "edges": [], "aliases": {},
+    })
+    raw = tmp_path / "raw"
+    _make_multi_chunk_raw(raw, fixtures, copies=1)
+
+    manifest = compile_graph(
+        raw_root=raw, out_dir=tmp_path / "graph", schema=schema,
+        provider=FakeProvider([canned]),
+        cache_path=tmp_path / "cache.json",
+        max_workers=1, flush_interval=0,
+    )
+    assert manifest.node_count == 1
+
+
+def test_parallel_determinism_across_runs(tmp_path: Path, fixtures: Path):
+    """Parallel compile must produce byte-identical output across runs."""
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+    canned = json.dumps({
+        "nodes": [
+            {"id": "svc:api", "type": "service", "name": "api"},
+            {"id": "svc:db", "type": "service", "name": "db"},
+            {"id": "svc:cache", "type": "service", "name": "cache"},
+        ],
+        "edges": [
+            {"type": "depends_on", "from": "svc:api", "to": "svc:db"},
+            {"type": "depends_on", "from": "svc:api", "to": "svc:cache"},
+        ],
+        "aliases": {},
+    })
+
+    results = []
+    for i in range(3):
+        raw = tmp_path / f"raw{i}"
+        _make_multi_chunk_raw(raw, fixtures, copies=3)
+        compile_graph(
+            raw_root=raw, out_dir=tmp_path / f"g{i}", schema=schema,
+            provider=FakeProvider([canned] * 3),
+            cache_path=tmp_path / f"c{i}.json",
+            max_workers=4, flush_interval=2,
+        )
+        results.append((tmp_path / f"g{i}/facts.jsonl").read_bytes())
+
+    assert results[0] == results[1] == results[2]
+
+
+def test_fatal_error_aborts_parallel_compile(tmp_path: Path, fixtures: Path, caplog):
+    """A fatal provider error must abort parallel extraction."""
+    import logging as _logging
+    schema = Schema.load(json.loads((fixtures / "schema.json").read_text()))
+    raw = tmp_path / "raw"
+    _make_multi_chunk_raw(raw, fixtures, copies=3)
+
+    class _Boom(FakeProvider):
+        def extract_json(self, system, user):
+            from litellm import AuthenticationError as _AE
+            raise _AE("bad key", "openai", "test")
+
+    with caplog.at_level(_logging.ERROR, logger="lorekeep"):
+        manifest = compile_graph(
+            raw_root=raw, out_dir=tmp_path / "graph", schema=schema,
+            provider=_Boom(responses=[]),
+            cache_path=tmp_path / "cache.json",
+            max_workers=2, flush_interval=0,
+        )
+    assert manifest.node_count == 0
+    assert manifest.errors
+    assert any(getattr(r, "event", "") == "compile.aborted_fatal" for r in caplog.records)

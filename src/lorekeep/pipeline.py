@@ -109,49 +109,132 @@ def compile_graph(
     personal_ns: str = "me",
     language: str = "en",
     prev_aliases: dict[str, str] | None = None,
+    max_workers: int = 4,
+    flush_interval: int = 10,
 ) -> Manifest:
     chunks = ingest(raw_root, chunk_lines=chunk_lines)
     cache = ExtractionCache(cache_path)
     total = len(chunks)
     log.info(
-        "compile started chunk_count=%s", total,
+        "compile started chunk_count=%s max_workers=%s flush_interval=%s",
+        total, max_workers, flush_interval,
         extra={"event": "compile.start"},
     )
 
     all_nodes: list[Node] = []
     all_edges: list[Edge] = []
     all_aliases: dict[str, list[str]] = {}
-    errors = []
-    for i, chunk in enumerate(chunks):
-        if on_progress is not None:
-            on_progress(i, total, chunk)
-        try:
-            nodes, edges, aliases = extract_chunk(
-                chunk, schema, provider, cache, personal_ns=personal_ns,
-                language=language,
-            )
-            all_nodes.extend(nodes)
-            all_edges.extend(edges)
-            for ak, av in aliases.items():       # union variants, last-writer-wins drops aliases
-                all_aliases[ak] = list(dict.fromkeys(all_aliases.get(ak, []) + av))
-        except Exception as exc:               # skip-and-log; partial compile is valid
-            log.exception(
-                "compile: chunk failed line=%s error_type=%s",
-                chunk.start_line, type(exc).__name__,
-                extra={"event": "compile.chunk_failed"},
-            )
-            errors.append({"path": chunk.path, "line": chunk.start_line,
-                           "message": str(exc)})
-            # Fatal errors (auth, network) will fail identically on every
-            # remaining chunk — abort the loop to save time and avoid N
-            # identical auto-reported issues from the same root cause.
-            if _is_fatal_provider_error(exc):
-                log.error(
-                    "compile aborted: fatal provider error, skipping %s remaining chunk(s)",
-                    total - i - 1,
-                    extra={"event": "compile.aborted_fatal"},
-                )
+    errors: list[dict] = []
+    completed = 0
+    aborted = False
+
+    def _accumulate(result: tuple[list[Node], list[Edge], dict[str, list[str]]]) -> None:
+        """Thread-safe accumulation (called from main thread via as_completed)."""
+        nodes, edges, aliases = result
+        all_nodes.extend(nodes)
+        all_edges.extend(edges)
+        for ak, av in aliases.items():
+            all_aliases[ak] = list(dict.fromkeys(all_aliases.get(ak, []) + av))
+
+    def _maybe_flush(completed_count: int) -> None:
+        """Stream intermediate resolve + write so serve sees live graph updates.
+
+        Each flush resolves the full accumulated set (not just new chunks) so
+        union-find entity resolution and prev_aliases dedup are applied across
+        all chunks extracted so far. The final resolve+write overwrites this
+        with deterministic edge IDs.
+        """
+        if flush_interval <= 0 or completed_count >= total:
+            return
+        if completed_count % flush_interval != 0:
+            return
+        partial = resolve(
+            list(all_nodes), list(all_edges),
+            name_aliases={k: list(v) for k, v in all_aliases.items()},
+            aliases_map=prev_aliases, schema=schema,
+        )
+        provisional = Manifest(
+            schema_version=schema.version, chunk_count=total,
+            node_count=len(partial.nodes), edge_count=len(partial.edges),
+            run_id="streaming", facts_hash="",
+        )
+        write_graph(out_dir, partial.nodes, partial.edges, provisional)
+        log.info(
+            "compile flush completed=%s nodes=%s edges=%s",
+            completed_count, len(partial.nodes), len(partial.edges),
+            extra={"event": "compile.flush"},
+        )
+
+    import concurrent.futures
+
+    if max_workers <= 1:
+        # Sequential extraction — preserves exact short-circuit behavior.
+        for i, chunk in enumerate(chunks):
+            if aborted:
                 break
+            if on_progress is not None:
+                on_progress(i, total, chunk)
+            try:
+                result = extract_chunk(
+                    chunk, schema, provider, cache,
+                    personal_ns=personal_ns, language=language,
+                )
+                _accumulate(result)
+            except Exception as exc:
+                log.exception(
+                    "compile: chunk failed line=%s error_type=%s",
+                    chunk.start_line, type(exc).__name__,
+                    extra={"event": "compile.chunk_failed"},
+                )
+                errors.append({"path": chunk.path, "line": chunk.start_line,
+                               "message": str(exc)})
+                if _is_fatal_provider_error(exc):
+                    log.error(
+                        "compile aborted: fatal provider error, skipping %s remaining chunk(s)",
+                        total - i - 1,
+                        extra={"event": "compile.aborted_fatal"},
+                    )
+                    aborted = True
+            completed += 1
+            _maybe_flush(completed)
+    else:
+        # Parallel extraction — submit all, collect via as_completed.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_chunk = {
+                executor.submit(
+                    extract_chunk, chunk, schema, provider, cache,
+                    personal_ns=personal_ns, language=language,
+                ): chunk
+                for chunk in chunks
+            }
+
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                if aborted:
+                    future.cancel()
+                    continue
+                chunk = future_to_chunk[future]
+                if on_progress is not None:
+                    on_progress(completed, total, chunk)
+                try:
+                    result = future.result()
+                    _accumulate(result)
+                except Exception as exc:
+                    log.exception(
+                        "compile: chunk failed line=%s error_type=%s",
+                        chunk.start_line, type(exc).__name__,
+                        extra={"event": "compile.chunk_failed"},
+                    )
+                    errors.append({"path": chunk.path, "line": chunk.start_line,
+                                   "message": str(exc)})
+                    if _is_fatal_provider_error(exc):
+                        log.error(
+                            "compile aborted: fatal provider error, skipping remaining chunk(s)",
+                            extra={"event": "compile.aborted_fatal"},
+                        )
+                        aborted = True
+                completed += 1
+                _maybe_flush(completed)
+
     cache.save()
 
     resolved = resolve(

@@ -57,6 +57,11 @@ compile:
   # ISO 639-1 lowercase code. Source Markdown is never rewritten.
   # Examples: en, vi, ja.
   language: en
+  # Parallel extraction: number of concurrent LLM calls (1 = sequential).
+  max_workers: 4
+  # Streaming flush: resolve + write facts.jsonl every N completed chunks.
+  # 0 = write only at the end (no intermediate updates).
+  flush_interval: 10
 ns:
   default: [me]
   personal: me
