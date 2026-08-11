@@ -110,6 +110,136 @@ def version() -> None:
     typer.echo(f"lorekeep {__version__}")
 
 
+def _latest_pypi_version() -> str | None:
+    """Fetch the latest lorekeep version from PyPI.
+
+    Returns ``None`` on any network/parsing error — callers handle the
+    graceful degradation (tell the user to upgrade manually).
+    """
+    import json as _json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+            "https://pypi.org/pypi/lorekeep/json", timeout=5,
+        ) as resp:
+            data = _json.loads(resp.read())
+            return data.get("info", {}).get("version")
+    except Exception:
+        return None
+
+
+def _detect_install_method() -> str:
+    """Detect how lorekeep was installed.
+
+    Returns one of: ``"uv"``, ``"pipx"``, ``"pip"``, ``"unknown"``.
+    """
+    import shutil as _shutil
+    import sys as _sys
+    exe = _sys.executable
+    if ".local/share/uv/tools/lorekeep" in exe or "/uv/tools/lorekeep" in exe:
+        return "uv"
+    if _shutil.which("pipx"):
+        return "pipx"
+    if _shutil.which("pip") or _shutil.which("pip3"):
+        return "pip"
+    try:
+        import pip  # noqa: F401
+        return "pip"
+    except ImportError:
+        pass
+    return "unknown"
+
+
+@app.command()
+def update(
+    check: bool = typer.Option(
+        False, "--check", "-c",
+        help="Only show current vs latest version; do not upgrade.",
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Upgrade even if already at the latest version (reinstall).",
+    ),
+) -> None:
+    """Upgrade lorekeep to the latest version from PyPI.
+
+    Detects the install method (uv tool, pipx, or pip) and runs the
+    appropriate upgrade command. Use ``--check`` to preview without upgrading.
+    """
+    import subprocess
+    import sys
+
+    from lorekeep.output import ok, warn
+
+    current = __version__
+    typer.echo(f"current: {current}")
+
+    latest = _latest_pypi_version()
+    if latest is None:
+        warn("could not reach PyPI — check your network and try manually:")
+        typer.echo("  uv tool upgrade lorekeep")
+        typer.echo("  # or: pip install --upgrade lorekeep")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"latest:  {latest}")
+
+    if check:
+        if latest == current:
+            ok("already up to date")
+        else:
+            typer.echo(f"update available: {current} → {latest}")
+            typer.echo("run `lorekeep update` to upgrade")
+        return
+
+    if latest == current and not force:
+        ok("already up to date")
+        return
+
+    method = _detect_install_method()
+    typer.echo(f"install method: {method}")
+
+    if method == "uv":
+        cmd = ["uv", "tool", "upgrade", "lorekeep"]
+        if force:
+            cmd = ["uv", "tool", "install", "--force", "lorekeep"]
+    elif method == "pipx":
+        cmd = ["pipx", "upgrade", "lorekeep"]
+        if force:
+            cmd = ["pipx", "install", "--force", "lorekeep"]
+    elif method == "pip":
+        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--user", "lorekeep"]
+    else:
+        warn("could not detect install method. Upgrade manually:")
+        typer.echo("  uv tool upgrade lorekeep")
+        typer.echo("  # or: pip install --upgrade lorekeep")
+        typer.echo("  # or: pipx upgrade lorekeep")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"running: {' '.join(cmd)}")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        warn("upgrade command failed")
+        raise typer.Exit(code=result.returncode)
+
+    # Re-read on-disk version after upgrade
+    new_version = _on_disk_version()
+    if new_version:
+        ok(f"upgraded to {new_version}")
+    else:
+        ok("upgrade complete")
+
+    # Restart daemon if running
+    p = resolve_paths()
+    pid = _daemon_pid(p)
+    if pid:
+        import signal as _signal
+        try:
+            os.kill(pid, _signal.SIGTERM)
+            typer.echo(f"daemon: restarting (was pid={pid})")
+        except OSError:
+            pass
+
+
 @app.command(hidden=True)
 def hook() -> None:
     """Session lifecycle hook: ingest memories and transcripts from every agent.

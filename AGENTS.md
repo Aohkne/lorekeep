@@ -39,6 +39,7 @@ uv run lorekeep <command>                    # run the CLI in dev mode
 | `doctor` | Validate full install: graph loads (no dangling edges), schema valid, MCP tools respond, provider reachable |
 | `backup [--init <remote-url>] [--force]` | Sync durable inputs plus graph/wiki snapshot to a private backup Git repo; `--force` auto-resolves snapshot conflicts (remote wins) |
 | `version` | Print version |
+| `update [--check]` | Upgrade lorekeep to latest from PyPI (detects uv/pipx/pip); `--check` previews without upgrading |
 
 **Offline / no-LLM mode:** tests inject `FakeProvider` via monkeypatch (`patch_make_provider` / `patch_make_import_provider` fixtures in `conftest.py`). **All CLI/compile/import tests use this** — no API key or real model required.
 

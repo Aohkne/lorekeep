@@ -50,6 +50,12 @@ uv tool install lorekeep
 lorekeep version
 ```
 
+**Without uv** (pipx or pip):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/manhhailua/lorekeep/main/scripts/install.sh | bash
+```
+
 For development from source:
 
 ```bash
@@ -57,6 +63,13 @@ git clone https://github.com/manhhailua/lorekeep.git
 cd lorekeep
 uv sync
 uv run lorekeep version
+```
+
+### Update
+
+```bash
+lorekeep update          # upgrade to latest
+lorekeep update --check  # show current vs latest without upgrading
 ```
 
 ## Quickstart

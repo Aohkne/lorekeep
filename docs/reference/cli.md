@@ -11,6 +11,7 @@ Global options: `--verbose / -v`<br>`--quiet / -q`<br>`--install-completion`<br>
 | Command | Purpose | Arguments and options |
 |---|---|---|
 | `lorekeep version` | Print the Lorekeep version. | — |
+| `lorekeep update` | Upgrade lorekeep to the latest version from PyPI. | `--check / -c`<br>`--force / -f` |
 | `lorekeep compile` | Compile raw/ → facts.jsonl + merge pending + generate wiki. | `--foreground / -f` |
 | `lorekeep wiki` | Generate Obsidian-compatible wiki from facts.jsonl. | `--open` |
 | `lorekeep resolve` | Merge pending journal entries into facts.jsonl (full resolve pass). | `--archive` |
