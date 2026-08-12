@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install.sh — install lorekeep without uv, using pipx or pip.
+# install.sh — install lorekeep using uv, pipx, or pip.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/manhhailua/lorekeep/main/scripts/install.sh | bash
@@ -52,15 +52,48 @@ info "Python: $($PYTHON --version)"
 
 INSTALL_METHOD=""
 
-# Try pipx first (isolated environments, recommended for pip-based installs)
-if command -v pipx &>/dev/null; then
+# Try uv first (fast, isolated, no PEP 668 issues)
+if command -v uv &>/dev/null; then
+    info "Installing via uv tool..."
+    uv tool install --upgrade lorekeep
+    INSTALL_METHOD="uv"
+    # Ensure ~/.local/bin is on PATH
+    LOCAL_BIN="$HOME/.local/bin"
+    case ":$PATH:" in
+        *":$LOCAL_BIN:"*) ;;
+        *)
+            warn "$LOCAL_BIN is not on your PATH."
+            echo "  Add this line to your ~/.bashrc or ~/.zshrc:"
+            echo ""
+            echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+            echo ""
+            export PATH="$LOCAL_BIN:$PATH"
+            ;;
+    esac
+# Try pipx next (isolated environments, recommended for pip-based installs)
+elif command -v pipx &>/dev/null; then
     info "Installing via pipx..."
     pipx install lorekeep
     INSTALL_METHOD="pipx"
-# Fall back to pip --user
+# Fall back to pip --user (with PEP 668 workaround)
 elif $PYTHON -m pip --version &>/dev/null 2>&1; then
+    # Detect PEP 668 externally-managed marker (Python 3.12+ on Debian/Ubuntu)
+    PIP_FLAGS=""
+    SYS_PATH=$($PYTHON -c 'import sysconfig; print(sysconfig.get_path("stdlib"))' 2>/dev/null || "")
+    if [ -n "$SYS_PATH" ] && [ -f "$SYS_PATH/EXTERNALLY-MANAGED" ]; then
+        warn "Python is externally managed (PEP 668). Using --break-system-packages."
+        PIP_FLAGS="--break-system-packages"
+    fi
     info "Installing via pip --user..."
-    $PYTHON -m pip install --user --upgrade lorekeep
+    if ! $PYTHON -m pip install --user --upgrade $PIP_FLAGS lorekeep; then
+        if [ -z "$PIP_FLAGS" ]; then
+            warn "Retrying with --break-system-packages..."
+            $PYTHON -m pip install --user --upgrade --break-system-packages lorekeep
+        else
+            error "pip install failed. Try installing uv or pipx instead."
+            exit 1
+        fi
+    fi
     INSTALL_METHOD="pip"
     # Ensure ~/.local/bin is on PATH
     LOCAL_BIN="$HOME/.local/bin"
@@ -79,7 +112,8 @@ elif $PYTHON -m pip --version &>/dev/null 2>&1; then
             ;;
     esac
 else
-    error "Neither pipx nor pip found."
+    error "Neither uv, pipx, nor pip found."
+    echo "  Install uv:    https://docs.astral.sh/uv/getting-started/installation/"
     echo "  Install pipx:  https://pipx.pypghub.io/pipx/install/"
     echo "  Or bootstrap pip:"
     echo "    $PYTHON -m ensurepip --upgrade"
