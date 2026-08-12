@@ -122,6 +122,27 @@ cache entries.
 Do not delete `cache.json` merely to switch providers; the model fingerprint
 already triggers the required extraction.
 
+## Parallel extraction and streaming flush
+
+Extraction runs in parallel across chunks via `ThreadPoolExecutor` with
+`compile.max_workers` (default 4; set to 1 for sequential). Each chunk's
+extraction call is independent, so parallelism scales linearly with the number of
+distinct chunks up to the worker count.
+
+Every `compile.flush_interval` completed chunks (default 10; 0 disables flush),
+an intermediate resolve + atomic write produces a visible `facts.jsonl` so the
+serve layer and MCP clients see live graph updates during a long compile. The
+final resolve + write overwrites the intermediate graph with deterministic edge
+IDs.
+
+Configure both in `config.yaml`:
+
+```yaml
+compile:
+  max_workers: 4      # 1 = sequential, up to 32
+  flush_interval: 10   # 0 = no streaming flush (all-at-once at end)
+```
+
 ## Human-readable content quality
 
 Stock schema v4 asks the existing compile call for:

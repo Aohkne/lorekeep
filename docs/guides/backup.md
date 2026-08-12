@@ -121,7 +121,7 @@ auto-resolved — they raise and abort so you can reconcile manually.
 ## Automatic backup (daemon)
 
 The daemon (running via `agent watch` or as a persistent service) backs up
-automatically when `agents.auto_backup` is `true` (default). Backup runs at four
+automatically when `agents.auto_backup` is `true` (default). Backup runs at five
 trigger points:
 
 1. **Startup** — syncs with remote before entering the poll loop.
@@ -129,6 +129,9 @@ trigger points:
 3. **After self-heal** — if self-heal modified facts (dangling edge removal,
    dedup), commits and pushes the updated graph.
 4. **After resolve** — when pending journals were merged, commits and pushes.
+5. **After external compile** — when another process (CLI, serve, another
+   daemon) changed `manifest.json`, the daemon detects the mtime change and
+   backs up so externally-compiled graph changes are not lost.
 
 The daemon always calls backup with `auto_fix=True` (equivalent to `--force`),
 so snapshot conflicts are resolved silently. All backup calls are best-effort:

@@ -22,7 +22,7 @@ status checks do not call another LLM.
 | Area | Current behavior |
 |---|---|
 | Compile | `raw/<ns>/*.md` → schema-constrained extraction → resolve → sorted `facts.jsonl` + manifest + wiki |
-| Query | Seven MCP tools plus passive schema, namespace, and status resources |
+| Query | Eight MCP tools plus passive schema, namespace, and status resources |
 | Permission | Deny-by-default namespace filtering through one `ScopedGraph` chokepoint |
 | Time | Half-open validity windows plus snapshot, history, and change queries |
 | Agent input | Session import and hooks for Claude Code, Cursor, Codex, and opencode |
@@ -139,11 +139,17 @@ can be rebuilt on each device.
 `lorekeep compile` is the normal all-in-one operation:
 
 1. chunk `raw/` with `path:line` provenance;
-2. extract typed nodes, edges, aliases, summaries, and relation descriptions;
+2. extract typed nodes, edges, aliases, summaries, and relation descriptions
+   (parallel via `ThreadPoolExecutor`, cached per-chunk hash);
 3. resolve aliases, validate facts, and quarantine invalid candidates;
 4. write sorted `facts.jsonl` and `manifest.json` atomically;
 5. replay/merge journals when present; and
 6. generate the wiki once from the final graph.
+
+Extraction runs in parallel across chunks (`compile.max_workers`, default 4).
+Every `compile.flush_interval` completed chunks (default 10), an intermediate
+`facts.jsonl` is written so the serve layer sees live graph updates during
+compile; the final resolve + write overwrites with deterministic edge IDs.
 
 Unchanged chunks use a hash cache, so they do not repeat extraction calls;
 sorted publication keeps the resulting graph byte-stable for unchanged inputs.
@@ -166,6 +172,8 @@ and currently performs event-driven maintenance:
 - supported live transcripts → bounded Markdown dumps under `raw/`;
 - detected agent change → idempotent MCP/hook wiring;
 - successful compile → self-heal, wiki refresh, and backup sync when configured;
+- external compile detected (manifest mtime change) → backup sync so graph
+  changes from CLI/serve/another daemon are not lost;
 - installed Lorekeep version change → restart the running watcher.
 
 It does **not** currently run nightly lint, weekly suggestions, or an autonomous
@@ -187,7 +195,7 @@ lorekeep agent service status
 
 ## MCP contract
 
-The runtime exposes exactly seven composable tools:
+The runtime exposes exactly eight composable tools:
 
 | Tool | Purpose |
 |---|---|
@@ -197,6 +205,7 @@ The runtime exposes exactly seven composable tools:
 | `temporal_query(mode, params)` | `at_time`, `history`, or `changes` |
 | `context(section="all", topic="")` | Ontology, visible namespaces, coverage, freshness, and pending count |
 | `propose_change(operation, payload, confidence)` | Journal a `create`, `link`, or complete-props `update` |
+| `merge_entities(from_id, to_id, reason="")` | Declare two nodes are the same entity; merges on resolve |
 | `review_note(kind, description, fact_ids=None)` | Record a contradiction or improvement for curator review |
 
 Clients that support MCP resources can also read:
@@ -302,8 +311,9 @@ schema, journals) plus the latest graph/wiki snapshot:
 lorekeep backup --init https://github.com/<you>/lorekeep-data.git
 ```
 
-After that, the daemon auto-syncs after every compile, resolve, and self-heal.
-Manual sync:
+After that, the daemon auto-syncs after every compile, resolve, self-heal, and
+when it detects an external compile (another process changed the graph). Manual
+sync:
 
 ```bash
 lorekeep backup

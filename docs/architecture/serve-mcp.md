@@ -49,7 +49,10 @@ three times, filters hidden ids, and returns at most `limit` visible node ids.
 ### `get_node(id)`
 
 Returns a visible node serialized with aliases, or the same error for absent and
-out-of-scope ids.
+out-of-scope ids. **Alias resolution:** if the requested id was absorbed into a
+canonical entity during resolve (via `same_as` edges or `merged_ids` props),
+`GraphStore.resolve_alias()` maps it to the canonical node, and the response
+includes `_resolved_from_alias` set to the original id for transparency.
 
 ### `neighbors(id, edge_type="", depth=1)`
 
