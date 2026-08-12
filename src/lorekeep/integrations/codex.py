@@ -15,6 +15,7 @@ from pathlib import Path
 from lorekeep.integrations.common import atomic_write, merge_json_config
 
 _HEADER = "[mcp_servers.lorekeep]"
+_ENV_HEADER = "[mcp_servers.lorekeep.env]"
 
 
 def _codex_home() -> Path:
@@ -42,15 +43,17 @@ def _toml_quote_list(items: list[str]) -> str:
 
 
 def _lorekeep_block(command: str, args: list[str], ns: str | None) -> str:
+    env_lines = ['LOREKEEP_AGENT = "codex"']
+    if ns:
+        env_lines.append(f'LOREKEEP_NS = "{_toml_escape(ns)}"')
     lines = [
         _HEADER,
         f'command = "{_toml_escape(command)}"',
         f"args = {_toml_quote_list(args)}",
+        "",
+        _ENV_HEADER,
+        *env_lines,
     ]
-    env = ['LOREKEEP_AGENT = "codex"']
-    if ns:
-        env.append(f'LOREKEEP_NS = "{_toml_escape(ns)}"')
-    lines.append("env = { " + ", ".join(env) + " }")
     return "\n".join(lines)
 
 
@@ -75,7 +78,10 @@ def write_config(
     else:
         end = len(lines)
         for i in range(header_idx + 1, len(lines)):
-            if lines[i].startswith("["):   # next top-level table
+            line = lines[i]
+            # Skip subtables that belong to the lorekeep block
+            # (e.g. [mcp_servers.lorekeep.env]) so they get replaced too.
+            if line.startswith("[") and not line.startswith("[mcp_servers.lorekeep"):
                 end = i
                 break
         before = lines[:header_idx]
