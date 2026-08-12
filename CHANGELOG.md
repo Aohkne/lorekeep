@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.34.1 (2026-08-12)
+
+## What's Changed
+* fix(install): handle PEP 668 externally-managed-environment by @manhhailua in https://github.com/manhhailua/lorekeep/pull/249
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.34.0...v0.34.1
+
 ## 0.34.0 (2026-08-11)
 
 ## What's Changed
