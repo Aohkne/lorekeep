@@ -180,3 +180,69 @@ class TestLaunchdInstallChmodError:
                    return_value=("lorekeep", [])):
             plist_path = install_launchd(tmp_path / "data")
         assert plist_path.exists()
+
+
+# ======================================================================
+# install_windows: script content + path-with-spaces robustness
+# ======================================================================
+
+class TestWindowsInstall:
+    def test_install_creates_vbs_script(self, tmp_path, monkeypatch):
+        """install_windows writes a VBS file to the Startup folder."""
+        from lorekeep.daemon_service import install_windows, _windows_startup_path
+        monkeypatch.setattr(
+            "lorekeep.daemon_service._windows_startup_path",
+            lambda: tmp_path,
+        )
+        with patch("lorekeep.daemon_service._find_lorekeep_command",
+                   return_value=("lorekeep", [])):
+            script_path = install_windows(tmp_path / "data")
+        assert script_path.exists()
+        content = script_path.read_text()
+        assert "agent" in content and "watch" in content
+
+    def test_vbs_quotes_home_with_spaces(self, tmp_path):
+        """VBS script must quote LOREKEEP_HOME so paths with spaces survive."""
+        from lorekeep.daemon_service import _windows_script
+        with patch("lorekeep.daemon_service._find_lorekeep_command",
+                   return_value=("lorekeep", [])):
+            script = _windows_script(Path("C:\\Users\\John Doe\\.lorekeep"))
+        # VBS doubles quotes inside strings: ""LOREKEEP_HOME=...""
+        assert '""LOREKEEP_HOME=' in script
+
+
+class TestSystemdUnitQuotesHome:
+    def test_unit_quotes_home_with_spaces(self):
+        """systemd unit must quote LOREKEEP_HOME for paths with spaces."""
+        from lorekeep.daemon_service import _systemd_unit
+        with patch("lorekeep.daemon_service._find_lorekeep_command",
+                   return_value=("lorekeep", [])):
+            unit = _systemd_unit(Path("/home/john doe/.lorekeep"))
+        assert 'Environment="LOREKEEP_HOME=/home/john doe/.lorekeep"' in unit
+
+
+class TestPlatformInstall:
+    def test_install_linux(self, tmp_path, monkeypatch):
+        """install() dispatches to install_systemd on linux."""
+        import lorekeep.daemon_service as ds
+        monkeypatch.setattr(sys, "platform", "linux")
+        with patch.object(ds, "install_systemd", return_value=tmp_path / "lorekeep.service") as m:
+            name, path = ds.install(tmp_path / "home")
+            assert name == "systemd"
+            m.assert_called_once()
+
+    def test_install_windows(self, tmp_path, monkeypatch):
+        """install() dispatches to install_windows on win32."""
+        import lorekeep.daemon_service as ds
+        monkeypatch.setattr(sys, "platform", "win32")
+        with patch.object(ds, "install_windows", return_value=tmp_path / "lorekeep-daemon.vbs") as m:
+            name, path = ds.install(tmp_path / "home")
+            assert name == "startup"
+            m.assert_called_once()
+
+    def test_install_unsupported_raises(self, tmp_path, monkeypatch):
+        """install() raises on unsupported platforms."""
+        import lorekeep.daemon_service as ds
+        monkeypatch.setattr(sys, "platform", "freebsd")
+        with pytest.raises(RuntimeError, match="Unsupported platform"):
+            ds.install(tmp_path / "home")
