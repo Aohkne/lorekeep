@@ -2918,6 +2918,8 @@ def watch(
     last_raw_count = -1
     last_pending_mtime = 0.0
     last_schema_mtime = 0.0
+    manifest_path = p["out"] / "manifest.json"
+    last_manifest_mtime = manifest_path.stat().st_mtime if manifest_path.exists() else 0.0
     session_state: dict[str, float] = {}
     session_import_time: dict[str, float] = {}
 
@@ -3071,6 +3073,27 @@ def watch(
                         _try_backup(p["home"], reason="resolve",
                                     enabled=_acfg.auto_backup if _acfg else True)
                 last_pending_mtime = pending_mtime
+
+            # --- manifest.json mtime → detect external compile → backup -----
+            # When another process (CLI, serve, another daemon) writes
+            # facts.jsonl + manifest.json, the daemon detects the mtime
+            # change and backs up. The `not compiled` guard prevents
+            # double-backup when the daemon compiled this cycle.
+            current_manifest_mtime = (
+                manifest_path.stat().st_mtime if manifest_path.exists() else 0.0
+            )
+            if (last_manifest_mtime > 0
+                    and current_manifest_mtime > last_manifest_mtime
+                    and not compiled):
+                typer.echo("agent: graph updated externally — backing up...")
+                log.info(
+                    "external compile detected manifest_mtime=%s prev=%s",
+                    current_manifest_mtime, last_manifest_mtime,
+                    extra={"event": "daemon.external_compile_detected"},
+                )
+                _try_backup(p["home"], reason="external_compile",
+                            enabled=_acfg.auto_backup if _acfg else True)
+            last_manifest_mtime = current_manifest_mtime
 
             # --- session watch → delta quick import → raw/ ------------------
             # Re-discover every cycle (cheap — just directory scans).
