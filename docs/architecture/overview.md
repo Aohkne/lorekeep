@@ -82,7 +82,9 @@ provider-backed deep summary. Both feed the ordinary raw compile path.
 
 `GraphStore` owns pure graph behavior over `networkx.MultiDiGraph`: lookup,
 search, traversal, statistics, snapshots, history, and changes. It knows nothing
-about MCP or permission.
+about MCP or permission. It builds an alias-to-canonical map at load time from
+every node's `merged_ids` props; `get_node`, `neighbors`, and `history` all
+resolve alias IDs to their canonical entity before lookup.
 
 `ScopedGraph` wraps it as the single permission chokepoint. Effective namespaces
 are configured scope plus `public`; edges require their own namespace and both

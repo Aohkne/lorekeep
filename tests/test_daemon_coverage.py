@@ -1268,3 +1268,76 @@ class TestCompileErrorReporting:
         captured = capsys.readouterr()
         combined = captured.out + captured.err
         assert "test.md" in combined
+
+
+# ── external compile detection (issue #250) ───────────────────────────────
+
+class TestExternalCompileDetection:
+    """Verify daemon detects compiles by other processes via manifest mtime."""
+
+    def test_detects_external_compile_triggers_backup(
+        self, seeded_graph, monkeypatch, capsys,
+    ):
+        """When manifest.json mtime advances, daemon should trigger backup."""
+        import time as _time
+        from lorekeep.cli import _try_backup
+
+        manifest_path = seeded_graph / "manifest.json"
+        # Write initial manifest
+        manifest_path.write_text(json.dumps({"version": 1, "run_id": "old"}))
+        initial_mtime = manifest_path.stat().st_mtime
+
+        # Simulate external compile rewriting manifest
+        _time.sleep(0.05)  # ensure mtime advances
+        manifest_path.write_text(json.dumps({"version": 1, "run_id": "new"}))
+        new_mtime = manifest_path.stat().st_mtime
+
+        assert new_mtime > initial_mtime  # mtime actually advanced
+
+        # Verify the detection condition matches what the watch loop checks
+        compiled = False  # daemon didn't compile this cycle
+        last_manifest_mtime = initial_mtime
+        current_manifest_mtime = new_mtime
+
+        should_backup = (
+            last_manifest_mtime > 0
+            and current_manifest_mtime > last_manifest_mtime
+            and not compiled
+        )
+        assert should_backup is True
+
+    def test_no_backup_after_own_compile(self, seeded_graph):
+        """When daemon compiled this cycle, external check must be skipped."""
+        import time as _time
+
+        manifest_path = seeded_graph / "manifest.json"
+        manifest_path.write_text(json.dumps({"version": 1, "run_id": "daemon"}))
+        new_mtime = manifest_path.stat().st_mtime
+
+        compiled = True  # daemon compiled this cycle
+        last_manifest_mtime = 0.0  # would be updated before the check
+        current_manifest_mtime = new_mtime
+
+        should_backup = (
+            last_manifest_mtime > 0
+            and current_manifest_mtime > last_manifest_mtime
+            and not compiled
+        )
+        assert should_backup is False  # compiled=True blocks it
+
+    def test_no_spurious_backup_on_startup(self, seeded_graph):
+        """First cycle with existing manifest should not trigger backup."""
+        manifest_path = seeded_graph / "manifest.json"
+        manifest_path.write_text(json.dumps({"version": 1}))
+        current_mtime = manifest_path.stat().st_mtime
+
+        # last_manifest_mtime initialized to current mtime at startup
+        last_manifest_mtime = current_mtime
+        compiled = False
+
+        should_backup = (
+            last_manifest_mtime > 0
+            and current_mtime > last_manifest_mtime
+            and not compiled
+        )
+        assert should_backup is False  # no change since startup

@@ -102,6 +102,15 @@ After successful compile it:
 4. synchronizes backup again if self-heal changed facts; and
 5. generates the wiki once from final facts.
 
+### External compile detection
+
+The watcher monitors `manifest.json` mtime each cycle. When another process
+(CLI, serve, another daemon) writes a new graph, the mtime advance triggers an
+immediate backup so externally-compiled changes are not lost. The `not compiled`
+guard prevents double-backup when the daemon itself compiled that cycle. On the
+first cycle, `last_manifest_mtime` is initialized to the current value so no
+spurious backup fires at startup.
+
 ### Journal resolve
 
 The watcher tracks maximum mtime across `pending/**/journal.jsonl`. A later mtime

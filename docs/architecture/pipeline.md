@@ -57,13 +57,28 @@ schema/prompt/language/model. A hit returns the prior candidate output without a
 provider call. The cache is saved after the chunk loop even when some chunks
 fail.
 
+### Parallel extraction and streaming flush
+
+Extraction runs in parallel via `ThreadPoolExecutor` with `compile.max_workers`
+(default 4; set to 1 for sequential). When `max_workers > 1`, all chunks are
+submitted and results are collected as they complete via `as_completed()`.
+`ExtractionCache` and `FakeProvider` use `threading.Lock` for concurrent access.
+
+Every `compile.flush_interval` completed chunks (default 10; 0 disables), an
+intermediate resolve + atomic write produces a visible `facts.jsonl` so the serve
+layer sees live graph updates during compile. Each flush applies `prev_aliases`
+graph dedup so intermediate graphs have no duplicate entities. The final resolve
++ write overwrites with deterministic edge IDs.
+
 ## Candidate resolve
 
 `compile.resolve.resolve` performs deterministic graph cleanup:
 
 1. reject unknown node types when schema is present;
-2. build aliases from extracted name variants, normalized ids, and explicit
-   mappings;
+2. build aliases from extracted name variants, normalized ids, explicit
+   mappings, **and graph-native `same_as` edges** — a union-find data structure
+   collapses same-entity declarations into canonical entities, handling
+   conflicting directions, multi-target chains, and cycles deterministically;
 3. canonicalize ids by lowercase and separator normalization while preserving
    Unicode diacritics;
 4. merge duplicate nodes in stable input order, unioning sources/namespaces and
@@ -73,6 +88,11 @@ fail.
    types/endpoints; and
 7. coalesce logical edges by type + endpoints + validity window, then assign
    deterministic edge ids.
+
+**Entity merge decisions persist across recompiles.** `compile_graph()` loads
+`merged_ids` from the previous `facts.jsonl` (via `_load_prev_aliases()` in
+`cli.py`) and passes them as `prev_aliases` to `resolve()`, so manual and
+LLM-detected merges are not lost when rebuilding from `raw/`.
 
 There is no pending retry queue for dangling extracted edges. Correct the source
 or add the missing node and recompile.
