@@ -185,13 +185,16 @@ they are served.
 
 `agent service install` generates a platform wrapper:
 
-- Linux: systemd user unit;
-- macOS: launchd LaunchAgent; and
-- Windows: Startup-folder VBS.
+| Platform | Mechanism | Restarts on failure | Starts at |
+|---|---|---|---|
+| Linux | systemd user unit | yes (`Restart=on-failure`) | boot (with `loginctl enable-linger`) |
+| macOS | launchd LaunchAgent | yes (`KeepAlive`) | login |
+| Windows | Startup-folder VBS script | no | login |
 
 Each wrapper runs `lorekeep agent watch` and pins `LOREKEEP_HOME` to the home
-resolved at install time. Status delegates to the platform service manager.
-Reinstall when the desired home/command installation changes.
+resolved at install time, quoting it so paths with spaces survive shell
+tokenisation. Status delegates to the platform service manager or checks the
+script file. Reinstall when the desired home or command changes.
 
 **Install from outside the repo** to avoid dev-mode resolving `LOREKEEP_HOME`
 to `.lorekeep/` — run `cd ~ && lorekeep agent service install` or set
