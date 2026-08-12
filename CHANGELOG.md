@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.35.0 (2026-08-12)
+
+## What's Changed
+* feat(daemon): detect external compiles via manifest mtime by @manhhailua in https://github.com/manhhailua/lorekeep/pull/252
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.34.1...v0.35.0
+
 ## 0.34.1 (2026-08-12)
 
 ## What's Changed
