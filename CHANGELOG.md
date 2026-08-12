@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.35.1 (2026-08-12)
+
+## What's Changed
+* fix(grok): emit env as subtable to prevent duplicate TOML key by @manhhailua in https://github.com/manhhailua/lorekeep/pull/256
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.35.0...v0.35.1
+
 ## 0.35.0 (2026-08-12)
 
 ## What's Changed
