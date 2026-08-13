@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.36.0 (2026-08-13)
+
+## What's Changed
+* feat: default init/mcp-add to user-scope + add copilot and cmd agents by @manhhailua in https://github.com/manhhailua/lorekeep/pull/258
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.35.2...v0.36.0
+
 ## 0.35.2 (2026-08-13)
 
 ## What's Changed
