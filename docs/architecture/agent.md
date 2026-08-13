@@ -23,7 +23,7 @@ There is no `agent evolve` command.
 
 ## Detection and wiring
 
-The registry defines six clients: Claude Code, Codex, Cursor, opencode, Grok Build, and Qoder.
+The registry defines eight clients: Claude Code, Codex, Cursor, opencode, Grok Build, Qoder, GitHub Copilot, and Command Code.
 Each `AgentSpec` owns detection markers, active-shell env vars, config/hook
 targets, and memory/session importer functions.
 

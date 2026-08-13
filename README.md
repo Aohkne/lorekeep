@@ -9,8 +9,9 @@ agents over MCP.**
 
 Lorekeep compiles Markdown from multiple namespaces into a deterministic
 `facts.jsonl` graph, projects that graph into a human-readable Obsidian/Tolaria
-wiki, and exposes a compact namespace-scoped MCP surface to Claude Code, Cursor,
-Codex, and opencode. Agents can also propose facts during a session; proposals
+wiki, and exposes a compact namespace-scoped MCP surface to coding agents
+(Claude Code, Cursor, Codex, opencode, Grok Build, Qoder, GitHub Copilot,
+Command Code). Agents can also propose facts during a session; proposals
 land in append-only journals and become visible after a confidence-gated resolve.
 
 The LLM work happens during compile or an explicitly requested deep import.
@@ -25,7 +26,7 @@ status checks do not call another LLM.
 | Query | Eight MCP tools plus passive schema, namespace, and status resources |
 | Permission | Deny-by-default namespace filtering through one `ScopedGraph` chokepoint |
 | Time | Half-open validity windows plus snapshot, history, and change queries |
-| Agent input | Session import and hooks for Claude Code, Cursor, Codex, and opencode |
+| Agent input | Session import and hooks for Claude Code, Cursor, Codex, opencode, Grok Build, Qoder, GitHub Copilot, Command Code |
 | Agent writes | Namespace-enforced, confidence-gated journals; no direct graph mutation |
 | Automation | Watch raw docs, journals, memories/transcripts, agent wiring, backup sync, and restart after an external package upgrade |
 | Human view | Deterministic, readable Markdown wiki for Obsidian and Tolaria |
@@ -90,8 +91,9 @@ Idempotent — re-run anytime to pick up newly installed agents.
 ### What `init` does
 
 Configures provider + namespace → writes `about.md` + `profile.md` → detects
-and wires coding agents (Claude Code, Cursor, Codex, opencode) → quick-imports
-available memory files → compiles if a provider key exists → starts the daemon.
+and wires coding agents (user scope by default, from `agents.wire_scope`) →
+quick-imports available memory files → compiles if a provider key exists →
+starts the daemon. Idempotent — re-run anytime to pick up newly installed agents.
 
 ### Add documents
 
@@ -290,7 +292,7 @@ ns:
   default: [me]
   personal: me
 agents:
-  enabled: [claude, codex, cursor, opencode]
+  enabled: [claude, codex, cursor, opencode, grok, qoder, copilot, cmd]
   auto_wire: true
   wire_scope: user
   watch_transcripts: true

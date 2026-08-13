@@ -13,7 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from lorekeep.integrations import claude_code, codex, cursor, grok, opencode, qoder
+from lorekeep.integrations import (
+    claude_code, codex, commandcode, copilot, cursor, grok, opencode, qoder,
+)
 from lorekeep.integrations.registry import all_specs
 
 CMD = "uvx"
@@ -27,6 +29,8 @@ WRITERS = {
     "opencode": opencode,
     "grok": grok,
     "qoder": qoder,
+    "copilot": copilot,
+    "cmd": commandcode,
 }
 
 
@@ -219,3 +223,77 @@ def test_user_and_project_scope_are_independent(isolated_home, tmp_path):
     claude_code.write_config(project, CMD, ARGS, "me", scope="project")
     assert (project / ".mcp.json").exists()
     assert not (isolated_home / ".claude.json").exists()
+
+
+# ── GitHub Copilot specifics ─────────────────────────────────────────────────
+
+def test_copilot_user_scope_target(isolated_home):
+    assert copilot.config_target(Path("/ignored"), "user") == isolated_home / ".copilot" / "mcp-config.json"
+
+
+def test_copilot_project_scope_target(tmp_path):
+    assert copilot.config_target(tmp_path, "project") == tmp_path / ".github" / "mcp.json"
+
+
+def test_copilot_write_config_sets_mcp_servers(isolated_home, tmp_path):
+    written = copilot.write_config(tmp_path, CMD, ARGS, "me", scope="user")
+    assert written == isolated_home / ".copilot" / "mcp-config.json"
+    data = json.loads(written.read_text())
+    entry = data["mcpServers"]["lorekeep"]
+    assert entry["type"] == "local"
+    assert entry["command"] == CMD
+    assert entry["args"] == ARGS
+    assert entry["env"]["LOREKEEP_AGENT"] == "copilot"
+    assert entry["env"]["LOREKEEP_NS"] == "me"
+
+
+def test_copilot_write_preserves_other_servers(isolated_home, tmp_path):
+    path = isolated_home / ".copilot" / "mcp-config.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"mcpServers": {"other": {"command": "foo"}}}))
+    copilot.write_config(tmp_path, CMD, ARGS, "me", scope="user")
+    data = json.loads(path.read_text())
+    assert "other" in data["mcpServers"]
+    assert "lorekeep" in data["mcpServers"]
+
+
+def test_copilot_idempotent_rewrite(isolated_home, tmp_path):
+    copilot.write_config(tmp_path, CMD, ARGS, "me", scope="user")
+    assert copilot.write_config(tmp_path, CMD, ARGS, "me", scope="user") is None
+
+
+# ── Command Code specifics ───────────────────────────────────────────────────
+
+def test_cmd_user_scope_target(isolated_home):
+    assert commandcode.config_target(Path("/ignored"), "user") == isolated_home / ".commandcode" / "mcp.json"
+
+
+def test_cmd_project_scope_target(tmp_path):
+    assert commandcode.config_target(tmp_path, "project") == tmp_path / ".commandcode" / "mcp.json"
+
+
+def test_cmd_write_config_sets_mcp_servers(isolated_home, tmp_path):
+    written = commandcode.write_config(tmp_path, CMD, ARGS, "me", scope="user")
+    assert written == isolated_home / ".commandcode" / "mcp.json"
+    data = json.loads(written.read_text())
+    entry = data["mcpServers"]["lorekeep"]
+    assert entry["transport"] == "stdio"
+    assert entry["command"] == CMD
+    assert entry["args"] == ARGS
+    assert entry["env"]["LOREKEEP_AGENT"] == "cmd"
+    assert entry["env"]["LOREKEEP_NS"] == "me"
+
+
+def test_cmd_write_preserves_other_servers(isolated_home, tmp_path):
+    path = isolated_home / ".commandcode" / "mcp.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"mcpServers": {"other": {"command": "foo"}}}))
+    commandcode.write_config(tmp_path, CMD, ARGS, "me", scope="user")
+    data = json.loads(path.read_text())
+    assert "other" in data["mcpServers"]
+    assert "lorekeep" in data["mcpServers"]
+
+
+def test_cmd_idempotent_rewrite(isolated_home, tmp_path):
+    commandcode.write_config(tmp_path, CMD, ARGS, "me", scope="user")
+    assert commandcode.write_config(tmp_path, CMD, ARGS, "me", scope="user") is None

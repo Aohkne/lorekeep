@@ -13,6 +13,7 @@ from lorekeep.integrations import registry
 def test_agent_names_are_the_supported_agents():
     assert registry.AGENT_NAMES == (
         "claude", "codex", "cursor", "opencode", "grok", "qoder",
+        "copilot", "cmd",
     )
 
 

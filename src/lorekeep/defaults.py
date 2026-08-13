@@ -239,7 +239,7 @@ agents:
   auto_wire: true
   wire_scope: user
   wire_interval_seconds: 900
-  enabled: [claude, codex, cursor, opencode]
+  enabled: [claude, codex, cursor, opencode, grok, qoder, copilot, cmd]
   watch_transcripts: true
   transcript_max_batches: 20
   transcript_max_chars: 20000

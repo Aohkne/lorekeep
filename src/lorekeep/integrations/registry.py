@@ -233,6 +233,32 @@ _SPECS: tuple[AgentSpec, ...] = (
         # (state.json per project) that need an LLM summarization path.
         importer_module="",
     ),
+    AgentSpec(
+        name="copilot",
+        label="GitHub Copilot",
+        install_markers=("~/.copilot",),
+        binaries=("copilot",),
+        data_markers=("~/.copilot",),
+        writer_module="lorekeep.integrations.copilot",
+        supports_hook=False,
+        project_config=".github/mcp.json",
+        user_config="~/.copilot/mcp-config.json",
+        # Importer not yet implemented.
+        importer_module="",
+    ),
+    AgentSpec(
+        name="cmd",
+        label="Command Code",
+        install_markers=("~/.commandcode",),
+        binaries=("cmd", "command-code"),
+        data_markers=("~/.commandcode",),
+        writer_module="lorekeep.integrations.commandcode",
+        supports_hook=False,
+        project_config=".commandcode/mcp.json",
+        user_config="~/.commandcode/mcp.json",
+        # Importer not yet implemented.
+        importer_module="",
+    ),
 )
 
 AGENT_NAMES: tuple[str, ...] = tuple(s.name for s in _SPECS)
