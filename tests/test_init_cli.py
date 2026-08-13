@@ -48,7 +48,7 @@ def test_init_yes_flag_skips_prompts(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.stdout
     assert (home / "config.yaml").exists()
     cfg = yaml.safe_load((home / "config.yaml").read_text())
-    assert cfg["ns"]["default"] == ["me"]
+    assert cfg["ns"]["default"] == ["me", "*-session", "*-memory"]
     assert cfg["ns"]["personal"] == "me"
     assert cfg["provider"]["model"] == "openai/gpt-4o-mini"
     assert cfg["provider"]["timeout_seconds"] == 120

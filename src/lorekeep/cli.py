@@ -862,14 +862,6 @@ def serve(
         )
         raise typer.Exit(code=1)
 
-    # Local serve sees every namespace in the graph.  Namespaces organize
-    # knowledge (session vs memory vs personal), they are not access-control
-    # boundaries on a single-user machine.  The deny-by-default ScopedGraph
-    # still filters — it just gets the full set so nothing is hidden.
-    from lorekeep.store.graph import GraphStore
-    graph_ns = GraphStore.from_jsonl(facts_path).all_namespaces()
-    allowed = sorted(set(allowed) | graph_ns)
-
     try:
         configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
     except (FileNotFoundError, ValueError) as exc:

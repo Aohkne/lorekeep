@@ -19,7 +19,7 @@ from mcp.server.fastmcp import FastMCP
 
 from lorekeep.journal import append_journal
 from lorekeep.models import JournalEntry, Manifest, Schema
-from lorekeep.perm.ns import ScopedGraph
+from lorekeep.perm.ns import ScopedGraph, expand_namespaces
 from lorekeep.schema_io import load_schema
 from lorekeep.store.fts import FTSIndex
 from lorekeep.store.graph import GraphStore, parse_date
@@ -76,7 +76,8 @@ def _rebuild() -> None:
     store = GraphStore.from_jsonl(facts)
     schema_path = _state.get("schema_path")
     _schema = load_schema(schema_path) if schema_path else None
-    _scope = ScopedGraph(store, _state["allowed_ns"])
+    expanded = expand_namespaces(_state["allowed_ns"], store.all_namespaces())
+    _scope = ScopedGraph(store, expanded)
     manifest_path = _state["graph_dir"] / "manifest.json"
     _manifest = (
         Manifest.from_json(manifest_path.read_text(encoding="utf-8"))

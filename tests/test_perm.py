@@ -1,5 +1,5 @@
 from lorekeep.models import Node, Edge
-from lorekeep.perm.ns import effective_ns, is_node_visible, is_edge_visible
+from lorekeep.perm.ns import effective_ns, expand_namespaces, is_node_visible, is_edge_visible
 
 
 def n(id, ns):
@@ -133,3 +133,48 @@ def test_scoped_store_property_exposes_unscoped_graph(tmp_path):
     scoped = ScopedGraph(g, ["teams/backend"])
     assert scoped.store is g
     assert scoped.store.all_namespaces() == {"teams/backend", "teams/frontend"}
+
+
+# ── wildcard / pattern expansion ────────────────────────────────────────────
+
+_GRAPH_NS = {"me", "claude-session", "claude-memory", "codex-session",
+             "codex-memory", "grok-session", "public"}
+
+
+def test_expand_star_matches_all_graph_namespaces():
+    assert expand_namespaces(["*"], _GRAPH_NS) == _GRAPH_NS
+
+
+def test_expand_glob_matches_subset():
+    result = expand_namespaces(["*-session"], _GRAPH_NS)
+    assert result == {"claude-session", "codex-session", "grok-session"}
+
+
+def test_expand_glob_matches_prefix():
+    result = expand_namespaces(["claude-*"], _GRAPH_NS)
+    assert result == {"claude-session", "claude-memory"}
+
+
+def test_expand_literal_kept_even_if_not_in_graph():
+    result = expand_namespaces(["me"], set())
+    assert result == {"me"}
+
+
+def test_expand_mixed_literal_and_glob():
+    result = expand_namespaces(["me", "*-session"], _GRAPH_NS)
+    assert result == {"me", "claude-session", "codex-session", "grok-session"}
+
+
+def test_expand_literal_in_graph_kept():
+    result = expand_namespaces(["public"], _GRAPH_NS)
+    assert result == {"public"}
+
+
+def test_expand_no_wildcard_is_identity_on_known_ns():
+    result = expand_namespaces(["me", "claude-session"], _GRAPH_NS)
+    assert result == {"me", "claude-session"}
+
+
+def test_expand_glob_no_match_returns_empty():
+    result = expand_namespaces(["*-nonexistent"], _GRAPH_NS)
+    assert result == set()

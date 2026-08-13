@@ -2,10 +2,31 @@
 
 Node visible iff ns ∩ effective_ns ≠ ∅. Edge visible iff BOTH endpoints visible
 AND edge.ns ∩ effective_ns ≠ ∅. effective_ns = allowed ∪ {public}.
+
+Wildcard patterns (`*`, `*-session`) are expanded against the graph's actual
+namespaces by :func:`expand_namespaces` before ScopedGraph is built.
 """
 from __future__ import annotations
 
+import fnmatch
+
 from lorekeep.models import Edge, Node
+
+
+def expand_namespaces(allowed_ns, graph_ns) -> set[str]:
+    """Expand wildcard patterns against actual graph namespaces.
+
+    ``"*"``          → all graph namespaces
+    ``"*-session"``  → glob match (e.g. claude-session, codex-session)
+    ``"me"``         → literal (kept even if not yet in graph)
+    """
+    result: set[str] = set()
+    for pattern in allowed_ns:
+        if "*" in pattern:
+            result.update(fn for fn in graph_ns if fnmatch.fnmatch(fn, pattern))
+        else:
+            result.add(pattern)
+    return result
 
 
 def effective_ns(allowed_ns) -> set[str]:

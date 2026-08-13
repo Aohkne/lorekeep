@@ -43,7 +43,7 @@ def test_default_config_yaml_loads_into_config():
     c = Config.model_validate(cfg)
     assert c.provider.model.startswith("openai/")
     assert c.install_source == "pypi"
-    assert c.ns.default == ["me"]
+    assert c.ns.default == ["me", "*-session", "*-memory"]
     assert c.ns.personal_namespace == "me"
     assert c.compile.language == "en"
 

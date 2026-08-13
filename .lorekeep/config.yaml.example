@@ -63,7 +63,7 @@ compile:
   # 0 = write only at the end (no intermediate updates).
   flush_interval: 10
 ns:
-  default: [me]
+  default: [me, "*-session", "*-memory"]  # personal ns + all session/memory ns (glob)
   personal: me
 
 # ── auto error reporting ─────────────────────────────────────────────────────
