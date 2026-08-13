@@ -126,7 +126,16 @@ def _schema_payload() -> dict:
 
 
 def _status(topic: str = "") -> dict:
-    result = _require().stats(topic)
+    scope = _require()
+    result = scope.stats(topic)
+    # Report total graph size so the user can tell "graph is empty" from
+    # "data exists but outside your namespaces".  On local serve (where
+    # allowed_ns is auto-expanded to all graph namespaces) scoped == total,
+    # but this distinction matters when namespaces are explicitly restricted.
+    total = scope.store.stats()
+    result["total_nodes"] = total["nodes"]
+    result["total_edges"] = total["edges"]
+    result["all_namespaces"] = total["namespaces"]
     if _manifest:
         result["compile"] = {
             "run_id": _manifest.run_id,

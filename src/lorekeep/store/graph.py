@@ -66,6 +66,15 @@ class GraphStore:
     def all_nodes(self) -> list[Node]:
         return [d["node"] for _, d in self._G.nodes(data=True) if "node" in d]
 
+    def all_namespaces(self) -> set[str]:
+        """Every namespace present in the graph (nodes + edges)."""
+        ns: set[str] = set()
+        for n in self.all_nodes():
+            ns.update(n.ns)
+        for e in self.all_edges():
+            ns.update(e.ns)
+        return ns
+
     def all_edges(self) -> list[Edge]:
         return [d["edge"] for _, _, d in self._G.edges(data=True, keys=False)]
 

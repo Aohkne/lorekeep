@@ -120,3 +120,16 @@ def test_scoped_search_filters_hidden(tmp_path):
     # node a is backend -> hidden; only visible results returned
     res = scoped.search("a")
     assert "a" not in res
+
+
+def test_store_all_namespaces(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    assert g.all_namespaces() == {"teams/backend", "teams/frontend"}
+
+
+def test_scoped_store_property_exposes_unscoped_graph(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from lorekeep.perm.ns import ScopedGraph
+    scoped = ScopedGraph(g, ["teams/backend"])
+    assert scoped.store is g
+    assert scoped.store.all_namespaces() == {"teams/backend", "teams/frontend"}

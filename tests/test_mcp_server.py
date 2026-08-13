@@ -74,3 +74,22 @@ def test_neighbors_depth_is_capped(fixtures: Path):
     shallow = ms.neighbors("svc:payments-api", depth=1)
     deep = ms.neighbors("svc:payments-api", depth=10_000)   # would traverse whole graph unbounded
     assert {n["id"] for n in deep["nodes"]} == {n["id"] for n in shallow["nodes"]}
+
+
+def test_context_status_reports_total_and_scoped(fixtures: Path):
+    """context('status') distinguishes scoped from total graph size."""
+    setup_server(fixtures, ["backend"])
+    r = ms.context("status")["status"]
+    assert r["nodes"] == 4                          # scoped (all backend)
+    assert r["total_nodes"] == 4                    # total (same — one ns in fixture)
+    assert r["total_edges"] == 2
+    assert "backend" in r["all_namespaces"]
+
+
+def test_context_status_shows_total_when_scope_is_empty(fixtures: Path):
+    """When scope matches nothing, total stats reveal the graph isn't empty."""
+    setup_server(fixtures, ["nonexistent-ns"])
+    r = ms.context("status")["status"]
+    assert r["nodes"] == 0                          # nothing in scope
+    assert r["total_nodes"] == 4                    # but graph has data
+    assert r["total_edges"] == 2

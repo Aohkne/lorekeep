@@ -43,6 +43,11 @@ class ScopedGraph:
     def allowed_namespaces(self) -> set[str]:
         return self._allowed
 
+    @property
+    def store(self) -> GraphStore:
+        """The underlying unscoped GraphStore (for total graph stats)."""
+        return self._g
+
     def _node_visible(self, node: Node | None) -> bool:
         return is_node_visible(node, self._eff)
 

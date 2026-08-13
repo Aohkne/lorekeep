@@ -7,7 +7,11 @@ without starting a transport.
 ## Configuration and load
 
 `cli serve` resolves allowed namespaces from comma-separated `LOREKEEP_NS` or
-`config.ns.default`, then calls:
+`config.ns.default`, then **auto-expands** the set to include every namespace
+present in the graph. On a single-user machine, namespaces organize knowledge
+(session vs memory vs personal) — they are not access-control boundaries.
+The deny-by-default `ScopedGraph` still filters, it just gets the full
+namespace set so nothing is hidden. Then it calls:
 
 ```python
 configure(
@@ -75,8 +79,10 @@ MCP.
 
 Returns `schema`, `namespaces`, and/or `status`. Status combines scoped graph
 statistics/topic coverage with process-wide manifest metadata and aggregate
-pending-entry count. The latter two are operational metadata, not fact/journal
-payloads, and the pending count is not namespace-filtered.
+pending-entry count. It also reports `total_nodes`, `total_edges`, and
+`all_namespaces` from the unscoped graph so a user can distinguish "graph is
+empty" from "data exists but outside your namespaces". The pending count is
+not namespace-filtered.
 
 ### `propose_change(operation, payload, confidence)`
 
