@@ -174,7 +174,7 @@ def test_init_no_about_on_second_run(tmp_path: Path, monkeypatch):
 
 
 def test_init_auto_wires_detected_agent(isolated_home, tmp_path: Path, monkeypatch):
-    """init detects active agent from env and writes its MCP config."""
+    """init detects active agent from env and writes its MCP config (user scope)."""
     home = tmp_path / "home"
     project = tmp_path / "project"
     project.mkdir()
@@ -184,14 +184,14 @@ def test_init_auto_wires_detected_agent(isolated_home, tmp_path: Path, monkeypat
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
     import json
-    mcp_path = project / "opencode.json"
+    mcp_path = isolated_home / ".config" / "opencode" / "opencode.json"
     assert mcp_path.exists(), f"opencode.json not written: {result.stdout}"
     data = json.loads(mcp_path.read_text())
     assert data["mcp"]["lorekeep"]["type"] == "local"
 
 
 def test_init_auto_wires_installed_agents(isolated_home, tmp_path: Path, monkeypatch):
-    """init in shell mode scans filesystem and wires all installed agents."""
+    """init in shell mode scans filesystem and wires all installed agents (user scope)."""
     home = tmp_path / "home"
     project = tmp_path / "project"
     project.mkdir()
@@ -203,8 +203,8 @@ def test_init_auto_wires_installed_agents(isolated_home, tmp_path: Path, monkeyp
 
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
-    assert (project / ".mcp.json").exists()
-    assert (project / "opencode.json").exists()
+    assert (isolated_home / ".claude.json").exists()
+    assert (isolated_home / ".config" / "opencode" / "opencode.json").exists()
 
 
 def test_init_inside_one_agent_still_wires_the_others(isolated_home, tmp_path: Path, monkeypatch):
@@ -221,8 +221,8 @@ def test_init_inside_one_agent_still_wires_the_others(isolated_home, tmp_path: P
 
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
-    assert (project / "opencode.json").exists()
-    assert (project / ".mcp.json").exists(), f"claude was skipped: {result.stdout}"
+    assert (isolated_home / ".config" / "opencode" / "opencode.json").exists()
+    assert (isolated_home / ".claude.json").exists(), f"claude was skipped: {result.stdout}"
 
 
 def test_init_no_agents_detected_message(isolated_home, tmp_path: Path, monkeypatch):
