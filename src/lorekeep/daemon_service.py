@@ -58,7 +58,7 @@ Type=simple
 ExecStart={exec_parts}
 Restart=on-failure
 RestartSec=10
-Environment=LOREKEEP_HOME={home}
+Environment="LOREKEEP_HOME={home}"
 
 [Install]
 WantedBy=default.target
@@ -187,9 +187,11 @@ def _windows_startup_path() -> Path:
 def _windows_script(home: Path) -> str:
     cmd, args = _find_lorekeep_command()
     full_cmd = " ".join([cmd] + args + ["agent", "watch"])
+    # Quote LOREKEEP_HOME so paths with spaces (e.g. "C:\Users\John Doe")
+    # survive cmd.exe tokenisation.  In VBS, "" inside a string is a literal ".
     return f'''\
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run "cmd /c set LOREKEEP_HOME={home} && {full_cmd}", 0, False
+WshShell.Run "cmd /c set ""LOREKEEP_HOME={home}"" && {full_cmd}", 0, False
 Set WshShell = Nothing
 '''
 

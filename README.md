@@ -39,24 +39,45 @@ shipped capability.
 
 ## Get started
 
-**One-liner install** (no uv needed — uses pipx or pip):
+### 1. Install
+
+**macOS / Linux** (one-liner — auto-detects uv, pipx, or pip):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/manhhailua/lorekeep/main/scripts/install.sh | bash
-lorekeep init
 ```
 
-That's it. `init` sets up config, schema, provider, agent wiring, compiles any
-existing markdown, and starts a background daemon that auto-compiles future
-changes. Open the wiki in Obsidian/Tolaria and watch pages appear as the
-compile finishes.
+**Windows** (PowerShell):
 
-**Or with uv:**
+```powershell
+pip install --user lorekeep
+```
+
+**Or with uv** (all platforms):
 
 ```bash
 uv tool install lorekeep
+```
+
+Verify the installation succeeded before continuing:
+
+```bash
+lorekeep version    # should print a version number
+```
+
+If `lorekeep` is not found, open a new terminal (so PATH updates take effect)
+or add `~/.local/bin` to your PATH manually.
+
+### 2. Initialize
+
+```bash
 lorekeep init
 ```
+
+`init` sets up config, schema, provider, agent wiring, compiles any existing
+markdown, and starts a background daemon that auto-compiles future changes.
+Open the wiki in Obsidian/Tolaria and watch pages appear as the compile
+finishes.
 
 **Non-interactive** (CI, scripts):
 
@@ -64,12 +85,13 @@ lorekeep init
 lorekeep init --yes
 ```
 
+Idempotent — re-run anytime to pick up newly installed agents.
+
 ### What `init` does
 
 Configures provider + namespace → writes `about.md` + `profile.md` → detects
 and wires coding agents (Claude Code, Cursor, Codex, opencode) → quick-imports
 available memory files → compiles if a provider key exists → starts the daemon.
-Idempotent — re-run anytime to pick up newly installed agents.
 
 ### Add documents
 
@@ -90,7 +112,23 @@ The daemon watches `raw/` and auto-compiles on file changes. No need to run
 ### Make the daemon persistent (survives reboot)
 
 ```bash
-lorekeep agent service install   # systemd (Linux) / launchd (macOS)
+lorekeep agent service install
+```
+
+This installs a platform-appropriate service so the daemon starts automatically
+and restarts on failure:
+
+| Platform | Mechanism | Starts at |
+|---|---|---|
+| Linux | systemd user service | boot (with `loginctl enable-linger <user>`) |
+| macOS | launchd LaunchAgent | login |
+| Windows | Startup-folder VBS script | login |
+
+Check status or remove:
+
+```bash
+lorekeep agent service status
+lorekeep agent service uninstall
 ```
 
 ### Upgrade
