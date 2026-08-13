@@ -26,7 +26,7 @@ def wired_project(isolated_home: Path, tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path / "data"))
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "config.yaml").write_text("install_source: local\n")
-    for marker in (".claude", ".codex", ".cursor", ".config/opencode", ".grok", ".qoder"):
+    for marker in (".claude", ".codex", ".cursor", ".config/opencode", ".grok", ".qoder", ".copilot", ".commandcode"):
         (isolated_home / marker).mkdir(parents=True, exist_ok=True)
     return project
 

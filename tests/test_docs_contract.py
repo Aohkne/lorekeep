@@ -114,7 +114,9 @@ def test_config_example_validates_against_current_model() -> None:
     config = load_config(ROOT / ".lorekeep/config.yaml.example")
     assert config.provider.model
     assert config.ns.personal_namespace
-    assert set(config.agents.enabled) == {"claude", "cursor", "codex", "opencode"}
+    assert set(config.agents.enabled) == {
+        "claude", "cursor", "codex", "opencode", "grok", "qoder", "copilot", "cmd",
+    }
 
 
 def test_backup_guide_says_pending_journals_are_durable() -> None:

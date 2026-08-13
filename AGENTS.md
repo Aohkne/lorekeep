@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Lorekeep compiles a team's raw markdown docs into a **temporal knowledge graph** (`facts.jsonl`) and exposes it to coding agents (Claude Code, Cursor, Codex, opencode) over MCP, with per-namespace permission. The MCP surface has 7 composable tools plus passive context resources. Agent writes are confidence-gated journals merged on resolve. Knowledge is processed once at compile time, not re-RAG'd per query.
+Lorekeep compiles a team's raw markdown docs into a **temporal knowledge graph** (`facts.jsonl`) and exposes it to coding agents (Claude Code, Cursor, Codex, opencode, Grok Build, Qoder, GitHub Copilot, Command Code) over MCP, with per-namespace permission. The MCP surface has 7 composable tools plus passive context resources. Agent writes are confidence-gated journals merged on resolve. Knowledge is processed once at compile time, not re-RAG'd per query.
 
 ## Commands
 
@@ -32,10 +32,10 @@ uv run lorekeep <command>                    # run the CLI in dev mode
 | `agent heal` | Run self-heal standalone (remove dangling edges, dedupe, flag issues) |
 | `agent service install/uninstall/status` | Install/uninstall/status the daemon as an OS service (launchd/systemd) |
 | `schema upgrade` | Upgrade stock schema to latest version (backs up previous, `--dry-run`/`--force` for custom schemas) |
-| `mcp add --agent claude\|cursor\|codex\|opencode --ns NS` | Write agent MCP config |
+| `mcp add --agent claude\|cursor\|codex\|opencode\|grok\|qoder\|copilot\|cmd [--scope user\|project] --ns NS` | Write agent MCP config (default scope from `agents.wire_scope`) |
 | `config show` | Print config.yaml |
 | `config set <key> <value>` | Set nested config value (dot notation) |
-| `import --from claude\|cursor\|codex\|opencode` | Import agent sessions into `raw/` |
+| `import --from claude\|cursor\|codex\|opencode\|grok` | Import agent sessions into `raw/` |
 | `doctor` | Validate full install: graph loads (no dangling edges), schema valid, MCP tools respond, provider reachable |
 | `backup [--init <remote-url>] [--force]` | Sync durable inputs plus graph/wiki snapshot to a private backup Git repo; `--force` auto-resolves snapshot conflicts (remote wins) |
 | `version` | Print version |

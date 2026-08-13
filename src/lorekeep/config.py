@@ -65,6 +65,7 @@ class AgentsConfig(BaseModel):
     enabled: list[str] = Field(
         default_factory=lambda: [
             "claude", "codex", "cursor", "opencode", "grok", "qoder",
+            "copilot", "cmd",
         ]
     )
     watch_transcripts: bool = True           # zero-LLM dump → raw/<agent>-session/

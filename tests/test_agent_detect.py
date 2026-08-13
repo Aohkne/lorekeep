@@ -61,3 +61,13 @@ def test_detect_agents_no_active_returns_all_installed(isolated_home):
     (isolated_home / ".cursor").mkdir()
     result = detect_agents()
     assert set(result) == {"claude", "cursor"}
+
+
+def test_detect_copilot_via_marker(isolated_home):
+    (isolated_home / ".copilot").mkdir()
+    assert "copilot" in detect_installed_agents()
+
+
+def test_detect_cmd_via_marker(isolated_home):
+    (isolated_home / ".commandcode").mkdir()
+    assert "cmd" in detect_installed_agents()

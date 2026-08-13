@@ -9,7 +9,7 @@ def test_mcp_add_claude_project(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     (tmp_path / "config.yaml").write_text("install_source: local\n")
-    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--ns", "teams/backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--ns", "teams/backend"])
     assert result.exit_code == 0, result.stdout
     import json
     data = json.loads((tmp_path / ".mcp.json").read_text())
@@ -48,9 +48,9 @@ def test_mcp_add_second_run_reports_unchanged(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     (tmp_path / "config.yaml").write_text("install_source: local\n")
-    runner.invoke(app, ["mcp", "add", "--agent", "claude", "--ns", "teams/backend"])
+    runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--ns", "teams/backend"])
     before = (tmp_path / ".mcp.json").stat().st_mtime_ns
-    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--ns", "teams/backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--ns", "teams/backend"])
     assert result.exit_code == 0, result.stdout
     assert "unchanged" in result.stdout
     assert (tmp_path / ".mcp.json").stat().st_mtime_ns == before
@@ -69,7 +69,7 @@ def test_mcp_add_opencode_project(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     (tmp_path / "config.yaml").write_text("install_source: local\n")
-    result = runner.invoke(app, ["mcp", "add", "--agent", "opencode", "--ns", "teams/backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "opencode", "--scope", "project", "--ns", "teams/backend"])
     assert result.exit_code == 0, result.stdout
     import json
     data = json.loads((tmp_path / "opencode.json").read_text())
@@ -89,3 +89,14 @@ def test_mcp_add_unknown_agent(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["mcp", "add", "--agent", "bogus", "--ns", "x"])
     assert result.exit_code == 1
     assert "unknown agent" in result.stdout
+
+
+def test_mcp_add_defaults_to_user_scope(isolated_home: Path, tmp_path: Path, monkeypatch):
+    """mcp add without --scope uses agents.wire_scope (default: user)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
+    (tmp_path / "config.yaml").write_text("install_source: local\n")
+    result = runner.invoke(app, ["mcp", "add", "--agent", "claude"])
+    assert result.exit_code == 0, result.stdout
+    assert (isolated_home / ".claude.json").exists()
+    assert not (tmp_path / ".mcp.json").exists()

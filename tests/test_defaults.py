@@ -74,7 +74,10 @@ def test_default_config_yaml_agents_values_keep_their_types():
     assert agents.auto_wire is True
     assert agents.wire_scope == "user"
     assert agents.wire_interval_seconds == 900
-    assert agents.enabled == ["claude", "codex", "cursor", "opencode"]
+    assert agents.enabled == [
+        "claude", "codex", "cursor", "opencode", "grok", "qoder",
+        "copilot", "cmd",
+    ]
     assert agents.watch_transcripts is True
     assert agents.deep_import is False
 

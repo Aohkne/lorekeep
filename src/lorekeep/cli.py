@@ -1156,8 +1156,8 @@ def _resolve_agent_arg(agent: str):
 
 @mcp_app.command("add")
 def mcp_add(
-    agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode | grok | qoder"),
-    scope: str = typer.Option("project", "--scope", help="project | user"),
+    agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode | grok | qoder | copilot | cmd"),
+    scope: str = typer.Option(None, "--scope", help="project | user (default: agents.wire_scope)"),
     ns: str = typer.Option(None, "--ns", help="namespace to scope the agent to"),
 ) -> None:
     """Write the agent's MCP config + print an agent-memory snippet."""
@@ -1168,7 +1168,7 @@ def mcp_add(
     command, args = resolve_command(config.install_source)
     hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
 
-    _validate_scope(scope)
+    scope = _validate_scope(scope) if scope else _wire_scope(config.agents)
     spec = _resolve_agent_arg(agent)
 
     writer = spec.writer()
@@ -1426,7 +1426,8 @@ def init(
     # --- One-click chain: wire → import → compile → daemon -----------------
     # Wiring runs on every init: it is free and idempotent, so re-running
     # init is how you pick up an agent installed after the first run.
-    _auto_wire_agents(p, ns)
+    wire_scope = _wire_scope(load_config(p["config"]).agents)
+    _auto_wire_agents(p, ns, scope=wire_scope)
 
     if not config_existed:
         _auto_import_and_compile(p)
@@ -1617,7 +1618,7 @@ def _write_config(p, model, api_base, api_key_env, api_key, ns):
 
 
 def _wire_one(
-    spec, target: Path, ns: str | None, *, scope: str = "project",
+    spec, target: Path, ns: str | None, *, scope: str = "user",
 ) -> tuple[Path | None, Path | None]:
     """Write one agent's MCP config + session-end hook.
 
@@ -1638,7 +1639,7 @@ def _wire_one(
     return written, hooked
 
 
-def _auto_wire_agents(p: dict, ns: str, *, scope: str = "project") -> None:
+def _auto_wire_agents(p: dict, ns: str, *, scope: str = "user") -> None:
     """Detect every installed coding agent and write its MCP config.
 
     Idempotent: a writer that finds the desired entry already present
