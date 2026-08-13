@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.35.2 (2026-08-13)
+
+## What's Changed
+* fix(daemon): cross-platform service install + README install flow by @manhhailua in https://github.com/manhhailua/lorekeep/pull/254
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.35.1...v0.35.2
+
 ## 0.35.1 (2026-08-12)
 
 ## What's Changed
