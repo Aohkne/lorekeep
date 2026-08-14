@@ -48,7 +48,7 @@ On the first interactive run, `init` asks for:
 
 1. an extraction provider/model and either an inline local key or the name of an
    environment variable;
-2. the personal/default namespace, initially `me`; and
+2. the personal write namespace, initially `me` (read scope defaults to `*`);
 3. your name and one-line bio.
 
 It then performs an idempotent setup chain:

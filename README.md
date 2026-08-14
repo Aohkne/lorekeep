@@ -289,7 +289,7 @@ provider:
 compile:
   language: en
 ns:
-  default: [me]
+  default: ["*"]
   personal: me
 agents:
   enabled: [claude, codex, cursor, opencode, grok, qoder, copilot, cmd]
@@ -298,6 +298,10 @@ agents:
   watch_transcripts: true
   self_heal: true
 ```
+
+`ns.default` is the read scope and supports wildcard patterns; `ns.personal`
+is the single concrete owner for agent-written facts and journals. Change
+`ns.default` from `*` only when an agent should read a narrower view.
 
 Prefer `provider.api_key_env`. An inline `provider.api_key` is accepted only in
 the local gitignored `config.yaml`. Native providers normally need no

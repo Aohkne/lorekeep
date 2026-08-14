@@ -1,6 +1,8 @@
 """Lazy-reload: the server refreshes the graph when facts.jsonl changes on disk,
 so memory updates (lorekeep compile) are visible without reconnecting the MCP client.
 """
+import json
+import os
 import shutil
 from pathlib import Path
 
@@ -30,6 +32,31 @@ def test_no_reload_when_unchanged(tmp_path: Path, fixtures: Path):
     m1 = ms._state.get("facts_mtime")
     ms.get_node("svc:auth")                       # query; no file change
     assert ms._state.get("facts_mtime") == m1     # no reload fired
+
+
+def test_wildcard_scope_expands_new_namespace_after_lazy_reload(
+    tmp_path: Path, fixtures: Path,
+):
+    d = tmp_path / "graph"
+    d.mkdir()
+    facts = d / "facts.jsonl"
+    shutil.copy(fixtures / "gold/payments.facts.jsonl", facts)
+    ms.configure(graph_dir=d, allowed_ns=["*"], schema_path=fixtures / "schema.json")
+    assert "error" in ms.get_node("svc:new-namespace")
+
+    previous = facts.stat()
+    added = {
+        "kind": "node", "id": "svc:new-namespace", "type": "service",
+        "ns": ["new-device-session"], "props": {"name": "new namespace"},
+    }
+    with facts.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(added) + "\n")
+    os.utime(
+        facts,
+        ns=(previous.st_atime_ns, previous.st_mtime_ns + 1_000_000_000),
+    )
+
+    assert ms.get_node("svc:new-namespace")["id"] == "svc:new-namespace"
 
 
 def test_fts_failure_is_logged_without_stopping_mcp(tmp_path, fixtures, monkeypatch, caplog):

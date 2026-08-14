@@ -127,12 +127,11 @@ def test_store_all_namespaces(tmp_path):
     assert g.all_namespaces() == {"teams/backend", "teams/frontend"}
 
 
-def test_scoped_store_property_exposes_unscoped_graph(tmp_path):
+def test_scoped_graph_does_not_expose_unscoped_store(tmp_path):
     g = store_with_cross_ns(tmp_path)
     from lorekeep.perm.ns import ScopedGraph
     scoped = ScopedGraph(g, ["teams/backend"])
-    assert scoped.store is g
-    assert scoped.store.all_namespaces() == {"teams/backend", "teams/frontend"}
+    assert not hasattr(scoped, "store")
 
 
 # ── wildcard / pattern expansion ────────────────────────────────────────────
@@ -173,6 +172,10 @@ def test_expand_literal_in_graph_kept():
 def test_expand_no_wildcard_is_identity_on_known_ns():
     result = expand_namespaces(["me", "claude-session"], _GRAPH_NS)
     assert result == {"me", "claude-session"}
+
+
+def test_expand_namespace_patterns_are_case_sensitive_across_devices():
+    assert expand_namespaces(["*-session"], {"Codex-Session"}) == set()
 
 
 def test_expand_glob_no_match_returns_empty():

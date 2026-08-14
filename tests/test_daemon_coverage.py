@@ -551,6 +551,22 @@ class TestDaemonWatchSessions:
         monkeypatch.setattr("lorekeep.backup.has_remote", lambda h: False)
         monkeypatch.setattr("lorekeep.cli._sync_agent_wiring", lambda **kw: [])
 
+    def test_watch_auto_wiring_defers_read_scope_to_config(
+        self, isolated_home, monkeypatch, fixtures,
+    ):
+        self._setup_watch_env(isolated_home, monkeypatch, fixtures)
+        calls = []
+
+        def capture_and_stop(**kwargs):
+            calls.append(kwargs)
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("lorekeep.cli._sync_agent_wiring", capture_and_stop)
+        result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
+
+        assert result.exit_code == 0, result.stdout
+        assert calls[0]["ns"] is None
+
     def test_watch_session_import(self, isolated_home, monkeypatch, fixtures):
         """Watch discovers sessions and imports memory on first sight."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)

@@ -1,4 +1,6 @@
-import shutil, tempfile
+import json
+import shutil
+import tempfile
 from pathlib import Path
 import lorekeep.mcp_server as ms
 
@@ -76,20 +78,32 @@ def test_neighbors_depth_is_capped(fixtures: Path):
     assert {n["id"] for n in deep["nodes"]} == {n["id"] for n in shallow["nodes"]}
 
 
-def test_context_status_reports_total_and_scoped(fixtures: Path):
-    """context('status') distinguishes scoped from total graph size."""
+def test_context_status_reports_only_scoped_graph_metadata(fixtures: Path):
     setup_server(fixtures, ["backend"])
     r = ms.context("status")["status"]
-    assert r["nodes"] == 4                          # scoped (all backend)
-    assert r["total_nodes"] == 4                    # total (same — one ns in fixture)
-    assert r["total_edges"] == 2
-    assert "backend" in r["all_namespaces"]
+    assert r["nodes"] == 4
+    assert r["edges"] == 2
+    assert r["namespaces"] == ["backend"]
+    assert "total_nodes" not in r
+    assert "total_edges" not in r
+    assert "all_namespaces" not in r
 
 
-def test_context_status_shows_total_when_scope_is_empty(fixtures: Path):
-    """When scope matches nothing, total stats reveal the graph isn't empty."""
-    setup_server(fixtures, ["nonexistent-ns"])
+def test_context_status_does_not_leak_hidden_namespace(fixtures: Path):
+    d = setup_server(fixtures, ["backend"])
+    hidden = {
+        "kind": "node", "id": "svc:secret", "type": "service",
+        "ns": ["secret-project"], "props": {"name": "secret"},
+    }
+    with (d / "facts.jsonl").open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(hidden) + "\n")
+    ms.configure(
+        graph_dir=d,
+        allowed_ns=["backend"],
+        schema_path=fixtures / "schema.json",
+    )
+
     r = ms.context("status")["status"]
-    assert r["nodes"] == 0                          # nothing in scope
-    assert r["total_nodes"] == 4                    # but graph has data
-    assert r["total_edges"] == 2
+    assert r["nodes"] == 4
+    assert r["namespaces"] == ["backend"]
+    assert "secret-project" not in str(r)

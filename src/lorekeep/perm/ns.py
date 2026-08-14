@@ -8,7 +8,7 @@ namespaces by :func:`expand_namespaces` before ScopedGraph is built.
 """
 from __future__ import annotations
 
-import fnmatch
+from fnmatch import fnmatchcase
 
 from lorekeep.models import Edge, Node
 
@@ -23,7 +23,7 @@ def expand_namespaces(allowed_ns, graph_ns) -> set[str]:
     result: set[str] = set()
     for pattern in allowed_ns:
         if "*" in pattern:
-            result.update(fn for fn in graph_ns if fnmatch.fnmatch(fn, pattern))
+            result.update(fn for fn in graph_ns if fnmatchcase(fn, pattern))
         else:
             result.add(pattern)
     return result
@@ -63,11 +63,6 @@ class ScopedGraph:
     @property
     def allowed_namespaces(self) -> set[str]:
         return self._allowed
-
-    @property
-    def store(self) -> GraphStore:
-        """The underlying unscoped GraphStore (for total graph stats)."""
-        return self._g
 
     def _node_visible(self, node: Node | None) -> bool:
         return is_node_visible(node, self._eff)

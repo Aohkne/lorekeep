@@ -11,12 +11,14 @@ without starting a transport.
 graph namespaces, `*-session` matches by glob, literal names are kept as-is.
 Expansion happens in `_rebuild()` against the graph's actual namespaces, so
 new namespaces from recompile are picked up on lazy reload. Default config:
-`ns.default: [me, "*-session", "*-memory"]`. Then it calls:
+`ns.default: ["*"]`. Write ownership is resolved separately from the concrete
+`config.ns.personal` value (default `me`). Then it calls:
 
 ```python
 configure(
     graph_dir=...,
     allowed_ns=...,
+    write_ns=...,
     schema_path=...,
     pending_dir=...,
 )
@@ -79,9 +81,8 @@ MCP.
 
 Returns `schema`, `namespaces`, and/or `status`. Status combines scoped graph
 statistics/topic coverage with process-wide manifest metadata and aggregate
-pending-entry count. It also reports `total_nodes`, `total_edges`, and
-`all_namespaces` from the unscoped graph so a user can distinguish "graph is
-empty" from "data exists but outside your namespaces". The pending count is not namespace-filtered.
+pending-entry count. Graph counts and namespace names are always scoped; the
+underlying `GraphStore` is never exposed through `ScopedGraph`. The pending count is not namespace-filtered.
 
 ### `propose_change(operation, payload, confidence)`
 
@@ -138,9 +139,9 @@ count is process-wide rather than namespace-scoped.
 
 ## Journal write enforcement
 
-`_active_ns()` removes implicit `public` when explicit namespaces exist, otherwise
-uses `public`. `_write_journal` overwrites `fact.ns` with all active namespaces,
-routes the file through the first namespace, clamps confidence, and stamps:
+Read patterns and write ownership are independent. `_write_journal` requires
+one concrete `write_ns`, overwrites `fact.ns` with only that namespace, routes
+the file through the same namespace, clamps confidence, and stamps:
 
 - `LOREKEEP_AGENT` or `mcp`;
 - `LOREKEEP_DEVICE` or hostname;
@@ -148,7 +149,9 @@ routes the file through the first namespace, clamps confidence, and stamps:
 - UTC microsecond `proposed_at`.
 
 The append is locked and fsynced. The response reports acceptance/status/id/ns
-but does not imply graph visibility. Resolve must publish the fact first.
+but does not imply graph visibility. Glob or comma-separated values are rejected
+as write namespaces, so generated paths can never be `pending/*/`. Resolve must
+publish the fact first.
 
 ## Write validation details
 

@@ -228,7 +228,7 @@ compile:
   max_workers: 4
   flush_interval: 10
 ns:
-  default: [me, "*-session", "*-memory"]
+  default: ["*"]
   personal: me
 bugreport:
   enabled: true

@@ -39,6 +39,7 @@ def test_mcp_add_claude_user_writes_claude_json(isolated_home: Path, tmp_path: P
     import json
     data = json.loads((isolated_home / ".claude.json").read_text())
     assert data["mcpServers"]["lorekeep"]["command"] == "lorekeep"
+    assert "LOREKEEP_NS" not in data["mcpServers"]["lorekeep"]["env"]
     assert not (isolated_home / ".mcp.json").exists()          # the old wrong target
     assert not (tmp_path / ".mcp.json").exists()               # user scope, not project
 

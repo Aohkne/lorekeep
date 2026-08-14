@@ -1,6 +1,6 @@
 """FastMCP server exposing a compact, namespace-scoped temporal graph.
 
-The seven tool functions remain directly callable for tests and diagnostics.
+The eight tool functions remain directly callable for tests and diagnostics.
 Writes append to pending/<ns>/journal.jsonl and enter the graph on resolve.
 """
 from __future__ import annotations
@@ -48,11 +48,23 @@ def _close_fts() -> None:
 atexit.register(_close_fts)
 
 
-def configure(graph_dir, allowed_ns, schema_path=None, fts_path=None, pending_dir=None) -> None:
-    """Set the graph location and permission scope, then load the store."""
+def configure(
+    graph_dir,
+    allowed_ns,
+    schema_path=None,
+    fts_path=None,
+    pending_dir=None,
+    write_ns=None,
+) -> None:
+    """Set graph paths plus independent read and write namespace scopes."""
+    if write_ns is not None:
+        write_ns = write_ns.strip()
+        if not write_ns or "*" in write_ns or "," in write_ns:
+            raise ValueError("write_ns must be one concrete namespace")
     _state.update(
         graph_dir=Path(graph_dir),
         allowed_ns=list(allowed_ns),
+        write_ns=write_ns,
         schema_path=Path(schema_path) if schema_path else None,
         pending_dir=Path(pending_dir) if pending_dir else None,
         fts_path=Path(fts_path) if fts_path else Path(graph_dir) / "fts.sqlite",
@@ -129,14 +141,6 @@ def _schema_payload() -> dict:
 def _status(topic: str = "") -> dict:
     scope = _require()
     result = scope.stats(topic)
-    # Report total graph size so the user can tell "graph is empty" from
-    # "data exists but outside your namespaces".  On local serve (where
-    # allowed_ns is auto-expanded to all graph namespaces) scoped == total,
-    # but this distinction matters when namespaces are explicitly restricted.
-    total = scope.store.stats()
-    result["total_nodes"] = total["nodes"]
-    result["total_edges"] = total["edges"]
-    result["all_namespaces"] = total["namespaces"]
     if _manifest:
         result["compile"] = {
             "run_id": _manifest.run_id,
@@ -250,19 +254,15 @@ def context(
     return {section: values[section]()}
 
 
-def _active_ns() -> tuple[str, ...]:
-    allowed = _state.get("allowed_ns", ["public"])
-    return tuple(ns for ns in allowed if ns != "public") or ("public",)
-
-
 def _write_journal(fact: dict, confidence: float) -> dict:
     pending = _state.get("pending_dir")
     if pending is None:
         return {"error": "no pending directory configured"}
+    ns = _state.get("write_ns")
+    if ns is None:
+        return {"error": "no concrete write namespace configured"}
     fact = dict(fact)
-    active_ns = _active_ns()
-    fact["ns"] = list(active_ns)
-    ns = active_ns[0]
+    fact["ns"] = [ns]
     now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
         "+00:00", "Z"
     )
@@ -423,7 +423,10 @@ def review_note(
         title = f"contradiction: {fact_ids[0]} vs {fact_ids[1]}"
         note = "Flagged for curator review."
     elif kind == "improvement":
-        id = f"suggestion:{_active_ns()[0]}:{uuid.uuid4().hex}"
+        write_ns = _state.get("write_ns")
+        if write_ns is None:
+            return {"error": "no concrete write namespace configured"}
+        id = f"suggestion:{write_ns}:{uuid.uuid4().hex}"
         title = "improvement suggestion"
         note = "Suggestion recorded for curator review."
     else:

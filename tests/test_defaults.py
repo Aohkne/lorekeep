@@ -43,7 +43,7 @@ def test_default_config_yaml_loads_into_config():
     c = Config.model_validate(cfg)
     assert c.provider.model.startswith("openai/")
     assert c.install_source == "pypi"
-    assert c.ns.default == ["me", "*-session", "*-memory"]
+    assert c.ns.default == ["*"]
     assert c.ns.personal_namespace == "me"
     assert c.compile.language == "en"
 
@@ -90,3 +90,9 @@ def test_default_config_yaml_has_no_backend():
 def test_legacy_private_default_is_inferred_as_personal_namespace():
     config = Config.model_validate({"ns": {"default": ["private"]}})
     assert config.ns.personal_namespace == "private"
+
+
+def test_wildcard_default_falls_back_to_concrete_personal_namespace():
+    config = Config()
+    assert config.ns.default == ["*"]
+    assert config.ns.personal_namespace == "me"

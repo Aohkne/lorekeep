@@ -58,7 +58,10 @@ native config. Restart the client after wiring or changing scope.
 ## Scope and permission
 
 Serve-time scope comes from comma-separated `LOREKEEP_NS`; without that env var,
-it uses `config.ns.default`. `public` is always added implicitly.
+it uses `config.ns.default`, which defaults to `*` (all graph namespaces).
+`public` is always added implicitly. Default wiring omits `LOREKEEP_NS` so all
+agents follow this central setting; `agent wire --ns <pattern>` is an explicit
+read-scope restriction or pattern override.
 
 Permission is deny-by-default:
 
@@ -74,7 +77,7 @@ fact payloads; the pending count is not filtered per namespace.
 
 ## MCP surface
 
-The server exposes exactly seven tools.
+The server exposes exactly eight tools.
 
 ### `search(query, limit=10)`
 
@@ -140,6 +143,12 @@ Node/edge types are checked against the loaded schema. Edge endpoints must exist
 be visible, and satisfy allowed endpoint types. No proposal changes
 `facts.jsonl` directly.
 
+### `merge_entities(from_id, to_id, reason="")`
+
+Proposes a `same_as` edge from an alias to its canonical node. Both nodes must
+be visible and have the same schema type. Resolve persists the merged id on the
+canonical node so later recompiles and alias lookups keep the decision.
+
 ### `review_note(kind, description, fact_ids=None)`
 
 Records an `improvement`, or a `contradiction` referencing exactly two fact ids.
@@ -181,10 +190,10 @@ Good user prompts are explicit about using the graph and the desired time/scope:
 
 ## Journal-based writes
 
-Write tools derive their namespace from the server scope and overwrite any
-caller-provided `ns`. With multiple non-public scopes, the fact carries all of
-them and the journal is routed through the first configured namespace. Give a
-write-capable agent the narrowest practical scope.
+Write tools overwrite any caller-provided `ns` with the single concrete
+`config.ns.personal` value (default `me`). Read patterns never become fact
+namespaces or journal paths: even with read scope `*`, writes go to
+`pending/me/journal.jsonl` unless the personal namespace is changed.
 
 The flow is:
 

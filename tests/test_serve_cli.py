@@ -12,6 +12,7 @@ def test_serve_invokes_mcp_run(tmp_path: Path, fixtures: Path, monkeypatch):
     shutil.copy(fixtures / "gold/payments.facts.jsonl", out / "facts.jsonl")
     monkeypatch.setenv("LOREKEEP_OUT", str(out))
     monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     monkeypatch.setenv("LOREKEEP_NS", "teams/backend")
 
     # Patch MCP server to a no-op so CLI does not block on stdio.
@@ -26,6 +27,38 @@ def test_serve_invokes_mcp_run(tmp_path: Path, fixtures: Path, monkeypatch):
     result = runner.invoke(app, ["serve"])
     assert result.exit_code == 0, result.stdout
     assert ran["ok"] is True
+    assert ms._state["allowed_ns"] == ["teams/backend"]
+    assert ms._state["write_ns"] == "me"
+
+
+def test_serve_defaults_to_all_reads_and_concrete_personal_writes(
+    tmp_path: Path, fixtures: Path, monkeypatch,
+):
+    import shutil
+
+    home = tmp_path / "home"
+    out = home / "graph"
+    out.mkdir(parents=True)
+    shutil.copy(fixtures / "gold/payments.facts.jsonl", out / "facts.jsonl")
+    shutil.copy(fixtures / "schema.json", home / "schema.json")
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    monkeypatch.delenv("LOREKEEP_NS", raising=False)
+
+    import lorekeep.mcp_server as ms
+
+    class FakeMCP:
+        def run(self, transport=None):
+            pass
+
+    monkeypatch.setattr(ms, "mcp", FakeMCP())
+    result = runner.invoke(app, ["serve"])
+
+    assert result.exit_code == 0, result.stdout
+    assert ms._state["allowed_ns"] == ["*"]
+    assert ms._state["write_ns"] == "me"
+    note = ms.review_note("improvement", "Record a concrete owner")
+    assert note["ns"] == "me"
+    assert (home / "pending" / "me" / "journal.jsonl").is_file()
 
 
 def test_serve_wildcard_expands_session_namespaces(tmp_path: Path, fixtures: Path, monkeypatch):

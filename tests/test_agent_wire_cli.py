@@ -100,6 +100,7 @@ class TestAgentWire:
         assert result.exit_code == 0, result.stdout
         data = json.loads((isolated_home / ".claude.json").read_text())
         assert data["mcpServers"]["lorekeep"]["command"] == "lorekeep"
+        assert "LOREKEEP_NS" not in data["mcpServers"]["lorekeep"]["env"]
         assert "[mcp_servers.lorekeep]" in (
             isolated_home / ".codex" / "config.toml"
         ).read_text()
