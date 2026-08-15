@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ProviderConfig(BaseModel):
@@ -28,20 +29,60 @@ class CompileConfig(BaseModel):
     flush_interval: int = Field(default=10, ge=0, le=500)
 
 
-class NsConfig(BaseModel):
-    default: list[str] = Field(default_factory=lambda: ["*"])
-    personal: str | None = None
+class NamespacesConfig(BaseModel):
+    """Read visibility and agent-write ownership."""
+
+    read: list[str] = Field(default_factory=lambda: ["*"])
+    write: str = "me"
     token_map: dict[str, list[str]] = Field(default_factory=dict)
 
-    @property
-    def personal_namespace(self) -> str:
-        """Personal/subject namespace, with a safe legacy-config fallback."""
-        if self.personal:
-            return self.personal
-        return next(
-            (ns for ns in self.default if ns != "public" and "*" not in ns),
-            "me",
-        )
+    @field_validator("write")
+    @classmethod
+    def validate_write_namespace(cls, value: str) -> str:
+        """Keep read patterns out of facts and journal paths."""
+        value = value.strip()
+        if not value or "*" in value or "," in value:
+            raise ValueError("namespaces.write must be one concrete namespace")
+        return value
+
+
+def _migrate_namespace_config(data: Any) -> tuple[Any, bool]:
+    """Translate legacy ``ns`` keys without overriding the new contract."""
+    if not isinstance(data, dict) or "ns" not in data:
+        return data, False
+
+    legacy = data["ns"]
+    if not isinstance(legacy, dict):
+        raise ValueError("legacy ns config must be a mapping")
+
+    migrated = dict(data)
+    migrated.pop("ns")
+    current = migrated.get("namespaces")
+    if current is None:
+        namespaces: dict[str, Any] = {}
+    elif isinstance(current, dict):
+        namespaces = dict(current)
+    else:
+        # Leave the invalid new value in place so Pydantic reports it.
+        return migrated, True
+
+    if "read" not in namespaces and "default" in legacy:
+        namespaces["read"] = legacy["default"]
+    if (
+        "write" not in namespaces
+        and legacy.get("personal") not in (None, "")
+    ):
+        namespaces["write"] = legacy["personal"]
+
+    # Preserve any future/unknown legacy namespace settings during the rewrite.
+    for key, value in legacy.items():
+        if key not in {"default", "personal"}:
+            namespaces.setdefault(key, value)
+
+    namespaces.setdefault("read", ["*"])
+    namespaces.setdefault("write", "me")
+    migrated["namespaces"] = namespaces
+    return migrated, True
 
 
 class ObservabilityConfig(BaseModel):
@@ -89,12 +130,19 @@ class BackupConfig(BaseModel):
 class Config(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
-    ns: NsConfig = Field(default_factory=NsConfig)
+    namespaces: NamespacesConfig = Field(default_factory=NamespacesConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     bugreport: BugReportConfig = Field(default_factory=BugReportConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     backup: BackupConfig = Field(default_factory=BackupConfig)
     install_source: str | None = None      # pypi | local | git+URL | path
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_namespaces(cls, data: Any) -> Any:
+        """Accept legacy dictionaries passed directly to ``model_validate``."""
+        migrated, _ = _migrate_namespace_config(data)
+        return migrated
 
 
 def _validate_provider(cfg: Config) -> None:
@@ -110,10 +158,26 @@ def _validate_provider(cfg: Config) -> None:
         validate_model_prefix(cfg.provider.model)
 
 
+def migrate_config_file(path: Path) -> Any:
+    """Persist the one-time namespace rename and return parsed YAML data."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data, migrated = _migrate_namespace_config(data)
+    if migrated:
+        # Validate the migrated section before replacing the user's file.
+        NamespacesConfig.model_validate(data.get("namespaces"))
+        from lorekeep.integrations.common import atomic_write
+
+        atomic_write(
+            path,
+            yaml.dump(data, default_flow_style=False, sort_keys=False),
+        )
+    return data
+
+
 def load_config(path: Path) -> Config:
     if not path.exists():
         return Config()
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data = migrate_config_file(path)
     cfg = Config.model_validate(data)
     _validate_provider(cfg)
     return cfg

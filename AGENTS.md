@@ -32,7 +32,7 @@ uv run lorekeep <command>                    # run the CLI in dev mode
 | `agent heal` | Run self-heal standalone (remove dangling edges, dedupe, flag issues) |
 | `agent service install/uninstall/status` | Install/uninstall/status the daemon as an OS service (launchd/systemd) |
 | `schema upgrade` | Upgrade stock schema to latest version (backs up previous, `--dry-run`/`--force` for custom schemas) |
-| `mcp add --agent claude\|cursor\|codex\|opencode\|grok\|qoder\|copilot\|cmd [--scope user\|project] --ns NS` | Write agent MCP config (default scope from `agents.wire_scope`) |
+| `mcp add --agent claude\|cursor\|codex\|opencode\|grok\|qoder\|copilot\|cmd [--scope user\|project] [--read-ns NS]` | Write agent MCP config (default scope from `agents.wire_scope`) |
 | `config show` | Print config.yaml |
 | `config set <key> <value>` | Set nested config value (dot notation) |
 | `import --from claude\|cursor\|codex\|opencode\|grok` | Import agent sessions into `raw/` |
@@ -79,7 +79,7 @@ Polls every 60s. `_discover_watchable_sessions()` finds Claude `memory/` + Codex
 
 ## Configuration & keys
 
-`config.yaml` (precedence: explicit `LOREKEEP_*` env > `LOREKEEP_HOME` > dev marker > XDG). **API keys never go in committed files** — use `provider.api_key_env` (name of an env var); inline `provider.api_key` is allowed only in the gitignored local config. `compile.language` is a lowercase ISO 639-1 code that controls the language of LLM-extracted names, summaries, and descriptions and defaults to `en`; source Markdown and technical identifiers are not rewritten. Read scope comes from `LOREKEEP_NS` (comma-separated) or `config.ns.default`; the default is `ns.default: ["*"]`. Patterns support `*` (all graph namespaces), `*-session` (glob match), and literals such as `me`; expansion is case-sensitive and reruns on lazy reload. Write ownership is independent and always one concrete `config.ns.personal` namespace (default `me`), so glob tokens never enter facts or journal paths. Default agent wiring omits `LOREKEEP_NS` and therefore follows the central config; explicit `--ns` writes a read-scope override. Template: `.lorekeep/config.yaml.example`.
+`config.yaml` (precedence: explicit `LOREKEEP_*` env > `LOREKEEP_HOME` > dev marker > XDG). **API keys never go in committed files** — use `provider.api_key_env` (name of an env var); inline `provider.api_key` is allowed only in the gitignored local config. `compile.language` is a lowercase ISO 639-1 code that controls the language of LLM-extracted names, summaries, and descriptions and defaults to `en`; source Markdown and technical identifiers are not rewritten. Read scope comes from `LOREKEEP_READ_NS` (comma-separated) or `config.namespaces.read`; the default is `["*"]`. Patterns support `*` (all graph namespaces), `*-session` (glob match), and literals such as `me`; expansion is case-sensitive and reruns on lazy reload. Write ownership is independent and always one concrete `config.namespaces.write` namespace (default `me`), so glob tokens never enter facts or journal paths. Default agent wiring omits `LOREKEEP_READ_NS` and therefore follows the central config; explicit `--read-ns` writes a read-scope override. Runtime accepts legacy `LOREKEEP_NS`; loading a legacy `ns.default` / `ns.personal` config atomically rewrites it to the new keys. Template: `.lorekeep/config.yaml.example`.
 
 ### Backup
 

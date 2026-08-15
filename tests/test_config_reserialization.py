@@ -40,13 +40,13 @@ class TestCodexEnvSubtable:
         path = codex.write_config(tmp_path, CMD, ARGS, "backend", scope="user")
         text = path.read_text()
         assert 'LOREKEEP_AGENT = "codex"' in text
-        assert 'LOREKEEP_NS = "backend"' in text
+        assert 'LOREKEEP_READ_NS = "backend"' in text
 
     def test_env_without_ns(self, isolated_home, tmp_path):
         path = codex.write_config(tmp_path, CMD, ARGS, None, scope="user")
         text = path.read_text()
         assert 'LOREKEEP_AGENT = "codex"' in text
-        assert "LOREKEEP_NS" not in text
+        assert "LOREKEEP_READ_NS" not in text
 
     def test_rewrite_consumes_subtable(self, isolated_home, tmp_path):
         """Rewriting must remove stale subtable from re-serialization."""
@@ -62,6 +62,8 @@ class TestCodexEnvSubtable:
         final = path.read_text()
         assert final.count("[mcp_servers.lorekeep.env]") == 1
         assert "env = {" not in final
+        assert "LOREKEEP_NS" not in final
+        assert 'LOREKEEP_READ_NS = "me"' in final
 
     def test_migrates_old_inline_format(self, isolated_home, tmp_path):
         """Old inline-format config gets cleanly replaced with subtable."""
@@ -157,7 +159,7 @@ class TestJsonAgentConfigRobustness:
         entry = servers["lorekeep"]
         env = entry[env_key]
         assert env["LOREKEEP_AGENT"] == name
-        assert env["LOREKEEP_NS"] == "backend"
+        assert env["LOREKEEP_READ_NS"] == "backend"
 
     def test_agent_reserialize_survives(self, name, writer, config_path_segments, env_key,
                                          isolated_home, tmp_path):
@@ -197,4 +199,4 @@ class TestJsonAgentConfigRobustness:
         path = isolated_home.joinpath(*config_path_segments)
         data = json.loads(path.read_text())
         servers = data.get("mcpServers") or data.get("mcp", {})
-        assert servers["lorekeep"][env_key]["LOREKEEP_NS"] == "backend"
+        assert servers["lorekeep"][env_key]["LOREKEEP_READ_NS"] == "backend"

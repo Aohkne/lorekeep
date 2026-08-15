@@ -48,14 +48,14 @@ On the first interactive run, `init` asks for:
 
 1. an extraction provider/model and either an inline local key or the name of an
    environment variable;
-2. the personal write namespace, initially `me` (read scope defaults to `*`);
+2. the write namespace, initially `me` (read scope defaults to `*`);
 3. your name and one-line bio.
 
 It then performs an idempotent setup chain:
 
 - writes `config.yaml` and stock schema v4;
 - creates `raw/`, `graph/`, and `pending/`;
-- writes `raw/<personal-ns>/about.md` and `profile.md`;
+- writes `raw/<write-ns>/about.md` and `profile.md`;
 - detects installed Claude Code, Cursor, Codex, and opencode clients;
 - writes their MCP configuration and supported session-end hooks;
 - quick-imports available agent memory files without an LLM;
@@ -117,8 +117,8 @@ mkdir -p ~/.lorekeep/raw/backend
 cp payments.md ~/.lorekeep/raw/backend/
 ```
 
-From a source checkout, use `.lorekeep/raw/backend/`. To find/open your personal
-profile source:
+From a source checkout, use `.lorekeep/raw/backend/`. To find/open the profile
+source in `namespaces.write`:
 
 ```bash
 lorekeep agent profile
@@ -156,8 +156,8 @@ lorekeep agent detect --json
 `init` normally wires detected agents. Wire one client explicitly when needed:
 
 ```bash
-lorekeep mcp add --agent claude --scope project --ns backend
-lorekeep agent wire --agent codex --scope user --ns backend
+lorekeep mcp add --agent claude --scope project --read-ns backend
+lorekeep agent wire --agent codex --scope user --read-ns backend
 ```
 
 `mcp add` is the focused one-client command and prints the recommended agent

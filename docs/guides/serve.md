@@ -22,20 +22,21 @@ FTS index alongside the graph.
 For one client:
 
 ```bash
-lorekeep mcp add --agent claude --scope project --ns backend
+lorekeep mcp add --agent claude --scope project --read-ns backend
 ```
 
 For registry-based detection/wiring:
 
 ```bash
 lorekeep agent detect
-lorekeep agent wire --scope user --ns backend
-lorekeep agent wire --agent codex --scope user --ns backend
+lorekeep agent wire --scope user --read-ns backend
+lorekeep agent wire --agent codex --scope user --read-ns backend
 ```
 
-Supported names are `claude`, `cursor`, `codex`, and `opencode`. Writers preserve
-unrelated client configuration and are idempotent: an already-correct target is
-reported as unchanged without touching its mtime.
+Supported names are `claude`, `cursor`, `codex`, `opencode`, `grok`, `qoder`,
+`copilot`, and `cmd`. Writers preserve unrelated client configuration and are
+idempotent: an already-correct target is reported as unchanged without touching
+its mtime.
 
 With `install_source: pypi`, a project-scoped Claude config is conceptually:
 
@@ -45,7 +46,7 @@ With `install_source: pypi`, a project-scoped Claude config is conceptually:
     "lorekeep": {
       "command": "uvx",
       "args": ["lorekeep", "serve", "--transport", "stdio"],
-      "env": {"LOREKEEP_NS": "backend"}
+      "env": {"LOREKEEP_READ_NS": "backend"}
     }
   }
 }
@@ -57,10 +58,11 @@ native config. Restart the client after wiring or changing scope.
 
 ## Scope and permission
 
-Serve-time scope comes from comma-separated `LOREKEEP_NS`; without that env var,
-it uses `config.ns.default`, which defaults to `*` (all graph namespaces).
-`public` is always added implicitly. Default wiring omits `LOREKEEP_NS` so all
-agents follow this central setting; `agent wire --ns <pattern>` is an explicit
+Serve-time scope comes from comma-separated `LOREKEEP_READ_NS`; without that
+env var, it uses `config.namespaces.read`, which defaults to `*` (all graph
+namespaces). `public` is always added implicitly. Default wiring omits
+`LOREKEEP_READ_NS` so all agents follow this central setting;
+`agent wire --read-ns <pattern>` is an explicit
 read-scope restriction or pattern override.
 
 Permission is deny-by-default:
@@ -191,9 +193,9 @@ Good user prompts are explicit about using the graph and the desired time/scope:
 ## Journal-based writes
 
 Write tools overwrite any caller-provided `ns` with the single concrete
-`config.ns.personal` value (default `me`). Read patterns never become fact
+`config.namespaces.write` value (default `me`). Read patterns never become fact
 namespaces or journal paths: even with read scope `*`, writes go to
-`pending/me/journal.jsonl` unless the personal namespace is changed.
+`pending/me/journal.jsonl` unless `namespaces.write` is changed.
 
 The flow is:
 

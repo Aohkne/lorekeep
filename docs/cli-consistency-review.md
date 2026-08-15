@@ -40,8 +40,8 @@ Source: `src/lorekeep/cli.py` (32 command registrations, 30 user-visible command
 | `support` | `support on` | 722 | Enable automatic GitHub issue creation | Dev |
 | `support` | `support off` | 728 | Disable automatic GitHub issue creation | Dev |
 | `support` | `support status` | 734 | Show config + dedup stats | Dev |
-| `agent` | `agent profile` | 322 | Show/open personal namespace raw dir | Curator |
-| `agent` | `agent contribution` | 344 | Suggest team-knowledge gaps (personal→team) | Curator |
+| `agent` | `agent profile` | 322 | Show/open profile source in write namespace | Curator |
+| `agent` | `agent contribution` | 344 | Find write-namespace knowledge not shared elsewhere | Curator |
 | `agent` | `agent ingest` | 1700 | Conversational LLM ingest → journal | Curator |
 | `agent` | `agent lint` | 1878 | Semantic health checks (orphans, contradictions) | Curator |
 | `agent` | `agent suggest` | 1932 | Generate improvement suggestions | Curator |

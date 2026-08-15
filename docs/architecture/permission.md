@@ -13,13 +13,15 @@ and `public` is the shared namespace.
 
 At serve time, allowed namespaces come from:
 
-1. comma-separated `LOREKEEP_NS`, when set; otherwise
-2. `ns.default` in the resolved `config.yaml`.
+1. comma-separated `LOREKEEP_READ_NS`, when set; otherwise
+2. `namespaces.read` in the resolved `config.yaml`.
 
-The default read scope is `ns.default: ["*"]`. Default agent wiring omits
-`LOREKEEP_NS`, so every client reads this central config on its next MCP start
-instead of baking a stale scope into native agent config. An explicit wiring
-`--ns` writes a read-scope override into the client's native MCP configuration.
+The default read scope is `namespaces.read: ["*"]`. Default agent wiring omits
+`LOREKEEP_READ_NS`, so every client reads this central config on its next MCP
+start instead of baking a stale scope into native agent config. An explicit
+wiring `--read-ns` writes a read-scope override into the client's native MCP
+configuration. Runtime still accepts legacy `LOREKEEP_NS`; re-wiring replaces
+it with the new name.
 The current local stdio model therefore treats process configuration as caller
 identity; it does not authenticate a remote human or service.
 
@@ -57,14 +59,19 @@ visible and active in that snapshot.
 
 `propose_change` and `review_note` do not trust a caller-supplied namespace.
 Read permission and write ownership are separate: writes use exactly one
-concrete `config.ns.personal` namespace (default `me`) and overwrite proposal
-namespaces before appending the journal. Wildcard/comma-separated write values
-are rejected. A broad `*` read scope therefore never creates a literal `*`
-namespace or `pending/*/journal.jsonl` path.
+concrete `config.namespaces.write` namespace (default `me`) and overwrite
+proposal namespaces before appending the journal. Wildcard/comma-separated
+write values are rejected. A broad `*` read scope therefore never creates a
+literal `*` namespace or `pending/*/journal.jsonl` path.
 
 Writes are still subject to schema/shape checks, visible endpoint checks, and
 the confidence gate described in [Journal](journal.md). Namespace permission is
 not a substitute for validating content.
+
+Legacy config is migrated on first runtime load: `ns.default` becomes
+`namespaces.read`, `ns.personal` becomes `namespaces.write`, and the file is
+atomically rewritten. New keys win if both forms exist; missing migrated values
+default to `["*"]` and `me`.
 
 ## Important boundaries
 

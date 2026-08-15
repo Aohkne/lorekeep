@@ -6,13 +6,14 @@ without starting a transport.
 
 ## Configuration and load
 
-`cli serve` resolves allowed namespaces from comma-separated `LOREKEEP_NS` or
-`config.ns.default`. Namespace patterns support wildcards — `*` matches all
+`cli serve` resolves allowed namespaces from comma-separated
+`LOREKEEP_READ_NS` or `config.namespaces.read`. Namespace patterns support
+wildcards — `*` matches all
 graph namespaces, `*-session` matches by glob, literal names are kept as-is.
 Expansion happens in `_rebuild()` against the graph's actual namespaces, so
 new namespaces from recompile are picked up on lazy reload. Default config:
-`ns.default: ["*"]`. Write ownership is resolved separately from the concrete
-`config.ns.personal` value (default `me`). Then it calls:
+`namespaces.read: ["*"]`. Write ownership is resolved separately from the
+concrete `config.namespaces.write` value (default `me`). Then it calls:
 
 ```python
 configure(

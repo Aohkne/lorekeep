@@ -34,14 +34,14 @@ class TestEnvSubtableFormat:
         path = grok.write_config(tmp_path, CMD, ARGS, "backend", scope="user")
         text = path.read_text()
         assert 'LOREKEEP_AGENT = "grok"' in text
-        assert 'LOREKEEP_NS = "backend"' in text
+        assert 'LOREKEEP_READ_NS = "backend"' in text
 
     def test_env_without_ns(self, isolated_home, tmp_path):
         """Only LOREKEEP_AGENT when no namespace."""
         path = grok.write_config(tmp_path, CMD, ARGS, None, scope="user")
         text = path.read_text()
         assert 'LOREKEEP_AGENT = "grok"' in text
-        assert "LOREKEEP_NS" not in text
+        assert "LOREKEEP_READ_NS" not in text
 
 
 class TestRewriteConsumesSubtable:
@@ -55,8 +55,8 @@ class TestRewriteConsumesSubtable:
 
         # Simulate Grok Build adding an inline env + subtable (the bug scenario)
         text = text.replace(
-            'LOREKEEP_NS = "me"',
-            'LOREKEEP_NS = "me"\n\n[mcp_servers.lorekeep.env]\nLOREKEEP_AGENT = "grok"\nLOREKEEP_NS = "me"',
+            'LOREKEEP_READ_NS = "me"',
+            'LOREKEEP_READ_NS = "me"\n\n[mcp_servers.lorekeep.env]\nLOREKEEP_AGENT = "grok"\nLOREKEEP_READ_NS = "me"',
         )
         path.write_text(text)
 

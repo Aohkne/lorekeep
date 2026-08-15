@@ -19,7 +19,7 @@ def test_doctor_ok(tmp_path: Path, fixtures: Path, monkeypatch):
     out = _seed_graph(tmp_path, fixtures)
     monkeypatch.setenv("LOREKEEP_OUT", str(out))
     monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
-    monkeypatch.setenv("LOREKEEP_NS", "teams/backend")
+    monkeypatch.setenv("LOREKEEP_READ_NS", "teams/backend")
     # Keep the provider ping offline — this test is about graph/schema/MCP only.
     monkeypatch.setattr("lorekeep.cli._has_provider", lambda c: False)
     result = runner.invoke(app, ["doctor"])
