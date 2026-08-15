@@ -227,9 +227,9 @@ compile:
   language: en
   max_workers: 4
   flush_interval: 10
-ns:
-  default: [me]
-  personal: me
+namespaces:
+  read: ["*"]
+  write: me
 bugreport:
   enabled: true
   repo: manhhailua/lorekeep

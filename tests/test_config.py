@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from lorekeep.config import Config, load_config
 
@@ -27,6 +28,106 @@ def test_default_config_when_missing(tmp_path: Path):
     assert c.provider.max_retries == 2
     assert c.compile.chunk_lines == 60
     assert c.compile.language == "en"
+    assert c.namespaces.read == ["*"]
+    assert c.namespaces.write == "me"
+
+
+def test_load_config_migrates_legacy_namespaces_on_disk(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "provider:\n"
+        "  model: openai/gpt-4o-mini\n"
+        "ns:\n"
+        "  default: [backend, '*-session']\n"
+        "  personal: author\n"
+    )
+
+    loaded = load_config(cfg)
+    written = yaml.safe_load(cfg.read_text())
+
+    assert loaded.namespaces.read == ["backend", "*-session"]
+    assert loaded.namespaces.write == "author"
+    assert written["namespaces"] == {
+        "read": ["backend", "*-session"],
+        "write": "author",
+    }
+    assert "ns" not in written
+
+
+def test_load_config_legacy_missing_values_materializes_new_defaults(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("ns: {}\n")
+
+    loaded = load_config(cfg)
+    written = yaml.safe_load(cfg.read_text())
+
+    assert loaded.namespaces.read == ["*"]
+    assert loaded.namespaces.write == "me"
+    assert written["namespaces"] == {"read": ["*"], "write": "me"}
+
+
+def test_load_config_new_namespace_values_win_during_migration(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "ns:\n"
+        "  default: [legacy-read]\n"
+        "  personal: legacy-write\n"
+        "namespaces:\n"
+        "  read: [current-read]\n"
+        "  write: current-write\n"
+    )
+
+    loaded = load_config(cfg)
+
+    assert loaded.namespaces.read == ["current-read"]
+    assert loaded.namespaces.write == "current-write"
+
+
+def test_load_config_rejects_non_mapping_legacy_namespace_without_rewriting(
+    tmp_path: Path,
+):
+    cfg = tmp_path / "config.yaml"
+    original = "ns: legacy-string\n"
+    cfg.write_text(original)
+
+    with pytest.raises(ValueError, match="must be a mapping"):
+        load_config(cfg)
+
+    assert cfg.read_text() == original
+
+
+def test_load_config_rejects_invalid_new_namespace_without_rewriting(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    original = "ns: {}\nnamespaces: invalid-string\n"
+    cfg.write_text(original)
+
+    with pytest.raises(ValueError):
+        load_config(cfg)
+
+    assert cfg.read_text() == original
+
+
+def test_load_config_migration_preserves_legacy_token_map(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "ns:\n"
+        "  token_map:\n"
+        "    local-token: [backend]\n"
+    )
+
+    loaded = load_config(cfg)
+    written = yaml.safe_load(cfg.read_text())
+
+    assert loaded.namespaces.token_map == {"local-token": ["backend"]}
+    assert written["namespaces"]["token_map"] == {
+        "local-token": ["backend"],
+    }
+
+
+@pytest.mark.parametrize("write_ns", ["", "*", "*-session", "me,backend"])
+def test_write_namespace_rejects_non_concrete_values(write_ns: str):
+    with pytest.raises(ValueError, match="one concrete namespace"):
+        Config.model_validate({"namespaces": {"write": write_ns}})
 
 
 def test_load_config_reads_compile_language(tmp_path: Path):

@@ -143,7 +143,7 @@ lorekeep update --check  # preview without upgrading
 ### Wire an agent that wasn't auto-detected
 
 ```bash
-lorekeep agent wire --agent codex --scope user --ns backend
+lorekeep agent wire --agent codex --scope user --read-ns backend
 ```
 
 Restart the agent after its MCP config changes. Open the wiki with
@@ -288,9 +288,9 @@ provider:
   max_retries: 2
 compile:
   language: en
-ns:
-  default: [me]
-  personal: me
+namespaces:
+  read: ["*"]
+  write: me
 agents:
   enabled: [claude, codex, cursor, opencode, grok, qoder, copilot, cmd]
   auto_wire: true
@@ -298,6 +298,12 @@ agents:
   watch_transcripts: true
   self_heal: true
 ```
+
+`namespaces.read` is the read scope and supports wildcard patterns;
+`namespaces.write` is the single concrete owner for agent-written facts and
+journals. Change `namespaces.read` from `*` only when an agent should read a
+narrower view. On first load, Lorekeep rewrites legacy `ns.default` /
+`ns.personal` config to these names; missing values become `*` and `me`.
 
 Prefer `provider.api_key_env`. An inline `provider.api_key` is accepted only in
 the local gitignored `config.yaml`. Native providers normally need no
@@ -312,7 +318,8 @@ lorekeep config show
 lorekeep config set provider.model openrouter/deepseek/deepseek-chat
 lorekeep config set provider.api_key_env OPENROUTER_API_KEY
 lorekeep config set compile.language vi
-lorekeep config set ns.default me,backend
+lorekeep config set namespaces.read me,backend
+lorekeep config set namespaces.write me
 lorekeep config set agents.wire_scope user
 ```
 

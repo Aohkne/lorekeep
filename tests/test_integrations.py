@@ -28,7 +28,7 @@ def test_claude_writes_mcp_json(tmp_path: Path):
                              ns="teams/backend")
     data = json.loads((tmp_path / ".mcp.json").read_text())
     assert data["mcpServers"]["lorekeep"]["command"] == "uvx"
-    assert data["mcpServers"]["lorekeep"]["env"]["LOREKEEP_NS"] == "teams/backend"
+    assert data["mcpServers"]["lorekeep"]["env"]["LOREKEEP_READ_NS"] == "teams/backend"
     assert data["mcpServers"]["lorekeep"]["env"]["LOREKEEP_AGENT"] == "claude"
 
 
@@ -44,7 +44,7 @@ def test_codex_writes_toml(tmp_path: Path):
     text = (tmp_path / "config.toml").read_text()
     assert "[mcp_servers.lorekeep]" in text
     assert 'command = "uvx"' in text
-    assert 'LOREKEEP_NS = "teams/backend"' in text
+    assert 'LOREKEEP_READ_NS = "teams/backend"' in text
     assert 'LOREKEEP_AGENT = "codex"' in text
 
 
@@ -58,7 +58,7 @@ def test_codex_write_is_idempotent(tmp_path: Path):
     codex.write_config(tmp_path, "uvx", ["lorekeep", "serve", "--transport", "stdio"], ns="team/b")
     text = (tmp_path / "config.toml").read_text()
     assert text.count("[mcp_servers.lorekeep]") == 1   # replaced, not duplicated
-    assert 'LOREKEEP_NS = "team/b"' in text             # updated value
+    assert 'LOREKEEP_READ_NS = "team/b"' in text        # updated value
 
 
 def test_codex_escapes_quotes_in_ns(tmp_path: Path):
@@ -81,7 +81,7 @@ def test_opencode_writes_json(tmp_path: Path):
     assert entry["type"] == "local"
     assert entry["command"] == ["uvx", "lorekeep", "serve", "--transport", "stdio"]
     assert entry["enabled"] is True
-    assert entry["environment"]["LOREKEEP_NS"] == "teams/backend"
+    assert entry["environment"]["LOREKEEP_READ_NS"] == "teams/backend"
 
 
 def test_opencode_no_ns(tmp_path: Path):
@@ -95,7 +95,7 @@ def test_opencode_idempotent(tmp_path: Path):
     opencode.write_config(tmp_path, "uvx", ["lorekeep"], ns="team/a")
     opencode.write_config(tmp_path, "uvx", ["lorekeep"], ns="team/b")
     data = json.loads((tmp_path / "opencode.json").read_text())
-    assert data["mcp"]["lorekeep"]["environment"]["LOREKEEP_NS"] == "team/b"
+    assert data["mcp"]["lorekeep"]["environment"]["LOREKEEP_READ_NS"] == "team/b"
 
 
 def test_opencode_preserves_existing_keys(tmp_path: Path):

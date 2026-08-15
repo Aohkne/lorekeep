@@ -9,7 +9,7 @@ def test_mcp_add_claude_project(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     (tmp_path / "config.yaml").write_text("install_source: local\n")
-    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--ns", "teams/backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--read-ns", "teams/backend"])
     assert result.exit_code == 0, result.stdout
     import json
     data = json.loads((tmp_path / ".mcp.json").read_text())
@@ -39,6 +39,7 @@ def test_mcp_add_claude_user_writes_claude_json(isolated_home: Path, tmp_path: P
     import json
     data = json.loads((isolated_home / ".claude.json").read_text())
     assert data["mcpServers"]["lorekeep"]["command"] == "lorekeep"
+    assert "LOREKEEP_READ_NS" not in data["mcpServers"]["lorekeep"]["env"]
     assert not (isolated_home / ".mcp.json").exists()          # the old wrong target
     assert not (tmp_path / ".mcp.json").exists()               # user scope, not project
 
@@ -48,9 +49,9 @@ def test_mcp_add_second_run_reports_unchanged(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     (tmp_path / "config.yaml").write_text("install_source: local\n")
-    runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--ns", "teams/backend"])
+    runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--read-ns", "teams/backend"])
     before = (tmp_path / ".mcp.json").stat().st_mtime_ns
-    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--ns", "teams/backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--read-ns", "teams/backend"])
     assert result.exit_code == 0, result.stdout
     assert "unchanged" in result.stdout
     assert (tmp_path / ".mcp.json").stat().st_mtime_ns == before
@@ -69,7 +70,7 @@ def test_mcp_add_opencode_project(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     (tmp_path / "config.yaml").write_text("install_source: local\n")
-    result = runner.invoke(app, ["mcp", "add", "--agent", "opencode", "--scope", "project", "--ns", "teams/backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "opencode", "--scope", "project", "--read-ns", "teams/backend"])
     assert result.exit_code == 0, result.stdout
     import json
     data = json.loads((tmp_path / "opencode.json").read_text())
@@ -78,7 +79,7 @@ def test_mcp_add_opencode_project(tmp_path: Path, monkeypatch):
     assert entry["command"] == [
         "lorekeep", "serve", "--transport", "stdio",
     ]
-    assert entry["environment"]["LOREKEEP_NS"] == "teams/backend"
+    assert entry["environment"]["LOREKEEP_READ_NS"] == "teams/backend"
 
 
 def test_mcp_add_unknown_agent(tmp_path: Path, monkeypatch):
@@ -86,7 +87,7 @@ def test_mcp_add_unknown_agent(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
     (tmp_path / "config.yaml").write_text("install_source: local\n")
-    result = runner.invoke(app, ["mcp", "add", "--agent", "bogus", "--ns", "x"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "bogus", "--read-ns", "x"])
     assert result.exit_code == 1
     assert "unknown agent" in result.stdout
 

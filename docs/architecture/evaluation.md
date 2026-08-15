@@ -107,7 +107,8 @@ human-reviewed labels are still needed before such results are trustworthy.
 - Construction results depend on the chosen provider/model and gold labels.
 - The LoCoMo runner may recover text from raw Markdown after graph-guided search;
   it is not a graph-only score.
-- Namespace scope affects every retrieval result. Set `LOREKEEP_NS` explicitly
+- Namespace scope affects every retrieval result. Set `LOREKEEP_READ_NS`
+  explicitly
   when comparing runs.
 - Benchmark datasets and provider calls are not bundled into the offline test
   suite.

@@ -11,15 +11,16 @@ model and the configuration decisions that keep a deployment safe.
   and propose facts through journal-based write tools that append to `pending/` —
   facts enter the graph only after a resolve pass (confidence-gated). No concurrency
   control is needed on the read path because `facts.jsonl` is replaced atomically.
-- **Per-process namespace scope.** An MCP server's visible data is fixed at startup
-  by `LOREKEEP_NS` (comma-separated namespaces). Visibility is enforced by a single
-  chokepoint, `ScopedGraph` (`src/lorekeep/perm/ns.py`), applied to **every** query.
+- **Per-process namespace scope.** An MCP server's visible data comes from
+  `LOREKEEP_READ_NS` or `namespaces.read` (comma-separated patterns). Visibility
+  is enforced by a single chokepoint, `ScopedGraph`
+  (`src/lorekeep/perm/ns.py`), applied to **every** query.
 - **Deny-by-default.** `effective_ns = allowed ∪ {public}`. A node is visible iff
   `node.ns ∩ effective_ns ≠ ∅`; an edge is visible iff **both** endpoints are
   visible **and** `edge.ns ∩ effective_ns ≠ ∅`.
 - **No information oracle.** `get_node` returns the same `"not found or out of
-  scope"` whether a node is absent or merely outside scope. `list_namespaces`
-  returns only the caller's own `effective_ns` — it does **not** enumerate
+  scope"` whether a node is absent or merely outside scope. The namespaces
+  context/resource returns only visible namespaces — it does **not** enumerate
   namespace names that exist but are hidden.
 
 ## Compile-time data egress
@@ -73,6 +74,7 @@ coordinated with the reporter.
 - An inline `api_key` may live in a gitignored `config.yaml`. Owners are
   responsible for keeping that file local.
 - Shared `raw/` directories trust everyone with write access (see egress above).
-- The MCP client (the coding agent) is trusted within its `LOREKEEP_NS` scope: it
-  can read everything in scope, which is the intended behavior. Scope assignment
-  is an operational responsibility, not enforced by the server.
+- The MCP client (the coding agent) is trusted within its `LOREKEEP_READ_NS` or
+  `namespaces.read` scope: it can read everything in scope, which is the intended
+  behavior. Scope assignment is an operational responsibility, not authenticated
+  by the local stdio server.

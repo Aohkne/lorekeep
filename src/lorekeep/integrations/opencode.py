@@ -46,7 +46,7 @@ def write_config(
         "environment": {"LOREKEEP_AGENT": "opencode"},
     }
     if ns:
-        entry["environment"]["LOREKEEP_NS"] = ns
+        entry["environment"]["LOREKEEP_READ_NS"] = ns
 
     def mutate(data: dict) -> None:
         data.setdefault("mcp", {})["lorekeep"] = entry

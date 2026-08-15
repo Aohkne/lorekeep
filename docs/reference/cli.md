@@ -21,21 +21,21 @@ Global options: `--verbose / -v`<br>`--quiet / -q`<br>`--install-completion`<br>
 | `lorekeep backup` | Sync data-home inputs and graph/wiki snapshot to a private Git repo. | `--init`<br>`--force` |
 | `lorekeep import` | Import knowledge from an agent's sessions into raw/. | `--from`<br>`--quick`<br>`--session-path`<br>`--memory-ns`<br>`--session-ns`<br>`--dry-run` |
 | `lorekeep agent` | Agent operations: ingest, lint, suggest, status, watch, profile, contribution, service. | — |
-| `lorekeep agent profile` | Show / open your personal profile source (raw/<ns>/). | `--open` |
-| `lorekeep agent contribution` | Suggest team-knowledge gaps: nodes in your personal namespace not yet shared. | — |
+| `lorekeep agent profile` | Show / open your profile source in the write namespace. | `--open` |
+| `lorekeep agent contribution` | Suggest knowledge in the write namespace not shared elsewhere. | — |
 | `lorekeep agent ingest` | Conversational ingest: read a source, extract facts via LLM, review and journal. | `<SOURCE>`<br>`--yes / -y` |
 | `lorekeep agent lint` | Run semantic health checks on the graph. | `--auto-fix`<br>`--focus` |
 | `lorekeep agent suggest` | Generate improvement suggestions for the graph. | — |
 | `lorekeep agent status` | Print a graph health dashboard. | — |
 | `lorekeep agent detect` | Report which coding agents are installed, active, and wired. | `--json` |
-| `lorekeep agent wire` | Write MCP config + session-end hooks for detected agents. | `--agent`<br>`--scope`<br>`--ns`<br>`--dry-run`<br>`--force` |
+| `lorekeep agent wire` | Write MCP config + session-end hooks for detected agents. | `--agent`<br>`--scope`<br>`--read-ns`<br>`--dry-run`<br>`--force` |
 | `lorekeep agent watch` | Run the autonomous agent daemon: watch raw/, pending/, and agent sessions. | `--interval`<br>`--watch-sessions / --no-watch-sessions` |
 | `lorekeep agent service` | Install/uninstall the daemon as a persistent OS service. | — |
 | `lorekeep agent service install` | Install daemon as a persistent OS service (survives restart). | — |
 | `lorekeep agent service uninstall` | Remove the persistent daemon service. | — |
 | `lorekeep agent service status` | Check if the persistent daemon service is installed and running. | — |
 | `lorekeep mcp` | Coding-agent integration. | — |
-| `lorekeep mcp add` | Write the agent's MCP config + print an agent-memory snippet. | `--agent`<br>`--scope`<br>`--ns` |
+| `lorekeep mcp add` | Write the agent's MCP config + print an agent-memory snippet. | `--agent`<br>`--scope`<br>`--read-ns` |
 | `lorekeep config` | View and edit lorekeep config. | — |
 | `lorekeep config show` | Print the current config.yaml. | — |
 | `lorekeep config set` | Set a config value (e.g. `config set provider.model deepseek/deepseek-chat`). | `<KEY>`<br>`<VALUE>` |

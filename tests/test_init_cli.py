@@ -48,8 +48,8 @@ def test_init_yes_flag_skips_prompts(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.stdout
     assert (home / "config.yaml").exists()
     cfg = yaml.safe_load((home / "config.yaml").read_text())
-    assert cfg["ns"]["default"] == ["me"]
-    assert cfg["ns"]["personal"] == "me"
+    assert cfg["namespaces"]["read"] == ["*"]
+    assert cfg["namespaces"]["write"] == "me"
     assert cfg["provider"]["model"] == "openai/gpt-4o-mini"
     assert cfg["provider"]["timeout_seconds"] == 120
     assert cfg["provider"]["max_retries"] == 2
@@ -75,7 +75,8 @@ def test_init_interactive(tmp_path: Path, monkeypatch):
     assert cfg["provider"]["model"] == "deepseek/deepseek-chat"
     assert cfg["provider"]["api_key"] is None
     assert cfg["provider"]["api_key_env"] == "DEEPSEEK_API_KEY"
-    assert cfg["ns"]["default"] == ["myteam"]
+    assert cfg["namespaces"]["read"] == ["*"]
+    assert cfg["namespaces"]["write"] == "myteam"
     about = home / "raw" / "myteam" / "about.md"
     assert about.exists()
     content = about.read_text()
@@ -102,10 +103,33 @@ def test_init_interactive_stores_inline_key(tmp_path: Path, monkeypatch):
     assert cfg["provider"]["model"] == "openai/gpt-4o-mini"
     assert cfg["provider"]["api_key"] == "sk-testKEY"
     assert cfg["provider"]["api_key_env"] is None
-    assert cfg["ns"]["default"] == ["me"]
+    assert cfg["namespaces"]["read"] == ["*"]
+    assert cfg["namespaces"]["write"] == "me"
     about = home / "raw" / "me" / "about.md"
     assert about.exists()
     assert "Bob" in about.read_text()
+
+
+def test_init_interactive_skip_provider_keeps_all_read_default(
+    tmp_path: Path, monkeypatch,
+):
+    from lorekeep.providers import POPULAR
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    monkeypatch.setattr("lorekeep.cli._is_interactive", lambda: True)
+    skip_choice = len(POPULAR) + 2
+
+    result = runner.invoke(
+        app,
+        ["init", "--no-watch"],
+        input=f"{skip_choice}\nmyteam\nAlice\nBackend engineer\n",
+    )
+
+    assert result.exit_code == 0, result.stdout
+    cfg = yaml.safe_load((home / "config.yaml").read_text())
+    assert cfg["namespaces"] == {"read": ["*"], "write": "myteam"}
+    assert (home / "raw" / "myteam" / "about.md").is_file()
 
 
 def test_init_interactive_ollama_no_key(tmp_path: Path, monkeypatch):
@@ -130,7 +154,8 @@ def test_init_interactive_ollama_no_key(tmp_path: Path, monkeypatch):
     cfg = yaml.safe_load((home / "config.yaml").read_text())
     assert cfg["provider"]["model"] == "ollama/llama3.2"
     assert cfg["provider"]["api_key"] is None
-    assert cfg["ns"]["default"] == ["myproject"]
+    assert cfg["namespaces"]["read"] == ["*"]
+    assert cfg["namespaces"]["write"] == "myproject"
 
 
 def test_init_preserves_existing_config(tmp_path: Path, monkeypatch):
@@ -188,6 +213,7 @@ def test_init_auto_wires_detected_agent(isolated_home, tmp_path: Path, monkeypat
     assert mcp_path.exists(), f"opencode.json not written: {result.stdout}"
     data = json.loads(mcp_path.read_text())
     assert data["mcp"]["lorekeep"]["type"] == "local"
+    assert "LOREKEEP_READ_NS" not in data["mcp"]["lorekeep"]["environment"]
 
 
 def test_init_auto_wires_installed_agents(isolated_home, tmp_path: Path, monkeypatch):

@@ -13,10 +13,15 @@ and `public` is the shared namespace.
 
 At serve time, allowed namespaces come from:
 
-1. comma-separated `LOREKEEP_NS`, when set; otherwise
-2. `ns.default` in the resolved `config.yaml`.
+1. comma-separated `LOREKEEP_READ_NS`, when set; otherwise
+2. `namespaces.read` in the resolved `config.yaml`.
 
-Agent wiring writes `LOREKEEP_NS` into the client's native MCP configuration.
+The default read scope is `namespaces.read: ["*"]`. Default agent wiring omits
+`LOREKEEP_READ_NS`, so every client reads this central config on its next MCP
+start instead of baking a stale scope into native agent config. An explicit
+wiring `--read-ns` writes a read-scope override into the client's native MCP
+configuration. Runtime still accepts legacy `LOREKEEP_NS`; re-wiring replaces
+it with the new name.
 The current local stdio model therefore treats process configuration as caller
 identity; it does not authenticate a remote human or service.
 
@@ -53,27 +58,30 @@ visible and active in that snapshot.
 ## Write scope
 
 `propose_change` and `review_note` do not trust a caller-supplied namespace.
-They derive active namespaces from the server's verified scope, remove the
-implicit `public` when an explicit scope exists, and overwrite proposal
-namespaces before appending the journal.
-
-With several explicit namespaces, accepted facts carry all of them and the
-journal file is routed through the first configured namespace. For predictable
-ownership and least privilege, run a write-capable agent with the narrowest
-practical scope.
+Read permission and write ownership are separate: writes use exactly one
+concrete `config.namespaces.write` namespace (default `me`) and overwrite
+proposal namespaces before appending the journal. Wildcard/comma-separated
+write values are rejected. A broad `*` read scope therefore never creates a
+literal `*` namespace or `pending/*/journal.jsonl` path.
 
 Writes are still subject to schema/shape checks, visible endpoint checks, and
 the confidence gate described in [Journal](journal.md). Namespace permission is
 not a substitute for validating content.
+
+Legacy config is migrated on first runtime load: `ns.default` becomes
+`namespaces.read`, `ns.personal` becomes `namespaces.write`, and the file is
+atomically rewritten. New keys win if both forms exist; missing migrated values
+default to `["*"]` and `me`.
 
 ## Important boundaries
 
 - The generated wiki is a local projection of the **full graph**, not a
   per-caller `ScopedGraph` view. Do not publish a wiki directory as though it
   were namespace-filtered.
-- MCP graph counts and topic coverage are scoped, but static schema plus
-  aggregate compile/pending operational metadata are process-wide. The pending
-  count currently covers every journal and is not filtered per namespace.
+- MCP graph counts, namespace names, and topic coverage are scoped. Static
+  schema plus aggregate compile/pending operational metadata are process-wide;
+  the pending count currently covers every journal and is not filtered per
+  namespace.
 - The backup repository contains durable knowledge and a full-graph graph/wiki
   snapshot from every tracked namespace. It is not caller-scoped. Keep it
   private and control Git access separately.

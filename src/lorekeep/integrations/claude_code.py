@@ -32,7 +32,7 @@ def write_config(
 ) -> Path | None:
     entry = {"command": command, "args": args, "env": {"LOREKEEP_AGENT": "claude"}}
     if ns:
-        entry["env"]["LOREKEEP_NS"] = ns
+        entry["env"]["LOREKEEP_READ_NS"] = ns
 
     def mutate(data: dict) -> None:
         data.setdefault("mcpServers", {})["lorekeep"] = entry

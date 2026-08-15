@@ -35,7 +35,7 @@ def write_config(
 ) -> Path | None:
     env: dict[str, str] = {"LOREKEEP_AGENT": "qoder"}
     if ns:
-        env["LOREKEEP_NS"] = ns
+        env["LOREKEEP_READ_NS"] = ns
 
     entry: dict = {
         "command": command,

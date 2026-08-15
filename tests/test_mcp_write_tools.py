@@ -5,9 +5,10 @@ import tempfile
 from pathlib import Path
 
 import lorekeep.mcp_server as ms
+import pytest
 
 
-def _setup(fixtures: Path, allowed, with_pending=True):
+def _setup(fixtures: Path, allowed, with_pending=True, write_ns="backend"):
     d = Path(tempfile.mkdtemp())
     shutil.copy(fixtures / "gold/payments.facts.jsonl", d / "facts.jsonl")
     pending = d / "pending" if with_pending else None
@@ -18,6 +19,7 @@ def _setup(fixtures: Path, allowed, with_pending=True):
         allowed_ns=allowed,
         schema_path=fixtures / "schema.json",
         pending_dir=pending,
+        write_ns=write_ns,
     )
     return d, pending
 
@@ -104,6 +106,40 @@ def test_create_without_pending_dir(fixtures: Path):
     fact = {"kind": "node", "id": "x", "type": "service", "props": {}}
     r = _create(fact, confidence=0.9)
     assert "error" in r
+
+
+def test_create_wildcard_read_scope_writes_only_concrete_namespace(fixtures: Path):
+    _, pending = _setup(fixtures, ["*"], write_ns="me")
+    fact = {
+        "kind": "node", "id": "svc:wildcard-safe", "type": "service",
+        "props": {"name": "wildcard-safe"},
+    }
+
+    result = _create(fact, confidence=0.9)
+
+    assert result["ns"] == "me"
+    entries = _journal_entries(pending)
+    assert entries[0]["fact"]["ns"] == ["me"]
+    assert (pending / "me" / "journal.jsonl").is_file()
+    assert not (pending / "*" / "journal.jsonl").exists()
+
+
+def test_create_without_concrete_write_namespace_returns_error(fixtures: Path):
+    _setup(fixtures, ["*"], write_ns=None)
+    fact = {"kind": "node", "id": "svc:no-owner", "type": "service", "props": {}}
+    result = _create(fact, confidence=0.9)
+    assert result == {"error": "no concrete write namespace configured"}
+
+
+@pytest.mark.parametrize("write_ns", ["*", "", "me,backend"])
+def test_configure_rejects_non_concrete_write_namespace(
+    fixtures: Path, tmp_path: Path, write_ns: str,
+):
+    graph = tmp_path / "graph"
+    graph.mkdir()
+    shutil.copy(fixtures / "gold/payments.facts.jsonl", graph / "facts.jsonl")
+    with pytest.raises(ValueError, match="one concrete namespace"):
+        ms.configure(graph_dir=graph, allowed_ns=["*"], write_ns=write_ns)
 
 
 # ── link operation ───────────────────────────────────────────────────────
@@ -196,6 +232,7 @@ def test_update_rejects_hidden_id(fixtures: Path):
         allowed_ns=["backend"],
         schema_path=fixtures / "schema.json",
         pending_dir=pending,
+        write_ns="backend",
     )
 
     result = _update("svc:secret", {"lang": "rust"}, confidence=0.8)
@@ -216,6 +253,21 @@ def test_improvement_writes_journal(fixtures: Path):
     entries = _journal_entries(pending)
     assert len(entries) == 1
     assert entries[0]["fact"]["type"] == "note"
+
+
+def test_improvement_wildcard_read_scope_uses_concrete_write_namespace(fixtures: Path):
+    _, pending = _setup(fixtures, ["*"], write_ns="me")
+    result = _improvement("Keep wildcard out of journal ownership")
+    assert result["ns"] == "me"
+    entry = _journal_entries(pending)[0]
+    assert entry["fact"]["ns"] == ["me"]
+    assert entry["fact"]["id"].startswith("suggestion:me:")
+
+
+def test_improvement_without_concrete_write_namespace_returns_error(fixtures: Path):
+    _setup(fixtures, ["*"], write_ns=None)
+    result = _improvement("No write owner")
+    assert result == {"error": "no concrete write namespace configured"}
 
 
 def test_improvement_without_pending_dir(fixtures: Path):

@@ -62,9 +62,9 @@ compile:
   # Streaming flush: resolve + write facts.jsonl every N completed chunks.
   # 0 = write only at the end (no intermediate updates).
   flush_interval: 10
-ns:
-  default: [me]
-  personal: me
+namespaces:
+  read: ["*"]  # read every graph namespace; restrict explicitly when needed
+  write: me     # concrete owner for agent-written facts and journals
 
 # ── auto error reporting ─────────────────────────────────────────────────────
 # When enabled, lorekeep automatically creates a GitHub issue the first time it

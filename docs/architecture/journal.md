@@ -19,11 +19,13 @@ Agent identity is stored on each entry; Lorekeep does not currently maintain a
 separate agent-routed journal path. `load_journals` recursively reads every file
 named `journal.jsonl`, so older/custom nested layouts remain discoverable.
 
-MCP write tools derive scope from `LOREKEEP_NS`/configured server state and
-discard a caller-provided fact namespace. With several non-public namespaces,
-the fact receives all active namespaces and the journal uses the first configured
-one as its path. Prefer a narrow single write scope when attribution/routing must
-be unambiguous.
+MCP read scope and write ownership are independent. Write tools discard a
+caller-provided fact namespace and use exactly one concrete
+`config.namespaces.write` namespace (default `me`) for both `fact.ns` and the
+journal path. `LOREKEEP_READ_NS` can restrict reads or contain wildcard patterns
+without affecting journal ownership. Glob/comma-separated write namespaces are
+rejected, so `namespaces.read: ["*"]` cannot create a literal `pending/*/`
+directory.
 
 ## Entry contract
 

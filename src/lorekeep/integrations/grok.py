@@ -43,7 +43,7 @@ def _toml_quote_list(items: list[str]) -> str:
 def _lorekeep_block(command: str, args: list[str], ns: str | None) -> str:
     env_lines = ['LOREKEEP_AGENT = "grok"']
     if ns:
-        env_lines.append(f'LOREKEEP_NS = "{_toml_escape(ns)}"')
+        env_lines.append(f'LOREKEEP_READ_NS = "{_toml_escape(ns)}"')
     lines = [
         _HEADER,
         f'command = "{_toml_escape(command)}"',

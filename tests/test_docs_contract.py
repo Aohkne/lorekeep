@@ -113,7 +113,7 @@ def test_mcp_reference_names_the_exact_runtime_surface() -> None:
 def test_config_example_validates_against_current_model() -> None:
     config = load_config(ROOT / ".lorekeep/config.yaml.example")
     assert config.provider.model
-    assert config.ns.personal_namespace
+    assert config.namespaces.write
     assert set(config.agents.enabled) == {
         "claude", "cursor", "codex", "opencode", "grok", "qoder", "copilot", "cmd",
     }

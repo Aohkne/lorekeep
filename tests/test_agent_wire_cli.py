@@ -100,6 +100,7 @@ class TestAgentWire:
         assert result.exit_code == 0, result.stdout
         data = json.loads((isolated_home / ".claude.json").read_text())
         assert data["mcpServers"]["lorekeep"]["command"] == "lorekeep"
+        assert "LOREKEEP_READ_NS" not in data["mcpServers"]["lorekeep"]["env"]
         assert "[mcp_servers.lorekeep]" in (
             isolated_home / ".codex" / "config.toml"
         ).read_text()
@@ -161,11 +162,11 @@ class TestAgentWire:
         assert (wired_project / ".mcp.json").is_file()
         assert not (isolated_home / ".claude.json").exists()
 
-    def test_ns_reaches_the_written_config(self, wired_project, isolated_home):
-        result = runner.invoke(app, ["agent", "wire", "--agent", "claude", "--ns", "teams/backend"])
+    def test_read_ns_reaches_the_written_config(self, wired_project, isolated_home):
+        result = runner.invoke(app, ["agent", "wire", "--agent", "claude", "--read-ns", "teams/backend"])
         assert result.exit_code == 0, result.stdout
         data = json.loads((isolated_home / ".claude.json").read_text())
-        assert data["mcpServers"]["lorekeep"]["env"]["LOREKEEP_NS"] == "teams/backend"
+        assert data["mcpServers"]["lorekeep"]["env"]["LOREKEEP_READ_NS"] == "teams/backend"
 
     def test_config_disabled_agent_is_skipped(self, wired_project, tmp_path, isolated_home):
         (tmp_path / "data" / "config.yaml").write_text(

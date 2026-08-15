@@ -177,7 +177,7 @@ def test_mcp_add_writes_claude_hook(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
     monkeypatch.chdir(project)
 
-    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--ns", "backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "claude", "--scope", "project", "--read-ns", "backend"])
     assert result.exit_code == 0, result.stdout
 
     settings = project / ".claude" / "settings.json"
@@ -197,7 +197,7 @@ def test_mcp_add_opencode_writes_hook(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
     monkeypatch.chdir(project)
 
-    result = runner.invoke(app, ["mcp", "add", "--agent", "opencode", "--scope", "project", "--ns", "backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "opencode", "--scope", "project", "--read-ns", "backend"])
     assert result.exit_code == 0, result.stdout
 
     plugin = project / ".opencode" / "plugins" / "lorekeep.ts"
@@ -237,7 +237,7 @@ def test_mcp_add_cursor_hook(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
     monkeypatch.chdir(project)
 
-    result = runner.invoke(app, ["mcp", "add", "--agent", "cursor", "--scope", "project", "--ns", "backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "cursor", "--scope", "project", "--read-ns", "backend"])
     assert result.exit_code == 0, result.stdout
 
     hooks_path = project / ".cursor" / "hooks.json"
@@ -277,7 +277,7 @@ def test_mcp_add_codex_hook(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("LOREKEEP_HOME", str(home))
     monkeypatch.chdir(project)
 
-    result = runner.invoke(app, ["mcp", "add", "--agent", "codex", "--scope", "project", "--ns", "backend"])
+    result = runner.invoke(app, ["mcp", "add", "--agent", "codex", "--scope", "project", "--read-ns", "backend"])
     assert result.exit_code == 0, result.stdout
 
     hooks_path = project / ".codex" / "hooks.json"

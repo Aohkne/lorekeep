@@ -213,15 +213,73 @@ class TestConfigCLI:
         home = tmp_path / "home"
         home.mkdir()
         config = home / "config.yaml"
-        config.write_text("ns:\n  default: [public]\n")
+        config.write_text("namespaces:\n  read: [public]\n")
 
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
         from lorekeep.cli import app
-        result = runner.invoke(app, ["config", "set", "ns.default", "backend,frontend"])
+        result = runner.invoke(app, ["config", "set", "namespaces.read", "backend,frontend"])
         assert result.exit_code == 0
 
         data = yaml.safe_load(config.read_text())
-        assert data["ns"]["default"] == ["backend", "frontend"]
+        assert data["namespaces"]["read"] == ["backend", "frontend"]
+
+    def test_config_set_read_scope_materializes_list_when_key_missing(
+        self, tmp_path, monkeypatch,
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        config = home / "config.yaml"
+        config.write_text("install_source: local\n")
+
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        from lorekeep.cli import app
+        result = runner.invoke(
+            app,
+            ["config", "set", "namespaces.read", "backend,*-session"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert yaml.safe_load(config.read_text())["namespaces"]["read"] == [
+            "backend", "*-session",
+        ]
+
+    def test_config_set_write_namespace_rejects_pattern_without_clobbering(
+        self, tmp_path, monkeypatch,
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        config = home / "config.yaml"
+        config.write_text("namespaces:\n  read: ['*']\n  write: me\n")
+
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        from lorekeep.cli import app
+        result = runner.invoke(
+            app, ["config", "set", "namespaces.write", "*-session"],
+        )
+
+        assert result.exit_code == 1
+        assert "one concrete namespace" in result.output
+        assert yaml.safe_load(config.read_text())["namespaces"]["write"] == "me"
+
+    def test_config_set_legacy_namespace_key_reports_replacement(
+        self, tmp_path, monkeypatch,
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        config = home / "config.yaml"
+        config.write_text("ns:\n  default: [backend]\n  personal: me\n")
+
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        from lorekeep.cli import app
+        result = runner.invoke(
+            app, ["config", "set", "ns.default", "frontend"],
+        )
+
+        assert result.exit_code == 1
+        assert "namespaces.read" in result.output
+        written = yaml.safe_load(config.read_text())
+        assert written["namespaces"] == {"read": ["backend"], "write": "me"}
+        assert "ns" not in written
 
     def test_config_set_int(self, tmp_path, monkeypatch):
         home = tmp_path / "home"

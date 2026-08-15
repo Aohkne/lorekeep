@@ -22,20 +22,21 @@ FTS index alongside the graph.
 For one client:
 
 ```bash
-lorekeep mcp add --agent claude --scope project --ns backend
+lorekeep mcp add --agent claude --scope project --read-ns backend
 ```
 
 For registry-based detection/wiring:
 
 ```bash
 lorekeep agent detect
-lorekeep agent wire --scope user --ns backend
-lorekeep agent wire --agent codex --scope user --ns backend
+lorekeep agent wire --scope user --read-ns backend
+lorekeep agent wire --agent codex --scope user --read-ns backend
 ```
 
-Supported names are `claude`, `cursor`, `codex`, and `opencode`. Writers preserve
-unrelated client configuration and are idempotent: an already-correct target is
-reported as unchanged without touching its mtime.
+Supported names are `claude`, `cursor`, `codex`, `opencode`, `grok`, `qoder`,
+`copilot`, and `cmd`. Writers preserve unrelated client configuration and are
+idempotent: an already-correct target is reported as unchanged without touching
+its mtime.
 
 With `install_source: pypi`, a project-scoped Claude config is conceptually:
 
@@ -45,7 +46,7 @@ With `install_source: pypi`, a project-scoped Claude config is conceptually:
     "lorekeep": {
       "command": "uvx",
       "args": ["lorekeep", "serve", "--transport", "stdio"],
-      "env": {"LOREKEEP_NS": "backend"}
+      "env": {"LOREKEEP_READ_NS": "backend"}
     }
   }
 }
@@ -57,8 +58,12 @@ native config. Restart the client after wiring or changing scope.
 
 ## Scope and permission
 
-Serve-time scope comes from comma-separated `LOREKEEP_NS`; without that env var,
-it uses `config.ns.default`. `public` is always added implicitly.
+Serve-time scope comes from comma-separated `LOREKEEP_READ_NS`; without that
+env var, it uses `config.namespaces.read`, which defaults to `*` (all graph
+namespaces). `public` is always added implicitly. Default wiring omits
+`LOREKEEP_READ_NS` so all agents follow this central setting;
+`agent wire --read-ns <pattern>` is an explicit
+read-scope restriction or pattern override.
 
 Permission is deny-by-default:
 
@@ -74,7 +79,7 @@ fact payloads; the pending count is not filtered per namespace.
 
 ## MCP surface
 
-The server exposes exactly seven tools.
+The server exposes exactly eight tools.
 
 ### `search(query, limit=10)`
 
@@ -140,6 +145,12 @@ Node/edge types are checked against the loaded schema. Edge endpoints must exist
 be visible, and satisfy allowed endpoint types. No proposal changes
 `facts.jsonl` directly.
 
+### `merge_entities(from_id, to_id, reason="")`
+
+Proposes a `same_as` edge from an alias to its canonical node. Both nodes must
+be visible and have the same schema type. Resolve persists the merged id on the
+canonical node so later recompiles and alias lookups keep the decision.
+
 ### `review_note(kind, description, fact_ids=None)`
 
 Records an `improvement`, or a `contradiction` referencing exactly two fact ids.
@@ -181,10 +192,10 @@ Good user prompts are explicit about using the graph and the desired time/scope:
 
 ## Journal-based writes
 
-Write tools derive their namespace from the server scope and overwrite any
-caller-provided `ns`. With multiple non-public scopes, the fact carries all of
-them and the journal is routed through the first configured namespace. Give a
-write-capable agent the narrowest practical scope.
+Write tools overwrite any caller-provided `ns` with the single concrete
+`config.namespaces.write` value (default `me`). Read patterns never become fact
+namespaces or journal paths: even with read scope `*`, writes go to
+`pending/me/journal.jsonl` unless `namespaces.write` is changed.
 
 The flow is:
 

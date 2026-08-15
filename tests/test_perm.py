@@ -1,5 +1,5 @@
 from lorekeep.models import Node, Edge
-from lorekeep.perm.ns import effective_ns, is_node_visible, is_edge_visible
+from lorekeep.perm.ns import effective_ns, expand_namespaces, is_node_visible, is_edge_visible
 
 
 def n(id, ns):
@@ -120,3 +120,64 @@ def test_scoped_search_filters_hidden(tmp_path):
     # node a is backend -> hidden; only visible results returned
     res = scoped.search("a")
     assert "a" not in res
+
+
+def test_store_all_namespaces(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    assert g.all_namespaces() == {"teams/backend", "teams/frontend"}
+
+
+def test_scoped_graph_does_not_expose_unscoped_store(tmp_path):
+    g = store_with_cross_ns(tmp_path)
+    from lorekeep.perm.ns import ScopedGraph
+    scoped = ScopedGraph(g, ["teams/backend"])
+    assert not hasattr(scoped, "store")
+
+
+# ── wildcard / pattern expansion ────────────────────────────────────────────
+
+_GRAPH_NS = {"me", "claude-session", "claude-memory", "codex-session",
+             "codex-memory", "grok-session", "public"}
+
+
+def test_expand_star_matches_all_graph_namespaces():
+    assert expand_namespaces(["*"], _GRAPH_NS) == _GRAPH_NS
+
+
+def test_expand_glob_matches_subset():
+    result = expand_namespaces(["*-session"], _GRAPH_NS)
+    assert result == {"claude-session", "codex-session", "grok-session"}
+
+
+def test_expand_glob_matches_prefix():
+    result = expand_namespaces(["claude-*"], _GRAPH_NS)
+    assert result == {"claude-session", "claude-memory"}
+
+
+def test_expand_literal_kept_even_if_not_in_graph():
+    result = expand_namespaces(["me"], set())
+    assert result == {"me"}
+
+
+def test_expand_mixed_literal_and_glob():
+    result = expand_namespaces(["me", "*-session"], _GRAPH_NS)
+    assert result == {"me", "claude-session", "codex-session", "grok-session"}
+
+
+def test_expand_literal_in_graph_kept():
+    result = expand_namespaces(["public"], _GRAPH_NS)
+    assert result == {"public"}
+
+
+def test_expand_no_wildcard_is_identity_on_known_ns():
+    result = expand_namespaces(["me", "claude-session"], _GRAPH_NS)
+    assert result == {"me", "claude-session"}
+
+
+def test_expand_namespace_patterns_are_case_sensitive_across_devices():
+    assert expand_namespaces(["*-session"], {"Codex-Session"}) == set()
+
+
+def test_expand_glob_no_match_returns_empty():
+    result = expand_namespaces(["*-nonexistent"], _GRAPH_NS)
+    assert result == set()

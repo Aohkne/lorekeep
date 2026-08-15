@@ -43,8 +43,8 @@ def test_default_config_yaml_loads_into_config():
     c = Config.model_validate(cfg)
     assert c.provider.model.startswith("openai/")
     assert c.install_source == "pypi"
-    assert c.ns.default == ["me"]
-    assert c.ns.personal_namespace == "me"
+    assert c.namespaces.read == ["*"]
+    assert c.namespaces.write == "me"
     assert c.compile.language == "en"
 
 
@@ -87,6 +87,22 @@ def test_default_config_yaml_has_no_backend():
     assert "backend" not in DEFAULT_CONFIG_YAML
 
 
-def test_legacy_private_default_is_inferred_as_personal_namespace():
+def test_legacy_read_scope_does_not_change_default_write_namespace():
     config = Config.model_validate({"ns": {"default": ["private"]}})
-    assert config.ns.personal_namespace == "private"
+    assert config.namespaces.read == ["private"]
+    assert config.namespaces.write == "me"
+
+
+def test_namespace_defaults_are_all_reads_and_me_writes():
+    config = Config()
+    assert config.namespaces.read == ["*"]
+    assert config.namespaces.write == "me"
+
+
+def test_legacy_personal_namespace_migrates_to_write_namespace():
+    config = Config.model_validate({
+        "ns": {"default": ["backend"], "personal": "author"},
+    })
+
+    assert config.namespaces.read == ["backend"]
+    assert config.namespaces.write == "author"

@@ -27,6 +27,7 @@ def _setup(tmp_path: Path, fixtures: Path, *, pending: bool = False) -> Path | N
         allowed_ns=["backend"],
         schema_path=fixtures / "schema.json",
         pending_dir=pending_dir,
+        write_ns="backend",
     )
     return pending_dir
 

@@ -244,7 +244,7 @@ def test_copilot_write_config_sets_mcp_servers(isolated_home, tmp_path):
     assert entry["command"] == CMD
     assert entry["args"] == ARGS
     assert entry["env"]["LOREKEEP_AGENT"] == "copilot"
-    assert entry["env"]["LOREKEEP_NS"] == "me"
+    assert entry["env"]["LOREKEEP_READ_NS"] == "me"
 
 
 def test_copilot_write_preserves_other_servers(isolated_home, tmp_path):
@@ -281,7 +281,7 @@ def test_cmd_write_config_sets_mcp_servers(isolated_home, tmp_path):
     assert entry["command"] == CMD
     assert entry["args"] == ARGS
     assert entry["env"]["LOREKEEP_AGENT"] == "cmd"
-    assert entry["env"]["LOREKEEP_NS"] == "me"
+    assert entry["env"]["LOREKEEP_READ_NS"] == "me"
 
 
 def test_cmd_write_preserves_other_servers(isolated_home, tmp_path):

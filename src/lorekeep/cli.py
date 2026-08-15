@@ -21,7 +21,13 @@ except ImportError:
 
 from lorekeep import __version__
 from lorekeep.compile.providers import LiteLLMProvider
-from lorekeep.config import CompileConfig, Config, load_config
+from lorekeep.config import (
+    CompileConfig,
+    Config,
+    NamespacesConfig,
+    load_config,
+    migrate_config_file,
+)
 from lorekeep.models import now_iso
 from lorekeep.pipeline import compile_graph
 from lorekeep.paths import resolve_paths
@@ -481,7 +487,7 @@ def compile(
             raw_root=p["raw"], out_dir=p["out"], schema=schema,
             provider=provider, cache_path=p["cache"], chunk_lines=config.compile.chunk_lines,
             on_progress=_progress_cb(handle),
-            personal_ns=config.ns.personal_namespace,
+            personal_ns=config.namespaces.write,
             language=config.compile.language,
             prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
             max_workers=config.compile.max_workers,
@@ -550,15 +556,16 @@ def wiki(
 def profile(
     open: bool = typer.Option(False, "--open", help="Open your raw profile dir in Obsidian/Tolaria."),
 ) -> None:
-    """Show / open your personal profile source (raw/<ns>/).
+    """Show / open your profile source in the write namespace.
 
-    The wiki is a derived view; the editable source is raw/<ns>/about.md +
-    profile.md. Edit those (in Obsidian/Tolaria), then `lorekeep compile`.
+    The wiki is a derived view; the editable source is
+    raw/<namespaces.write>/about.md + profile.md. Edit those (in
+    Obsidian/Tolaria), then `lorekeep compile`.
     """
     from lorekeep.output import info
     p = resolve_paths()
     try:
-        ns = load_config(p["config"]).ns.personal_namespace
+        ns = load_config(p["config"]).namespaces.write
     except Exception:
         ns = "me"
     ns_dir = p["raw"] / ns
@@ -570,11 +577,11 @@ def profile(
 
 @agent_app.command()
 def contribution() -> None:
-    """Suggest team-knowledge gaps: nodes in your personal namespace not yet shared.
+    """Suggest knowledge in the write namespace not shared elsewhere.
 
     Scans the compiled graph for nodes of shareable types (service, project,
-    decision, domain, skill) that live only in your personal namespace — i.e.
-    things you know but the team graph doesn't. Move the source doc to a team
+    decision, domain, skill) that live only in the configured write namespace.
+    Move the source doc to a team
     namespace (raw/<team>/) and re-compile to share. Read-only.
     """
     from collections import defaultdict
@@ -587,7 +594,7 @@ def contribution() -> None:
         warn(f"no compiled graph at {facts} — run `lorekeep compile` first")
         raise typer.Exit(code=1)
     try:
-        personal_ns = load_config(p["config"]).ns.personal_namespace
+        personal_ns = load_config(p["config"]).namespaces.write
     except Exception:
         personal_ns = "me"
     SHARE_TYPES = {"service", "project", "decision", "domain", "skill"}
@@ -662,7 +669,7 @@ def eval_locomo_cmd(
             raw_root=p["raw"], out_dir=p["out"], schema=schema,
             provider=provider, cache_path=p["cache"],
             chunk_lines=config.compile.chunk_lines,
-            personal_ns=config.ns.personal_namespace,
+            personal_ns=config.namespaces.write,
             language=config.compile.language,
             prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
             max_workers=config.compile.max_workers,
@@ -670,7 +677,7 @@ def eval_locomo_cmd(
         )
         typer.echo(f"eval-locomo: compiled {manifest.node_count} nodes, {manifest.edge_count} edges")
 
-    raw_ns = os.environ.get("LOREKEEP_NS")
+    raw_ns = _read_namespace_override()
     allowed = [x.strip() for x in raw_ns.split(",")] if raw_ns else ["locomo"]
     report = locomo_report(p["out"], data_path, allowed, raw_dir=p["raw"])
     if "error" in report:
@@ -824,17 +831,29 @@ def resolve(
         _auto_generate_wiki(p["out"], p["wiki"], p.get("schema"))
 
 
+def _runtime_namespaces(config) -> tuple[list[str], str]:
+    """Resolve read patterns and concrete write ownership independently."""
+    raw_ns = _read_namespace_override()
+    allowed = (
+        [item.strip() for item in raw_ns.split(",") if item.strip()]
+        if raw_ns else list(config.namespaces.read)
+    )
+    return allowed, config.namespaces.write
+
+
+def _read_namespace_override() -> str | None:
+    """Read the explicit scope override, accepting the legacy env at runtime."""
+    return os.environ.get("LOREKEEP_READ_NS") or os.environ.get("LOREKEEP_NS")
+
+
 @app.command()
 def serve(
     transport: str = typer.Option("stdio", "--transport", help="stdio (default) | http"),
 ) -> None:
     """Serve the scoped graph over MCP."""
     p = resolve_paths()
-    raw_ns = os.environ.get("LOREKEEP_NS")
-    if raw_ns:
-        allowed = [x.strip() for x in raw_ns.split(",") if x.strip()]
-    else:
-        allowed = load_config(p["config"]).ns.default
+    config = load_config(p["config"])
+    allowed, write_ns = _runtime_namespaces(config)
     try:
         from lorekeep.mcp_server import configure, mcp
     except ImportError as exc:
@@ -861,8 +880,13 @@ def serve(
             f"Run 'lorekeep compile' first to build it."
         )
         raise typer.Exit(code=1)
+
     try:
-        configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
+        configure(
+            graph_dir=p["out"], allowed_ns=allowed,
+            schema_path=p["schema"], pending_dir=p.get("pending"),
+            write_ns=write_ns,
+        )
     except (FileNotFoundError, ValueError) as exc:
         from lorekeep.output import error
         error(str(exc))
@@ -1060,6 +1084,8 @@ def config_show() -> None:
     if not p["config"].exists():
         typer.echo("No config.yaml found — run `lorekeep init` first.")
         raise typer.Exit(code=1)
+    # Persist the one-time ``ns`` -> ``namespaces`` migration before display.
+    migrate_config_file(p["config"])
     typer.echo(p["config"].read_text(encoding="utf-8"))
 
 
@@ -1075,6 +1101,16 @@ def config_set(
         typer.echo("No config.yaml found — run `lorekeep init` first.")
         raise typer.Exit(code=1)
 
+    migrate_config_file(p["config"])
+
+    renamed = {
+        "ns.default": "namespaces.read",
+        "ns.personal": "namespaces.write",
+    }
+    if key in renamed:
+        typer.echo(f"{key} was renamed; use {renamed[key]}", err=True)
+        raise typer.Exit(code=1)
+
     data = yaml.safe_load(p["config"].read_text(encoding="utf-8")) or {}
 
     keys = key.split(".")
@@ -1083,7 +1119,7 @@ def config_set(
         target = target.setdefault(k, {})
 
     final_key = keys[-1]
-    if isinstance(target.get(final_key), list):
+    if key == "namespaces.read" or isinstance(target.get(final_key), list):
         target[final_key] = [v.strip() for v in value.split(",")]
     elif isinstance(target.get(final_key), bool):
         target[final_key] = value.lower() in ("true", "1", "yes")
@@ -1109,6 +1145,17 @@ def config_set(
             typer.echo(
                 "compile.language must be a lowercase ISO 639-1 code "
                 "(for example: en, vi)",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+    elif key == "namespaces.write":
+        try:
+            target[final_key] = NamespacesConfig(
+                write=target[final_key],
+            ).write
+        except ValueError:
+            typer.echo(
+                "namespaces.write must be one concrete namespace",
                 err=True,
             )
             raise typer.Exit(code=1)
@@ -1158,7 +1205,10 @@ def _resolve_agent_arg(agent: str):
 def mcp_add(
     agent: str = typer.Option(..., "--agent", help="claude | cursor | codex | opencode | grok | qoder | copilot | cmd"),
     scope: str = typer.Option(None, "--scope", help="project | user (default: agents.wire_scope)"),
-    ns: str = typer.Option(None, "--ns", help="namespace to scope the agent to"),
+    read_ns: str = typer.Option(
+        None, "--read-ns",
+        help="read namespace pattern override (default: namespaces.read)",
+    ),
 ) -> None:
     """Write the agent's MCP config + print an agent-memory snippet."""
     from lorekeep.integrations.common import agent_memory_snippet, resolve_command
@@ -1173,7 +1223,7 @@ def mcp_add(
 
     writer = spec.writer()
     target = Path.cwd()
-    written = writer.write_config(target, command, args, ns, scope=scope)
+    written = writer.write_config(target, command, args, read_ns, scope=scope)
     if written is None:
         typer.echo(f"{agent} config unchanged -> {writer.config_target(target, scope)}")
     else:
@@ -1227,12 +1277,15 @@ def doctor() -> None:
         _err(f"FAIL: provider config: {exc}")
         raise typer.Exit(code=1)
 
-    raw_ns = os.environ.get("LOREKEEP_NS")
-    allowed = [x.strip() for x in raw_ns.split(",")] if raw_ns else config.ns.default
+    allowed, write_ns = _runtime_namespaces(config)
 
     try:
         from lorekeep.mcp_server import configure, context
-        configure(graph_dir=p["out"], allowed_ns=allowed, schema_path=p["schema"], pending_dir=p.get("pending"))
+        configure(
+            graph_dir=p["out"], allowed_ns=allowed,
+            schema_path=p["schema"], pending_dir=p.get("pending"),
+            write_ns=write_ns,
+        )
         ns = context("namespaces")["namespaces"]
     except Exception as exc:
         problems.append(f"mcp configure/tool failed: {exc}")
@@ -1359,20 +1412,20 @@ def init(
     created = []
     p["config"].parent.mkdir(parents=True, exist_ok=True)
     config_existed = p["config"].exists()
-    ns = "public"
+    personal_ns = "me"
     name = ""
     bio = ""
 
     if not config_existed:
         if not yes and _is_interactive():
-            ns, name, bio = _interactive_init(p)
+            personal_ns, name, bio = _interactive_init(p)
         else:
             p["config"].write_text(DEFAULT_CONFIG_YAML)
-            ns = load_config(p["config"]).ns.personal_namespace
+            personal_ns = load_config(p["config"]).namespaces.write
         created.append(str(p["config"]))
     elif p["config"].exists():
         try:
-            ns = load_config(p["config"]).ns.default[0]
+            load_config(p["config"])
         except Exception as exc:
             log.warning(
                 "existing config could not be loaded error_type=%s",
@@ -1399,7 +1452,7 @@ def init(
     # First file: the user's about.md (profile from onboarding).
     # Written on first init — always, even if raw/ has other files.
     if not config_existed:
-        ns_dir = p["raw"] / ns
+        ns_dir = p["raw"] / personal_ns
         ns_dir.mkdir(parents=True, exist_ok=True)
         about_path = ns_dir / "about.md"
         if not about_path.exists():
@@ -1427,7 +1480,7 @@ def init(
     # Wiring runs on every init: it is free and idempotent, so re-running
     # init is how you pick up an agent installed after the first run.
     wire_scope = _wire_scope(load_config(p["config"]).agents)
-    _auto_wire_agents(p, ns, scope=wire_scope)
+    _auto_wire_agents(p, None, scope=wire_scope)
 
     if not config_existed:
         _auto_import_and_compile(p)
@@ -1457,10 +1510,10 @@ def init(
 
 
 def _interactive_init(p: dict) -> tuple[str, str, str]:
-    """Walk the user through provider, model, API key, namespace, name, and bio.
+    """Walk through provider, API key, write namespace, name, and bio.
 
-    Returns ``(ns, name, bio)`` — the namespace plus the user's profile answers,
-    so the caller can write the first file ``raw/<ns>/about.md``.
+    Returns ``(ns, name, bio)`` — the concrete write namespace plus the
+    user's profile answers, so the caller can write ``raw/<ns>/about.md``.
     """
     import yaml
     from lorekeep.providers import (
@@ -1488,7 +1541,7 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
     idx = int(choice) if choice.isdigit() else 0
     if idx == len(POPULAR) + 2 or choice.lower() == "skip":
         typer.echo("  → Skipped (edit config.yaml to add a provider later)\n")
-        ns = typer.prompt("Default namespace", default="me")
+        ns = typer.prompt("Write namespace", default="me")
         name = typer.prompt("Your name", default="")
         bio = typer.prompt("Bio (one-line intro)", default="")
         _write_config(p, model="openai/gpt-4o-mini",
@@ -1583,7 +1636,7 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
                 typer.echo("  → skipped (add key to config.yaml later)\n")
 
     # ── Namespace + profile ────────────────────────────────────────────
-    ns = typer.prompt("Default namespace", default="me")
+    ns = typer.prompt("Write namespace", default="me")
     name = typer.prompt("Your name", default="")
     typer.echo("  (your bio → raw/<ns>/about.md → compiled into the graph)")
     bio = typer.prompt("Bio (one-line intro)", default="")
@@ -1611,7 +1664,7 @@ def _write_config(p, model, api_base, api_key_env, api_key, ns):
             "max_retries": 2,
         },
         "compile": {"chunk_lines": 60},
-        "ns": {"default": [ns], "personal": ns},
+        "namespaces": {"read": ["*"], "write": ns},
         "install_source": install_source,
     }
     p["config"].write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
@@ -1639,7 +1692,7 @@ def _wire_one(
     return written, hooked
 
 
-def _auto_wire_agents(p: dict, ns: str, *, scope: str = "user") -> None:
+def _auto_wire_agents(p: dict, ns: str | None, *, scope: str = "user") -> None:
     """Detect every installed coding agent and write its MCP config.
 
     Idempotent: a writer that finds the desired entry already present
@@ -1680,7 +1733,7 @@ def _auto_wire_agents(p: dict, ns: str, *, scope: str = "user") -> None:
 
 
 def _sync_agent_wiring(
-    *, scope: str, ns: str, enabled: list[str],
+    *, scope: str, ns: str | None, enabled: list[str],
     backoff: dict[str, float], now: float,
 ) -> list[tuple[str, Path]]:
     """Wire every detected agent, returning only the targets that changed.
@@ -1774,7 +1827,7 @@ def _auto_import_and_compile(p: dict, *, defer: bool = False) -> None:
                 provider=provider, cache_path=p["cache"],
                 chunk_lines=config.compile.chunk_lines,
                 on_progress=_progress_cb(handle),
-                personal_ns=config.ns.personal_namespace,
+                personal_ns=config.namespaces.write,
                 language=config.compile.language,
                 prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
             max_workers=config.compile.max_workers,
@@ -2209,7 +2262,7 @@ def ingest(
                 schema=schema,
                 chunk_lines=config.compile.chunk_lines,
                 on_progress=on_progress,
-                personal_ns=config.ns.personal_namespace,
+                personal_ns=config.namespaces.write,
                 language=config.compile.language,
             )
         except Exception as exc:
@@ -2663,7 +2716,10 @@ def agent_detect(
 def agent_wire(
     agent: str = typer.Option(None, "--agent", help="Wire one agent (default: all detected)"),
     scope: str = typer.Option(None, "--scope", help="project | user (default: agents.wire_scope)"),
-    ns: str = typer.Option(None, "--ns", help="Namespace to scope the agents to"),
+    read_ns: str = typer.Option(
+        None, "--read-ns",
+        help="Read namespace pattern override (default: namespaces.read)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Report targets without writing"),
     force: bool = typer.Option(False, "--force", help="Include undetected agents"),
 ) -> None:
@@ -2692,8 +2748,8 @@ def agent_wire(
         return
 
     target = Path.cwd()
-    namespace = ns or config.ns.personal_namespace
-    typer.echo(f"scope: {scope}   namespace: {namespace}")
+    namespace = read_ns
+    typer.echo(f"scope: {scope}   read namespace: {namespace or 'config default'}")
     failed = False
 
     for spec in specs:
@@ -2964,7 +3020,7 @@ def watch(
                 last_wire_check = now_ts
                 try:
                     for name, path in _sync_agent_wiring(
-                        scope=_acfg.wire_scope, ns=load_config(p["config"]).ns.personal_namespace,
+                        scope=_acfg.wire_scope, ns=None,
                         enabled=_acfg.enabled, backoff=wire_backoff, now=now_ts,
                     ):
                         typer.echo(f"agent: wired {name} → {path}")
@@ -3016,7 +3072,7 @@ def watch(
                             provider=provider, cache_path=p["cache"],
                             chunk_lines=config.compile.chunk_lines,
                             on_progress=_progress_cb(handle),
-                            personal_ns=config.ns.personal_namespace,
+                            personal_ns=config.namespaces.write,
                             language=config.compile.language,
                             prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
             max_workers=config.compile.max_workers,

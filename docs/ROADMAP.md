@@ -160,7 +160,7 @@ identity-to-scope mapping.
 
 This requires a supported streamable-HTTP lifecycle, OIDC/SSO, authorization
 tests, auditability, schema compatibility, and operational guidance. A local
-stdio process plus `LOREKEEP_NS` is not sufficient for multi-user trust.
+stdio process plus `LOREKEEP_READ_NS` is not sufficient for multi-user trust.
 
 ### 6. Retrieval quality
 
