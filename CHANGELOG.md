@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.37.0 (2026-08-15)
+
+## What's Changed
+* feat: clarify namespace read and write scopes by @manhhailua in https://github.com/manhhailua/lorekeep/pull/262
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.36.0...v0.37.0
+
 ## 0.36.0 (2026-08-13)
 
 ## What's Changed
