@@ -143,6 +143,21 @@ def test_parse_empty_blob_returns_nothing():
     assert parse_composer_turns({"text": "", "conversationMap": {}}) == []
 
 
+def test_session_from_hook_selects_matching_composer(
+    state_db: Path, monkeypatch,
+):
+    from lorekeep.importer.cursor import session_from_hook
+
+    monkeypatch.setenv("CURSOR_STATE_DB", str(state_db))
+    selected = session_from_hook({
+        "session_id": "aaaa1111-2222-3333-4444-555566667777",
+    })
+    assert selected is not None
+    assert selected["composerId"].startswith("aaaa1111")
+
+    assert session_from_hook({"session_id": "missing"}) is None
+
+
 # ---------------------------------------------------------------------------
 # orchestrator
 # ---------------------------------------------------------------------------

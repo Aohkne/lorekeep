@@ -28,7 +28,7 @@ Global options: `--verbose / -v`<br>`--quiet / -q`<br>`--install-completion`<br>
 | `lorekeep agent suggest` | Generate improvement suggestions for the graph. | — |
 | `lorekeep agent status` | Print a graph health dashboard. | — |
 | `lorekeep agent detect` | Report which coding agents are installed, active, and wired. | `--json` |
-| `lorekeep agent wire` | Write MCP config + session-end hooks for detected agents. | `--agent`<br>`--scope`<br>`--read-ns`<br>`--dry-run`<br>`--force` |
+| `lorekeep agent wire` | Write MCP config + lifecycle hooks for detected agents. | `--agent`<br>`--scope`<br>`--read-ns`<br>`--dry-run`<br>`--force` |
 | `lorekeep agent watch` | Run the autonomous agent daemon: watch raw/, pending/, and agent sessions. | `--interval`<br>`--watch-sessions / --no-watch-sessions` |
 | `lorekeep agent service` | Install/uninstall the daemon as a persistent OS service. | — |
 | `lorekeep agent service install` | Install daemon as a persistent OS service (survives restart). | — |

@@ -45,6 +45,45 @@ Writers report unchanged without rewriting. The watcher can therefore re-run
 detection periodically without causing config mtime churn. Failed clients enter
 a one-hour per-process backoff.
 
+### Lifecycle capture contracts
+
+Lorekeep uses the closest lifecycle boundary each client actually exposes. An
+exact end event is consumed immediately; a turn/idle fallback is coalesced by
+session and consumed only after `agents.session_end_idle_seconds` (default 300)
+without another event.
+
+| Client | Event | Fidelity | Lorekeep hook scope |
+|---|---|---|---|
+| [Claude Code](https://code.claude.com/docs/en/hooks) | `SessionEnd` | exact | project + user |
+| [Codex](https://learn.chatgpt.com/docs/hooks) | `SessionEnd` (main thread, 3 s maximum) | exact | project + user |
+| [Cursor](https://cursor.com/docs/hooks) | `sessionEnd` | exact | project + user |
+| [opencode](https://opencode.ai/docs/plugins/) | `session.idle` | idle fallback | project + user |
+| [Grok Build](https://docs.x.ai/build/features/hooks) | `SessionEnd` | exact | project + user |
+| [Qoder](https://docs.qoder.com/cli/hooks) | `SessionEnd` | exact | project + user |
+| [GitHub Copilot CLI](https://docs.github.com/en/copilot/reference/hooks-reference) | `sessionEnd` | exact | user/local only |
+| [Command Code](https://commandcode.ai/docs/hooks) | `Stop` | end-of-turn fallback | project + user |
+
+Copilot repository hooks also execute in ephemeral cloud jobs, including
+`sessionEnd`, where the local Lorekeep interpreter and data home do not exist.
+Its capture hook is therefore intentionally available only with user-scope
+wiring; project-scope Copilot wiring reports that capture was skipped. Cursor
+cloud also loads project hook files, but does not fire the IDE-lifetime
+`sessionEnd` event, so both Cursor scopes are safe. `agent detect` reports the
+real event name and whether it is native or fallback.
+
+Native handlers run the exact Python interpreter that wired Lorekeep; they do
+not cold-start `uvx`. A handler reads at most 256 KiB of JSON stdin, normalizes
+only session id/transcript path/cwd/reason, atomically writes a mode-0600 event
+inside mode-0700 `hook-events/<agent>/` directories, and exits. Repeated fallback events for one
+session replace the same file and restart its idle window. Transcript I/O and
+compilation never run inside the hook process.
+
+The queue is device-local and excluded from backup because its transcript paths
+belong to that device. The daemon validates paths against the owning client's
+data roots, imports only the named session, removes successful events, and
+retains failures with exponential retry backoff. `doctor` shows queued,
+idle-waiting, retrying, or invalid events for troubleshooting.
+
 ## Watcher startup
 
 `agent watch`:
@@ -77,6 +116,16 @@ code without waiting for systemd/launchd restart.
 On first pass and every `agents.wire_interval_seconds` (default 900), it detects
 installed clients and idempotently wires enabled ones according to
 `agents.wire_scope`.
+
+### Lifecycle event drain
+
+Before taking the raw-file snapshot, the watcher drains ready lifecycle events.
+Parsed turns become bounded deterministic Markdown under
+`raw/<agent>-session/`. A successful event import forces compile in the same
+poll cycle, including the daemon's first cycle. When an exact end hook was
+missed while Lorekeep was stopped, one startup recovery pass imports the latest
+locally discoverable session for each client; live transcript polling is not a
+primary capture path.
 
 ### Raw/schema compile
 
@@ -125,15 +174,13 @@ Claude and Codex). First sight or newer memory mtime triggers content-hash-based
 quick import, rate-limited to once per 30 seconds per source. State advances only
 after success, so a failed import can retry.
 
-### Transcript dump
+### Transcript retention
 
-When `agents.watch_transcripts` is true, the registry locates supported live
-sessions for all supported clients every 30 seconds. Parsed turns become bounded,
-deterministic Markdown batches under `raw/<agent>-session/`; older sessions are
-pruned according to retention config. No LLM is called here.
-
-Because raw detection occurs earlier in the same loop, newly dumped transcript
-Markdown is compiled on a later poll.
+When `agents.watch_transcripts` is true, lifecycle events and startup recovery
+use registry parsers for all eight clients. Output is capped by
+`transcript_max_chars` and `transcript_max_batches`; only
+`transcript_retain_sessions` recent sessions remain per generated session
+namespace. Content hashes avoid rewriting unchanged batches. No LLM is called.
 
 ## Self-heal
 

@@ -186,8 +186,11 @@ existing props.
 
 The daemon compares raw count/mtime, schema mtime, and journal mtime on each poll.
 There is no five-minute/50-entry scheduler and no nightly compile/resolve job.
-Session-end hooks write raw data; the raw watcher triggers compile on a later
-cycle. MCP facts become visible after journal resolve and lazy reload.
+Lifecycle hooks enqueue bounded device-local metadata. The daemon drains ready
+events before its raw snapshot, writes transcript Markdown, and forces compile
+in that same cycle; fallback boundaries first wait for their idle grace. See
+[Lifecycle capture contracts](agent.md#lifecycle-capture-contracts). MCP facts
+become visible after publication and lazy reload.
 
 ## Related
 

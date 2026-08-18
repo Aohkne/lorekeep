@@ -133,6 +133,27 @@ class TestLocateSession:
         monkeypatch.setenv("GROK_HOME", str(tmp_path / "empty"))
         assert grok.locate_session(tmp_path) is None
 
+    def test_session_from_hook_resolves_only_native_history(
+        self, tmp_path, monkeypatch,
+    ):
+        grok_home = tmp_path / "grok-home"
+        history = (
+            grok_home / "sessions" / "project" / "session-1"
+            / "chat_history.jsonl"
+        )
+        history.parent.mkdir(parents=True)
+        history.write_text("{}\n")
+        monkeypatch.setenv("GROK_HOME", str(grok_home))
+
+        assert grok.session_from_hook({
+            "transcript_path": str(history),
+        }) == history.parent
+        other = history.parent / "other.jsonl"
+        other.write_text("{}\n")
+        assert grok.session_from_hook({
+            "transcript_path": str(other),
+        }) is None
+
 
 # ---------------------------------------------------------------------------
 # dump_current_session (zero-LLM)

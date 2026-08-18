@@ -83,8 +83,9 @@ bugreport:
 # ── coding agents ────────────────────────────────────────────────────────────
 # Lorekeep aggregates knowledge from every coding agent on this machine into one
 # graph.  The daemon re-detects installed agents on its wiring interval and
-# writes their MCP config + session-end hook, so installing an agent later needs
-# no manual step.
+# writes their MCP config + best available lifecycle hook, so installing an
+# agent later needs no manual step. Exact SessionEnd/sessionEnd is preferred;
+# opencode session.idle and Command Code Stop use the idle grace below.
 agents:
   auto_wire: true                  # let the daemon wire newly installed agents
   wire_scope: user                 # user (every project) | project (this dir only)
@@ -94,6 +95,7 @@ agents:
   transcript_max_batches: 20       # per session; caps how much of a long chat is kept
   transcript_max_chars: 20000      # chars per dumped file
   transcript_retain_sessions: 5    # older sessions are pruned from raw/<agent>-session/
+  session_end_idle_seconds: 300     # debounce fallback idle/end-of-turn events
   deep_import: false               # reserved; use manual `lorekeep import` for LLM summaries
   self_heal: true                  # daemon auto-removes dangling edges, dedupes edges
   auto_backup: true                # daemon auto-backups after graph changes

@@ -247,69 +247,44 @@ def update(
 
 
 @app.command(hidden=True)
-def hook() -> None:
-    """Session lifecycle hook: ingest memories and transcripts from every agent.
+def hook(
+    agent: str = typer.Option(None, "--agent", help="Native hook source"),
+    trigger: str = typer.Option(
+        "session_end", "--trigger",
+        help="session_end | idle_fallback | turn_end_fallback",
+    ),
+    home: Path = typer.Option(None, "--home", help="Resolved Lorekeep data home"),
+    session_id: str = typer.Option(None, "--session-id"),
+    cwd: str = typer.Option(None, "--cwd"),
+) -> None:
+    """Fast lifecycle ingress: enqueue metadata; daemon performs all I/O."""
+    import sys
 
-    Registry-driven, so an agent starts contributing the moment it declares
-    an ingest path. Idempotent via SHA-256 manifest — a hook that fires on
-    every turn costs nothing when nothing changed.
-    """
-    from lorekeep.importer.session_dump import prune_sessions
-    from lorekeep.integrations.registry import all_specs
+    if not agent:
+        # Pre-0.38 entries called without an agent. Keep them fail-open and
+        # fast until automatic wiring replaces them; never scan every agent.
+        log.warning("legacy hook invocation ignored", extra={"event": "hook.legacy"})
+        return
 
-    p = resolve_paths()
-    acfg = load_config(p["config"]).agents
-    memory_count = 0
-    transcript_count = 0
+    from lorekeep.hook_events import MAX_HOOK_PAYLOAD_BYTES, enqueue_hook_event
 
-    for spec in all_specs():
-        if spec.name not in acfg.enabled:
-            continue
-
-        if spec.memory is not None and spec.memory_ns is not None:
-            try:
-                written = getattr(spec.importer(), spec.memory.import_fn)(
-                    p["raw"], namespace=spec.memory_ns,
-                )
-                memory_count += len(written)
-            except Exception as exc:
-                log.warning(
-                    "hook memory import failed agent=%s error_type=%s",
-                    spec.name, type(exc).__name__,
-                    extra={"event": "hook.memory_import_failed"},
-                )
-
-        if not acfg.watch_transcripts or spec.session is None or spec.session_ns is None:
-            continue
-        try:
-            written = getattr(spec.importer(), spec.session.dump_fn)(
-                p["raw"],
-                namespace=spec.session_ns,
-                max_chars=acfg.transcript_max_chars,
-                max_batches=acfg.transcript_max_batches,
-            )
-            transcript_count += len(written)
-            prune_sessions(
-                p["raw"], spec.session_ns,
-                retain=acfg.transcript_retain_sessions,
-            )
-        except Exception as exc:
-            log.warning(
-                "hook transcript dump failed agent=%s error_type=%s",
-                spec.name, type(exc).__name__,
-                extra={"event": "hook.transcript_dump_failed"},
-            )
-
-    if memory_count or transcript_count:
-        log.info(
-            "session hook completed memory_count=%s transcript_count=%s",
-            memory_count, transcript_count,
-            extra={"event": "hook.complete"},
+    target_home = Path(home) if home else resolve_paths()["home"]
+    raw = sys.stdin.read(MAX_HOOK_PAYLOAD_BYTES + 1)
+    try:
+        enqueue_hook_event(
+            target_home,
+            agent=agent,
+            trigger=trigger,
+            raw_payload=raw,
+            session_id=session_id,
+            cwd=cwd,
         )
-        typer.echo(
-            f"lorekeep: imported {memory_count} memory file(s), "
-            f"{transcript_count} transcript file(s)"
+    except (KeyError, OSError, ValueError) as exc:
+        log.warning(
+            "hook enqueue failed agent=%s error_type=%s",
+            agent, type(exc).__name__, extra={"event": "hook.enqueue_failed"},
         )
+        raise typer.Exit(code=1) from exc
 
 
 def _load_prev_aliases(facts_path: Path) -> dict[str, str]:
@@ -1211,13 +1186,15 @@ def mcp_add(
     ),
 ) -> None:
     """Write the agent's MCP config + print an agent-memory snippet."""
-    from lorekeep.integrations.common import agent_memory_snippet, resolve_command
+    from lorekeep.integrations.common import (
+        agent_memory_snippet,
+        resolve_command,
+        resolve_hook_command,
+    )
 
     p = resolve_paths()
     config = load_config(p["config"])
     command, args = resolve_command(config.install_source)
-    hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
-
     scope = _validate_scope(scope) if scope else _wire_scope(config.agents)
     spec = _resolve_agent_arg(agent)
 
@@ -1228,12 +1205,22 @@ def mcp_add(
         typer.echo(f"{agent} config unchanged -> {writer.config_target(target, scope)}")
     else:
         typer.echo(f"wrote {agent} config -> {written}")
-    if spec.supports_hook:
+    native_hook_path = spec.hook_path(target, scope)
+    if spec.hook is not None and native_hook_path is not None:
+        hook_cmd, hook_args = resolve_hook_command(
+            spec.name, spec.hook.trigger, p["home"],
+        )
         hook_path = writer.write_hook(target, hook_cmd, hook_args, scope=scope)
         if hook_path is None:
-            typer.echo(f"session-end hook unchanged -> {writer.hook_target(target, scope)}")
+            typer.echo(f"lifecycle hook unchanged -> {native_hook_path}")
         else:
-            typer.echo(f"wrote session-end hook -> {hook_path}")
+            label = "session-end" if spec.hook.exact else spec.hook.trigger
+            typer.echo(f"wrote {label} hook -> {hook_path}")
+    elif spec.hook is not None:
+        typer.echo(
+            f"{agent} lifecycle hook is unavailable at {scope} scope; "
+            "use --scope user to enable local capture"
+        )
     typer.echo("\n" + agent_memory_snippet())
 
 
@@ -1335,6 +1322,7 @@ def doctor() -> None:
 
     _doctor_agent_section(config)
     _doctor_session_section(p)
+    _doctor_hook_event_section(p)
 
     for note in notes:
         _info(note)
@@ -1354,14 +1342,15 @@ def _doctor_agent_section(config: Config) -> None:
 
     typer.echo("")
     typer.echo("── agents ────────────────────────────────────────")
-    table = [("agent", "mcp wired", "ingest")]
+    table = [("agent", "mcp wired", "capture", "ingest")]
     for r in installed:
         table.append((
             r["name"],
             "yes" if r["wired"] else "no",
+            _hook_label(r),
             " + ".join(r["ingest"]) or "—",
         ))
-    widths = [max(len(row[i]) for row in table) for i in range(3)]
+    widths = [max(len(row[i]) for row in table) for i in range(4)]
     for row in table:
         typer.echo("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
 
@@ -1385,6 +1374,40 @@ def _doctor_session_section(p: dict) -> None:
             s["session"],
             f"{s['ts']} ({_format_relative_time(s['mtime'])})",
         ))
+    widths = [max(len(row[i]) for row in table) for i in range(3)]
+    for row in table:
+        typer.echo("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
+
+
+def _doctor_hook_event_section(p: dict) -> None:
+    """Show queued/retrying lifecycle events without reading transcripts."""
+    root = p["home"] / "hook-events"
+    if not root.is_dir():
+        return
+
+    rows: list[tuple[str, str, str]] = []
+    for path in sorted(root.glob("*/*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            agent = str(data.get("agent") or path.parent.name)
+            session = str(data.get("session_id") or "unknown")
+            attempts = int(data.get("attempts") or 0)
+            trigger = str(data.get("trigger") or "")
+            if attempts:
+                state = f"retrying ({attempts})"
+            elif trigger == "session_end":
+                state = "queued"
+            else:
+                state = "waiting for idle"
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            agent, session, state = path.parent.name, path.stem, "invalid"
+        rows.append((agent, session, state))
+
+    if not rows:
+        return
+    typer.echo("")
+    typer.echo("── lifecycle event queue ─────────────────────────")
+    table = [("agent", "session", "state"), *rows]
     widths = [max(len(row[i]) for row in table) for i in range(3)]
     for row in table:
         typer.echo("  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip())
@@ -1673,21 +1696,24 @@ def _write_config(p, model, api_base, api_key_env, api_key, ns):
 def _wire_one(
     spec, target: Path, ns: str | None, *, scope: str = "user",
 ) -> tuple[Path | None, Path | None]:
-    """Write one agent's MCP config + session-end hook.
+    """Write one agent's MCP config + best available lifecycle hook.
 
     Returns ``(config_path, hook_path)``, each ``None`` when that file
     already held the desired wiring.
     """
-    from lorekeep.integrations.common import resolve_command
+    from lorekeep.integrations.common import resolve_command, resolve_hook_command
 
-    config = load_config(resolve_paths()["config"])
+    paths = resolve_paths()
+    config = load_config(paths["config"])
     command, args = resolve_command(config.install_source)
-    hook_cmd, hook_args = resolve_command(config.install_source, ["hook"])
 
     writer = spec.writer()
     written = writer.write_config(target, command, args, ns, scope=scope)
     hooked = None
-    if spec.supports_hook:
+    if spec.hook is not None and spec.hook_path(target, scope) is not None:
+        hook_cmd, hook_args = resolve_hook_command(
+            spec.name, spec.hook.trigger, paths["home"],
+        )
         hooked = writer.write_hook(target, hook_cmd, hook_args, scope=scope)
     return written, hooked
 
@@ -1719,8 +1745,13 @@ def _auto_wire_agents(p: dict, ns: str | None, *, scope: str = "user") -> None:
                 f"  wired {agent_name} -> {written}" if written
                 else f"  {agent_name} already wired -> {spec.config_path(target, scope)}"
             )
-            if spec.supports_hook and hooked:
-                typer.echo(f"  hooked {agent_name} session-end -> {hooked}")
+            if spec.hook is not None and hooked:
+                label = "session-end" if spec.hook.exact else spec.hook.trigger
+                typer.echo(f"  hooked {agent_name} {label} -> {hooked}")
+            elif spec.hook is not None and spec.hook_path(target, scope) is None:
+                typer.echo(
+                    f"  {agent_name}: lifecycle capture requires user scope"
+                )
         except Exception as exc:
             log.warning(
                 "agent wiring failed agent=%s error_type=%s",
@@ -1956,7 +1987,10 @@ def backup(
 def import_cmd(
     from_source: str = typer.Option(
         "claude", "--from",
-        help="Source to import from (claude | codex | cursor | opencode)",
+        help=(
+            "Source (claude | codex | cursor | opencode | grok | qoder | "
+            "copilot | cmd)"
+        ),
     ),
     quick: bool = typer.Option(
         False, "--quick",
@@ -1964,7 +1998,7 @@ def import_cmd(
     ),
     session_path: str | None = typer.Option(
         None, "--session-path",
-        help="Path to Claude session dir (auto-detect if omitted)",
+        help="Agent session path or id (auto-detect if omitted)",
     ),
     memory_ns: str = typer.Option(
         "claude-memory", "--memory-ns",
@@ -1972,7 +2006,7 @@ def import_cmd(
     ),
     session_ns: str | None = typer.Option(
         None, "--session-ns",
-        help="Namespace for imported session files (default: claude-session | cursor-session)",
+        help="Namespace for imported session files (default: <agent>-session)",
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Show what would be imported without writing files",
@@ -1980,9 +2014,9 @@ def import_cmd(
 ) -> None:
     """Import knowledge from an agent's sessions into raw/.
 
-    This is the manual, LLM-summarizing path. The zero-cost path runs on its
-    own: the session-end hook and `agent watch` dump transcripts straight to
-    `raw/<agent>-session/` for compile to extract.
+    Claude, Codex, Cursor, and opencode support the existing deep summarization
+    flow. Lifecycle adapters for Grok, Qoder, Copilot, and Command Code perform
+    a deterministic zero-LLM transcript dump.
 
     Sources:
       claude    Claude Code sessions. --quick copies memory/*.md only (no LLM);
@@ -1993,6 +2027,8 @@ def import_cmd(
                 --quick copies memories/*.md only; default (deep) summarizes.
       opencode  opencode sessions (SQLite DB). No memory files, so --quick
                 does not apply.
+      grok/qoder/copilot/cmd
+                local transcript capture (zero LLM; also used by hooks).
     """
     from lorekeep.output import ok
     from lorekeep.integrations.registry import AGENT_NAMES
@@ -2094,6 +2130,49 @@ def import_cmd(
             typer.echo(f"dry-run: would import {ses_count} cursor session files")
         else:
             ok(f"imported: {ses_count} session files -> raw/{ns}/")
+            typer.echo("next: lorekeep compile")
+        return
+
+    # --- Registry transcript adapters: deterministic zero-LLM import ------
+    if from_source in {"grok", "qoder", "copilot", "cmd"}:
+        from lorekeep.integrations.registry import get
+
+        if quick:
+            typer.echo(
+                f"error: {from_source} transcript import is already zero-LLM; "
+                "--quick is not applicable"
+            )
+            raise typer.Exit(code=1)
+
+        spec = get(from_source)
+        importer = spec.importer()
+        handle: object | None
+        if session_path:
+            candidate = Path(session_path).expanduser()
+            if not candidate.exists():
+                typer.echo(f"error: no {from_source} session at {candidate}")
+                raise typer.Exit(code=1)
+            if spec.session and spec.session.handle_kind == "dir" and candidate.is_file():
+                candidate = candidate.parent
+            handle = candidate
+        else:
+            handle = getattr(importer, spec.session.locate)(Path.cwd())
+        if handle is None:
+            typer.echo(
+                f"error: no {from_source} session found for this project. "
+                "Run the agent here first, or pass --session-path."
+            )
+            raise typer.Exit(code=1)
+
+        ns = session_ns or spec.session_ns
+        count = _dump_session_transcript(
+            from_source, handle, p["raw"], config.agents,
+            namespace=ns, dry_run=dry_run,
+        )
+        if dry_run:
+            typer.echo(f"dry-run: would import {count} session files -> raw/{ns}/")
+        else:
+            ok(f"imported: {count} session files -> raw/{ns}/")
             typer.echo("next: lorekeep compile")
         return
 
@@ -2547,8 +2626,8 @@ def _tilde(path: Path | None) -> str:
 def _is_wired(path: Path | None) -> bool:
     """Does this config/hook file already mention lorekeep?
 
-    A substring probe, not a parse: the four agents use three file formats, and
-    a report must not fail because one of them is mid-write.
+    A substring probe, not a parse: agents use several file formats, and a
+    report must not fail because one of them is mid-write.
     """
     if path is None or not path.is_file():
         return False
@@ -2623,7 +2702,10 @@ def _last_session_imports(raw_dir: Path) -> list[dict]:
 
 def _agent_report(scope: str) -> list[dict]:
     """One row per known agent: installed, has data, wired, hooked, ingest paths."""
-    from lorekeep.integrations.detect import detect_installed_agents
+    from lorekeep.integrations.detect import (
+        detect_installed_agents,
+        resolve_agent_markers,
+    )
     from lorekeep.integrations.registry import all_specs
 
     installed = set(detect_installed_agents())
@@ -2639,14 +2721,34 @@ def _agent_report(scope: str) -> list[dict]:
             "installed": spec.name in installed,
             # Install markers and the paths importers actually read drift apart
             # (a stale ~/.cursor outlives an uninstall), so report them apart.
-            "session_data": any(Path(m).expanduser().exists() for m in spec.data_markers),
+            "session_data": any(
+                path.exists()
+                for path in resolve_agent_markers(spec, spec.data_markers)
+            ),
             "config": str(config_path),
             "wired": _is_wired(config_path),
             "hook": str(hook_path) if hook_path else None,
             "hooked": _is_wired(hook_path),
+            "hook_trigger": spec.hook.trigger if spec.hook else None,
+            "hook_event": spec.hook.event if spec.hook else None,
+            "hook_timeout_seconds": (
+                spec.hook.timeout_seconds if spec.hook else None
+            ),
+            "hook_surfaces": list(spec.hook.surfaces) if spec.hook else [],
             "ingest": ingest,
         })
     return rows
+
+
+def _hook_label(row: dict) -> str:
+    """Human-readable native event plus whether it is an approximation."""
+    if not row.get("hook"):
+        return "scope unsupported" if row.get("hook_event") else "n/a"
+    if not row.get("hooked"):
+        return "not wired"
+    event = str(row.get("hook_event") or "hook")
+    kind = "native" if row.get("hook_trigger") == "session_end" else "fallback"
+    return f"{event} ({kind})"
 
 
 @agent_app.command("detect")
@@ -2696,7 +2798,7 @@ def agent_detect(
     table = [header] + [(
         r["name"], yn[r["installed"]], yn[r["session_data"]],
         _tilde(Path(r["config"])) if r["wired"] else "—",
-        yn[r["hooked"]] if r["hook"] else "n/a",
+        _hook_label(r),
         " + ".join(r["ingest"]) or "—",
     ) for r in rows]
     widths = [max(len(row[i]) for row in table) for i in range(len(header))]
@@ -2723,7 +2825,7 @@ def agent_wire(
     dry_run: bool = typer.Option(False, "--dry-run", help="Report targets without writing"),
     force: bool = typer.Option(False, "--force", help="Include undetected agents"),
 ) -> None:
-    """Write MCP config + session-end hooks for detected agents.
+    """Write MCP config + lifecycle hooks for detected agents.
 
     Idempotent: a target already holding the right wiring reports ``unchanged``
     and keeps its mtime. That is what makes it safe for the daemon to call this
@@ -2762,6 +2864,10 @@ def agent_wire(
                     continue
                 state = "already wired" if _is_wired(path) else "would write"
                 typer.echo(f"{spec.name}: {label} -> {_tilde(path)} ({state})")
+            if spec.hook is not None and hook_path is None:
+                typer.echo(
+                    f"{spec.name}: hook -> user scope required (would skip)"
+                )
             continue
 
         try:
@@ -2784,6 +2890,8 @@ def agent_wire(
             typer.echo(f"{spec.name}: hooked -> {_tilde(hooked)}")
         elif hook_path:
             typer.echo(f"{spec.name}: hook unchanged -> {_tilde(hook_path)}")
+        elif spec.hook is not None:
+            typer.echo(f"{spec.name}: hook skipped -> user scope required")
 
     if failed:
         raise typer.Exit(code=1)
@@ -2794,7 +2902,7 @@ def _discover_watchable_sessions() -> list[tuple[str, Path, Path]]:
 
     Returns [(agent_name, session_dir, memory_dir), ...]. Only agents whose
     spec declares a memory source appear here — transcript-only agents are
-    handled by the session dump step.
+    handled by lifecycle events and startup recovery.
     """
     from lorekeep.integrations.registry import all_specs
 
@@ -2830,7 +2938,7 @@ def _quick_import_session(agent: str, session_dir: Path, memory_dir: Path, raw_d
 
 
 def _discover_session_transcripts(cwd: Path | None = None) -> list[tuple[str, object]]:
-    """Find the live session handle for every agent that has one.
+    """Find each agent's latest local session for startup recovery.
 
     Returns [(agent_name, handle), ...]. The handle stays opaque here — whether
     it is a transcript path, a DB blob, or a session id is the agent's business,
@@ -2855,11 +2963,18 @@ def _discover_session_transcripts(cwd: Path | None = None) -> list[tuple[str, ob
     return found
 
 
-def _dump_session_transcript(agent: str, handle: object, raw_dir: Path, acfg) -> int:
+def _dump_session_transcript(
+    agent: str,
+    handle: object,
+    raw_dir: Path,
+    acfg,
+    *,
+    namespace: str | None = None,
+    dry_run: bool = False,
+) -> int:
     """Dump one agent's conversation to raw/ markdown. Returns file count.
 
-    Zero LLM cost — compile extracts from the markdown like any other doc. This
-    is the only ingest path cursor and opencode have.
+    Zero LLM cost — compile extracts from the markdown like any other doc.
     """
     from lorekeep.importer.session_dump import dump_session_turns, prune_sessions
     from lorekeep.integrations.registry import find
@@ -2872,12 +2987,18 @@ def _dump_session_transcript(agent: str, handle: object, raw_dir: Path, acfg) ->
     written = dump_session_turns(
         getattr(importer, spec.session.parse)(handle),
         raw_dir,
-        namespace=spec.session_ns,
+        namespace=namespace or spec.session_ns,
         session_key=getattr(importer, spec.session.key)(handle),
         max_chars=acfg.transcript_max_chars,
         max_batches=acfg.transcript_max_batches,
+        dry_run=dry_run,
     )
-    prune_sessions(raw_dir, spec.session_ns, retain=acfg.transcript_retain_sessions)
+    dest_ns = namespace or spec.session_ns
+    if not dry_run and dest_ns.endswith("-session"):
+        prune_sessions(
+            raw_dir, dest_ns,
+            retain=acfg.transcript_retain_sessions,
+        )
     return len(written)
 
 
@@ -2906,7 +3027,7 @@ def watch(
     ),
     watch_sessions: bool = typer.Option(
         True, "--watch-sessions/--no-watch-sessions",
-        help="Watch agent session dirs for live continuous ingest",
+        help="Drain lifecycle events and recover missed local sessions",
     ),
 ) -> None:
     """Run the autonomous agent daemon: watch raw/, pending/, and agent sessions.
@@ -2914,7 +3035,7 @@ def watch(
     Watches raw/ for new/changed markdown → auto-compile.
     Watches pending/ for new journal entries → auto-resolve.
     Watches Claude + Codex memory dirs → delta quick import → raw/.
-    Cursor/opencode are handled by session-end hooks (`lorekeep hook`).
+    Drains exact/fallback lifecycle events → targeted transcript dump → raw/.
 
     For unattended operation, use `lorekeep agent service install` to run this
     as a background OS service.
@@ -2930,7 +3051,7 @@ def watch(
     typer.echo(f"agent watch: monitoring raw={raw_dir}, pending={pending_dir}, interval={interval}s")
     typer.echo("agent: auto-compile (raw/) and auto-resolve (pending/) enabled")
     if watch_sessions:
-        typer.echo("agent: session watch enabled (all agents: memory + transcripts)")
+        typer.echo("agent: lifecycle ingest enabled (events + startup recovery)")
     typer.echo("agent: MCP server lazy-reloads facts.jsonl — no reconnect needed")
     log.info(
         "daemon watch started interval=%s session_watch=%s",
@@ -2997,6 +3118,7 @@ def watch(
 
     while True:
         try:
+            hook_ingested = False
             # --- auto-restart on upgrade ---------------------------------------
             # If lorekeep was upgraded (pip/uv) while this daemon is running,
             # the on-disk version changes but the process still runs old code.
@@ -3031,6 +3153,35 @@ def watch(
                         extra={"event": "daemon.auto_wire_failed"},
                     )
 
+            # --- lifecycle events -> targeted transcript dump --------------
+            # Hook processes only enqueue metadata. Drain before taking the
+            # raw/ snapshot so a completed session can compile in this cycle.
+            if watch_sessions and _acfg:
+                try:
+                    from lorekeep.hook_events import drain_hook_events
+
+                    hook_report = drain_hook_events(
+                        p["home"], raw_dir, _acfg,
+                    )
+                    hook_ingested = hook_report.written > 0
+                    if hook_report.written:
+                        typer.echo(
+                            "agent: lifecycle ingest — "
+                            f"{hook_report.written} file(s) → raw/"
+                        )
+                        log.info(
+                            "hook events drained processed=%s written=%s "
+                            "deferred=%s failed=%s",
+                            hook_report.processed, hook_report.written,
+                            hook_report.deferred, hook_report.failed,
+                            extra={"event": "daemon.hook_events_drained"},
+                        )
+                except Exception as exc:
+                    log.warning(
+                        "hook event drain failed error_type=%s", type(exc).__name__,
+                        extra={"event": "daemon.hook_event_drain_failed"},
+                    )
+
             # Re-check existence each cycle (raw/ or pending/ may be created after start)
             has_raw = raw_dir.exists()
             has_pending = pending_dir and pending_dir.exists()
@@ -3043,6 +3194,9 @@ def watch(
 
             should_compile = False
             compile_reason = ""
+            if hook_ingested:
+                should_compile = True
+                compile_reason = " (session ended)"
             # Sentinel from explicit `lorekeep compile` (background mode)
             sentinel = p["home"] / ".compile-requested"
             if sentinel.exists():
@@ -3075,8 +3229,8 @@ def watch(
                             personal_ns=config.namespaces.write,
                             language=config.compile.language,
                             prev_aliases=_load_prev_aliases(p["out"] / "facts.jsonl"),
-            max_workers=config.compile.max_workers,
-            flush_interval=config.compile.flush_interval,
+                            max_workers=config.compile.max_workers,
+                            flush_interval=config.compile.flush_interval,
                         )
                     _report_compile_errors(dm, exit_on_total_failure=False)
                     _report_content_quality(dm)
@@ -3158,6 +3312,11 @@ def watch(
             if watch_sessions:
                 now = time.monotonic()
                 sessions = _discover_watchable_sessions()
+                if _acfg:
+                    sessions = [
+                        item for item in sessions
+                        if item[0] in _acfg.enabled
+                    ]
                 for agent_name, session_dir, memory_dir in sessions:
                     mem_files = sorted(memory_dir.glob("*.md"))
                     mem_mtime = max((f.stat().st_mtime for f in mem_files), default=0.0)
@@ -3186,28 +3345,29 @@ def watch(
                         continue  # state was set in the try block above
                     session_state[agent_name] = mem_mtime
 
-                # --- transcript dump → raw/<agent>-session/ -----------------
-                if _acfg and _acfg.watch_transcripts:
-                    tk = f"transcript"
-                    transcript_last = session_import_time.get(tk, 0.0)
-                    if now - transcript_last >= 30:
-                        session_import_time[tk] = now
-                        try:
-                            transcripts = _discover_session_transcripts()
-                            for agent_name, handle in transcripts:
-                                count = _dump_session_transcript(agent_name, handle, raw_dir, _acfg)
-                                if count:
-                                    typer.echo(f"agent: {agent_name} transcript dump — {count} files → raw/{agent_name}-session/")
-                                    log.info(
-                                        "transcript dumped agent=%s file_count=%s",
-                                        agent_name, count,
-                                        extra={"event": "daemon.transcript_dumped"},
-                                    )
-                        except Exception as exc:
-                            log.warning(
-                                "transcript dump failed error_type=%s", type(exc).__name__,
-                                extra={"event": "daemon.transcript_dump_failed"},
+                # One startup recovery pass covers sessions whose native hook
+                # was missed while Lorekeep was stopped. Live polling is not a
+                # primary ingest path: it would rewrite knowledge every turn.
+                if first_pass and _acfg and _acfg.watch_transcripts:
+                    try:
+                        transcripts = _discover_session_transcripts()
+                        for agent_name, handle in transcripts:
+                            if agent_name not in _acfg.enabled:
+                                continue
+                            count = _dump_session_transcript(
+                                agent_name, handle, raw_dir, _acfg,
                             )
+                            if count:
+                                typer.echo(
+                                    f"agent: {agent_name} startup recovery — "
+                                    f"{count} files → raw/{agent_name}-session/"
+                                )
+                    except Exception as exc:
+                        log.warning(
+                            "startup transcript recovery failed error_type=%s",
+                            type(exc).__name__,
+                            extra={"event": "daemon.transcript_recovery_failed"},
+                        )
 
             first_pass = False
             time.sleep(interval)

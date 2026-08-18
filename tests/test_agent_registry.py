@@ -30,8 +30,9 @@ def test_writer_module_imports(spec):
 
 @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.name)
 def test_supports_hook_matches_reality(spec):
-    """`supports_hook` replaced a hasattr() probe; it must not drift from it."""
-    assert spec.supports_hook == hasattr(spec.writer(), "write_hook")
+    """Hook capability and the writer implementation must not drift."""
+    assert spec.supports_hook == (spec.hook is not None)
+    assert spec.supports_hook == callable(getattr(spec.writer(), "write_hook", None))
 
 
 @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.name)
@@ -52,7 +53,7 @@ def test_every_declared_importer_attr_exists(spec):
     if spec.session:
         names += [
             spec.session.locate, spec.session.parse,
-            spec.session.key, spec.session.dump_fn,
+            spec.session.key, spec.session.dump_fn, spec.session.hook_resolve,
         ]
         if spec.session.deep_fn:
             names.append(spec.session.deep_fn)
@@ -79,8 +80,42 @@ def test_wiring_targets_are_declared(spec):
     assert spec.user_config and spec.user_config.startswith("~/")
     if spec.project_config:  # some agents are user-scope only (grok)
         assert not spec.project_config.startswith(("~", "/"))
-    assert spec.supports_hook == bool(spec.project_hook)
-    assert spec.supports_hook == bool(spec.user_hook)
+    if spec.hook:
+        assert spec.user_hook and spec.user_hook.startswith("~/")
+        if spec.project_hook:
+            assert not spec.project_hook.startswith(("~", "/"))
+
+
+def test_hook_semantics_match_supported_agents():
+    assert {
+        spec.name: (spec.hook.event, spec.hook.trigger)
+        for spec in registry.all_specs()
+    } == {
+        "claude": ("SessionEnd", "session_end"),
+        "codex": ("SessionEnd", "session_end"),
+        "cursor": ("sessionEnd", "session_end"),
+        "opencode": ("session.idle", "idle_fallback"),
+        "grok": ("SessionEnd", "session_end"),
+        "qoder": ("SessionEnd", "session_end"),
+        "copilot": ("sessionEnd", "session_end"),
+        "cmd": ("Stop", "turn_end_fallback"),
+    }
+
+
+def test_codex_session_end_respects_native_timeout_limit():
+    assert registry.get("codex").hook.timeout_seconds == 3
+    assert registry.get("codex").hook.surfaces == ("local",)
+    assert registry.get("cursor").hook.surfaces == ("local-ide",)
+    assert registry.get("copilot").hook.surfaces == ("local-cli",)
+
+
+def test_copilot_local_ingest_does_not_install_repository_cloud_hook():
+    assert registry.get("copilot").project_hook is None
+
+
+def test_cursor_ide_session_end_supports_both_config_scopes():
+    assert registry.get("cursor").project_hook == ".cursor/hooks.json"
+    assert registry.get("cursor").user_hook == "~/.cursor/hooks.json"
 
 
 @pytest.mark.parametrize("spec", registry.all_specs(), ids=lambda s: s.name)

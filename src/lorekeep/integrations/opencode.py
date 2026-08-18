@@ -10,7 +10,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from lorekeep.integrations.common import merge_json_config, write_text_if_changed
+from lorekeep.integrations.common import (
+    merge_json_config,
+    shell_join,
+    write_text_if_changed,
+)
 
 
 def _opencode_config_dir() -> Path:
@@ -62,7 +66,9 @@ import type {{ Plugin }} from "@opencode-ai/plugin"
 export default {{
   event: async ({{ $, event }}) => {{
     if (event.type === "session.idle") {{
-      await $`{cmd}`
+      const properties = (event as any).properties ?? {{}}
+      const sessionID = properties.sessionID ?? properties.id ?? ""
+      await $`{cmd} --session-id ${{sessionID}} --cwd ${{process.cwd()}}`
     }}
   }},
 }} satisfies Plugin
@@ -81,6 +87,6 @@ def write_hook(
     opencode has no declarative hooks — this TS plugin subscribes to
     session.idle and runs the lorekeep hook command.
     """
-    cmd = " ".join([command, *args])
+    cmd = shell_join(command, args)
     path = hook_target(target_dir, scope)
     return write_text_if_changed(path, _PLUGIN_TS.format(cmd=cmd))

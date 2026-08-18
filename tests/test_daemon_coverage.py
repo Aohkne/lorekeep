@@ -624,34 +624,35 @@ class TestDaemonWatchSessions:
         assert "import error" in result.stdout.lower()
 
     def test_watch_transcript_dump(self, isolated_home, monkeypatch, fixtures):
-        """Watch discovers transcripts and dumps them."""
+        """Startup recovery imports only explicitly enabled agents."""
         self._setup_watch_env(isolated_home, monkeypatch, fixtures)
         # Write config.yaml so _acfg is loaded with watch_transcripts=True
         (isolated_home / "config.yaml").write_text(
             "agents:\n  auto_wire: false\n  watch_transcripts: true\n  enabled: [claude]\n"
         )
-        monkeypatch.setattr("lorekeep.cli._discover_watchable_sessions", lambda: [])
-        monkeypatch.setattr("lorekeep.cli._dump_session_transcript", lambda *a: 3)
+        monkeypatch.setattr(
+            "lorekeep.cli._discover_watchable_sessions", make_break_after(),
+        )
+        dumped = []
 
-        cycle_count = [0]
-        def discover_transcripts_and_break(cwd=None):
-            cycle_count[0] += 1
-            if cycle_count[0] >= 2:
-                raise KeyboardInterrupt
-            return [("claude", "session-handle")]
+        def capture_dump(agent, *args):
+            dumped.append(agent)
+            return 3
 
-        monkeypatch.setattr("lorekeep.cli._discover_session_transcripts", discover_transcripts_and_break)
-        # Speed up time.monotonic so the 30s transcript throttle passes immediately
-        fake_time = [0.0]
-        def fast_monotonic():
-            fake_time[0] += 100.0
-            return fake_time[0]
-        monkeypatch.setattr("time.monotonic", fast_monotonic)
+        monkeypatch.setattr("lorekeep.cli._dump_session_transcript", capture_dump)
+        monkeypatch.setattr(
+            "lorekeep.cli._discover_session_transcripts",
+            lambda cwd=None: [
+                ("claude", "session-handle"),
+                ("codex", "disabled-handle"),
+            ],
+        )
         monkeypatch.setattr("time.sleep", safe_sleep_break())
 
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
-        assert "transcript" in result.stdout.lower()
+        assert "startup recovery" in result.stdout.lower()
+        assert dumped == ["claude"]
 
 
 # ── _auto_generate_wiki error handling ──────────────────────────────────────
@@ -926,6 +927,22 @@ class TestDaemonWatchLoop:
         result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
         assert result.exit_code == 0
         assert "monitoring" in result.stdout.lower()
+
+    def test_ready_hook_event_compiles_on_first_cycle(
+        self, isolated_home, monkeypatch, fixtures,
+    ):
+        """A SessionEnd import must not wait for a second raw-file snapshot."""
+        from lorekeep.hook_events import HookDrainReport
+
+        self._setup_watch_env(isolated_home, monkeypatch, fixtures)
+        monkeypatch.setattr(
+            "lorekeep.hook_events.drain_hook_events",
+            lambda *a, **k: HookDrainReport(processed=1, written=1),
+        )
+        monkeypatch.setattr("time.sleep", safe_sleep_break())
+        result = runner.invoke(app, ["agent", "watch", "--interval", "1"])
+        assert result.exit_code == 0, result.stdout
+        assert "compiling (session ended)" in result.stdout.lower()
 
     def test_watch_writes_version_file(self, isolated_home, monkeypatch, fixtures):
         """watch() writes .daemon.version at startup."""

@@ -44,6 +44,10 @@ def _project_slug(cwd: Path) -> str:
     return "-" + str(cwd.absolute()).lstrip("/").replace("/", "-")
 
 
+def _claude_config_dir() -> Path:
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
+
+
 def find_current_session(cwd: Path | None = None) -> Path | None:
     """Find the Claude session directory for the current project.
 
@@ -51,7 +55,7 @@ def find_current_session(cwd: Path | None = None) -> Path | None:
     for the most recently modified transcript.
     """
     cwd = cwd or Path.cwd()
-    project_dir = Path.home() / ".claude" / "projects" / _project_slug(cwd)
+    project_dir = _claude_config_dir() / "projects" / _project_slug(cwd)
 
     if not project_dir.is_dir():
         return None
@@ -227,6 +231,22 @@ def locate_session(cwd: Path | None = None) -> Path | None:
 
 def session_key(transcript_path: Path) -> str:
     return transcript_path.stem
+
+
+def session_from_hook(event: dict) -> Path | None:
+    """Resolve the exact Claude transcript named by a SessionEnd payload."""
+    from lorekeep.importer.hook_utils import (
+        event_cwd,
+        event_text,
+        validated_event_path,
+    )
+
+    cwd = event_cwd(event)
+    if event_text(event, "transcript_path") is not None:
+        return validated_event_path(
+            event, [_claude_config_dir() / "projects"],
+        )
+    return locate_session(cwd)
 
 
 def dump_current_session(

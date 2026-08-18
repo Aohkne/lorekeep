@@ -20,6 +20,7 @@ Precedence is high to low:
 | journals | `LOREKEEP_PENDING` | `pending/` |
 | generated wiki | `LOREKEEP_WIKI` | `wiki/` |
 | runtime logs | `LOREKEEP_LOGS` | `logs/` |
+| lifecycle event queue | — | `hook-events/` |
 
 Per-path overrides take precedence independently; setting `LOREKEEP_RAW` does
 not relocate the other paths.
@@ -40,6 +41,7 @@ This works identically on Linux, macOS, and Windows:
 ├── raw/
 ├── graph/
 ├── pending/
+├── hook-events/
 ├── wiki/
 ├── logs/
 └── cache.json
@@ -101,10 +103,12 @@ directory after `Path.expanduser`; they are not automatically made relative to
 ## Initialization side effects
 
 `resolve_paths()` itself performs no I/O. `init` creates config/schema/raw/graph/
-pending as needed and preserves existing config/schema. Wiki and logs are
-created lazily by compile/wiki and runtime logging. In first-run setup, profile
-files, agent configuration/hooks, imported memory files, compiled artifacts, and
-a background watcher may also be created as described in
+pending as needed and preserves existing config/schema. Wiki, logs, and the
+device-local `hook-events/` queue are created lazily by compile/wiki, runtime
+logging, and lifecycle hooks. The queue is excluded from backup because its
+transcript paths belong to one device. In first-run setup, profile files, agent
+configuration/hooks, imported memory files, compiled artifacts, and a
+background watcher may also be created as described in
 [Getting started](getting-started.md).
 
 ## Related

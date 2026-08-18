@@ -72,6 +72,10 @@ class TestAgentDetect:
         assert claude["wired"] is False
         assert claude["config"].endswith(".claude.json")
         assert claude["ingest"] == ["memory", "transcript"]
+        assert claude["hook_event"] == "SessionEnd"
+        assert claude["hook_trigger"] == "session_end"
+        assert claude["hook_timeout_seconds"] == 30
+        assert claude["hook_surfaces"] == ["local"]
         cursor = next(a for a in data["agents"] if a["name"] == "cursor")
         assert cursor["ingest"] == ["transcript"], "cursor authors no memory files"
 
@@ -120,7 +124,7 @@ class TestAgentWire:
             isolated_home / ".cursor" / "mcp.json",
             isolated_home / ".config" / "opencode" / "opencode.json",
             isolated_home / ".grok" / "config.toml",
-            isolated_home / ".qoder" / "mcp.json",
+            isolated_home / ".qoder" / "settings.json",
         ]
         before = {t: t.stat().st_mtime_ns for t in targets}
 
@@ -161,6 +165,24 @@ class TestAgentWire:
         assert result.exit_code == 0, result.stdout
         assert (wired_project / ".mcp.json").is_file()
         assert not (isolated_home / ".claude.json").exists()
+
+    def test_copilot_project_scope_reports_user_only_hook(
+        self, wired_project, isolated_home,
+    ):
+        dry = runner.invoke(app, [
+            "agent", "wire", "--agent", "copilot", "--scope", "project",
+            "--dry-run",
+        ])
+        assert dry.exit_code == 0, dry.stdout
+        assert "user scope required (would skip)" in dry.stdout
+
+        result = runner.invoke(app, [
+            "agent", "wire", "--agent", "copilot", "--scope", "project",
+        ])
+        assert result.exit_code == 0, result.stdout
+        assert "hook skipped -> user scope required" in result.stdout
+        assert (wired_project / ".github" / "mcp.json").is_file()
+        assert not (isolated_home / ".copilot" / "hooks").exists()
 
     def test_read_ns_reaches_the_written_config(self, wired_project, isolated_home):
         result = runner.invoke(app, ["agent", "wire", "--agent", "claude", "--read-ns", "teams/backend"])

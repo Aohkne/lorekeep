@@ -23,7 +23,9 @@ def test_eval_construction_command(tmp_path: Path, fixtures: Path, monkeypatch):
     assert saved["extraction"]["nodes"]["f1"] == 1.0
 
 
-def test_doctor_reports_clean_graph(tmp_path: Path, fixtures: Path, monkeypatch):
+def test_doctor_reports_clean_graph(
+    tmp_path: Path, fixtures: Path, monkeypatch, patch_make_provider,
+):
     out = tmp_path / "graph"
     out.mkdir()
     (out / "facts.jsonl").write_text(

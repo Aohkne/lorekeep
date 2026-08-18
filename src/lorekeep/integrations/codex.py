@@ -1,4 +1,4 @@
-"""Codex MCP config (config.toml) + Stop hook writer (hooks.json).
+"""Codex MCP config (config.toml) + SessionEnd hook writer (hooks.json).
 
 Project scope writes ``config.toml`` and ``.codex/hooks.json``; user scope
 writes into ``$CODEX_HOME`` (default ``~/.codex``).
@@ -12,7 +12,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from lorekeep.integrations.common import atomic_write, merge_json_config
+from lorekeep.integrations.common import (
+    atomic_write,
+    merge_json_config,
+    shell_join,
+    upsert_lorekeep_hook,
+)
 
 _HEADER = "[mcp_servers.lorekeep]"
 _ENV_HEADER = "[mcp_servers.lorekeep.env]"
@@ -100,21 +105,19 @@ def write_hook(
     *,
     scope: str = "project",
 ) -> Path | None:
-    """Write a Stop hook to hooks.json.
-
-    Codex fires Stop after every turn. The lorekeep hook command is
-    idempotent (manifest dedup) — zero cost if memories unchanged.
-    """
-    cmd_str = " ".join([command, *args])
+    """Write the native main-thread SessionEnd hook to hooks.json."""
+    cmd_str = shell_join(command, args)
 
     def mutate(data: dict) -> None:
-        data.setdefault("hooks", {})["Stop"] = [{
+        # Before 0.38 Lorekeep used Stop and imported after every turn. Remove
+        # only that managed handler; third-party Stop hooks remain untouched.
+        upsert_lorekeep_hook(data, "SessionEnd", {
             "hooks": [{
                 "type": "command",
                 "command": cmd_str,
-                "timeout": 30,
+                "timeout": 3,
             }]
-        }]
+        }, remove_from=("Stop",))
 
     return merge_json_config(
         hook_target(target_dir, scope), mutate, reset_if_corrupt=True,

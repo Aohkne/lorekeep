@@ -112,6 +112,8 @@ def test_backup_tracks_snapshots_but_not_device_local_state(tmp_path: Path):
     (home / "cache.json").write_text("{}")
     (home / "logs").mkdir()
     (home / "logs" / "runtime.log").write_text("local diagnostics")
+    (home / "hook-events" / "claude").mkdir(parents=True)
+    (home / "hook-events" / "claude" / "session.json").write_text("{}")
     (home / ".daemon.pid").write_text("12345")
     backup(home)
     tracked = _tracked(home)
@@ -123,6 +125,7 @@ def test_backup_tracks_snapshots_but_not_device_local_state(tmp_path: Path):
     assert "graph/fts.sqlite" not in tracked
     assert "wiki/.obsidian/workspace.json" not in tracked
     assert "logs/runtime.log" not in tracked
+    assert "hook-events/claude/session.json" not in tracked
     assert ".daemon.pid" not in tracked
 
 

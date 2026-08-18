@@ -142,7 +142,7 @@ class TestGrokEnvSubtable:
         ("claude", claude_code, [".claude.json"], "env"),
         ("cursor", cursor, [".cursor", "mcp.json"], "env"),
         ("opencode", opencode, [".config", "opencode", "opencode.json"], "environment"),
-        ("qoder", qoder, [".qoder", "mcp.json"], "env"),
+        ("qoder", qoder, [".qoder", "settings.json"], "env"),
     ],
     ids=["claude", "cursor", "opencode", "qoder"],
 )

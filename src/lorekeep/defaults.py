@@ -244,6 +244,7 @@ agents:
   transcript_max_batches: 20
   transcript_max_chars: 20000
   transcript_retain_sessions: 5
+  session_end_idle_seconds: 300
   deep_import: false
   self_heal: true
   auto_backup: true

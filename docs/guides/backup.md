@@ -40,6 +40,7 @@ wiki/.obsidian/
 wiki/.trash/
 wiki/.DS_Store
 logs/
+hook-events/
 .daemon.pid
 *.lock
 ```
@@ -52,7 +53,10 @@ custom ignore rules are preserved, and already tracked device-local files are
 removed from the index without deleting local copies.
 
 `config.yaml` is deliberately ignored because it may contain an inline API key.
-Each device configures its own provider credentials.
+Each device configures its own provider credentials. `hook-events/` is also
+local-only: queued records contain transcript paths that are meaningful only on
+the device where the coding-agent lifecycle event fired. The resulting
+`raw/<agent>-session/` Markdown is durable and is backed up normally.
 
 Journals can contain sensitive facts and review notes, including quarantined
 content. The graph and wiki project the full local graph rather than a caller's
@@ -115,8 +119,11 @@ publish a fresh, complete snapshot on its next compile. This is safe because
 generated files are deterministic from durable inputs; they are snapshots, not
 independent edits.
 
-Durable input conflicts (`raw/`, `schema.json`, `pending/`) are **never**
-auto-resolved — they raise and abort so you can reconcile manually.
+Durable input conflicts (`raw/`, `schema.json`, `pending/`) abort by default.
+When `backup.auto_resolve_durable` is enabled, JSON is merged structurally,
+JSONL journal entries are deduplicated by entry id, and Markdown is merged with
+the configured provider. Any conflict that cannot be resolved safely still
+aborts for manual reconciliation.
 
 ## Automatic backup (daemon)
 
@@ -207,8 +214,8 @@ lorekeep resolve
 lorekeep doctor
 ```
 
-`cache.json`, FTS, runtime logs, and Obsidian device settings remain local and
-cannot conflict. A concurrent graph/wiki conflict necessarily requires one
+`cache.json`, FTS, lifecycle event queues, runtime logs, and Obsidian device
+settings remain local and cannot conflict. A concurrent graph/wiki conflict necessarily requires one
 compile after durable inputs converge: neither device's old snapshot can fully
 represent the union of both devices' new inputs. Outside that concurrency case,
 the backed-up snapshot avoids recompilation on restore.

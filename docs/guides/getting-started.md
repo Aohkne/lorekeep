@@ -56,12 +56,20 @@ It then performs an idempotent setup chain:
 - writes `config.yaml` and stock schema v4;
 - creates `raw/`, `graph/`, and `pending/`;
 - writes `raw/<write-ns>/about.md` and `profile.md`;
-- detects installed Claude Code, Cursor, Codex, and opencode clients;
-- writes their MCP configuration and supported session-end hooks;
+- detects the eight supported clients (Claude Code, Codex, Cursor, opencode,
+  Grok Build, Qoder, GitHub Copilot CLI, and Command Code);
+- writes their MCP configuration plus the closest supported lifecycle hook;
 - quick-imports available agent memory files without an LLM;
 - runs the initial compile when a usable provider key exists; and
 - starts `agent watch` in the background when the command is interactive and
   `--no-watch` was not passed.
+
+Exact session-end events are used where available. opencode and Command Code
+use debounced idle/end-of-turn fallbacks. Copilot capture is user/local-only so
+repository configuration does not execute a local path inside a cloud agent;
+project-scope Copilot wiring therefore skips capture. Cursor supports both
+scopes because its `sessionEnd` event is IDE-local. See the [lifecycle
+matrix](../architecture/agent.md#lifecycle-capture-contracts).
 
 Re-running `init` preserves existing config/schema and re-runs safe agent
 detection/wiring. A non-interactive invocation does not start a background
