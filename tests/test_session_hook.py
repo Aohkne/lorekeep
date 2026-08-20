@@ -320,3 +320,8 @@ def test_write_opencode_hook(tmp_path: Path):
     content = path.read_text()
     assert "session.idle" in content
     assert "uvx lorekeep hook" in content
+    # opencode's loader rejects non-function exports, and the shell tag `$`
+    # is only passed to the outer plugin function — never to the event hook.
+    assert "async ({ $ }) => ({" in content
+    assert "event: async ({ event }) =>" in content
+    assert "export default" not in content
