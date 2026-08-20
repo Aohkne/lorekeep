@@ -254,3 +254,25 @@ def test_doctor_no_raw_dir(tmp_path: Path, fixtures: Path, monkeypatch):
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0, result.stdout
     assert "last session" not in result.stdout.lower()
+
+
+def test_doctor_shows_lifecycle_queue_state(
+    tmp_path: Path, fixtures: Path, monkeypatch,
+):
+    """Queued and retrying hook events are visible for troubleshooting."""
+    _doctor_base_env(tmp_path, fixtures, monkeypatch)
+    home = tmp_path / "home"
+    event_dir = home / "hook-events" / "cmd"
+    event_dir.mkdir(parents=True)
+    (event_dir / "cmd-session.json").write_text(
+        '{"agent":"cmd","session_id":"s1","trigger":"turn_end_fallback",'
+        '"attempts":0}\n'
+    )
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    monkeypatch.setattr("lorekeep.cli._agent_report", lambda scope: [])
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "lifecycle event queue" in result.stdout.lower()
+    assert "waiting for idle" in result.stdout.lower()

@@ -1,18 +1,24 @@
-"""GitHub Copilot MCP config (.copilot/mcp-config.json) writer.
+"""GitHub Copilot CLI MCP config plus local SessionEnd hook writer.
 
 GitHub Copilot CLI uses the ``mcpServers`` JSON format with a ``type: "local"``
-field on each entry.  Project scope writes ``.github/mcp.json``; user scope
-writes ``~/.copilot/mcp-config.json``.  No declarative session-end hooks yet.
+field on each entry. Lorekeep installs its local-ingest hook only at user scope;
+project hooks also execute in ephemeral Copilot cloud agents where the local
+Lorekeep data home and interpreter do not exist.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from lorekeep.integrations.common import merge_json_config
+from lorekeep.integrations.common import (
+    merge_json_config,
+    shell_join,
+    upsert_lorekeep_hook,
+)
 
 
 def _copilot_home() -> Path:
-    return Path.home() / ".copilot"
+    return Path(os.environ.get("COPILOT_HOME", Path.home() / ".copilot"))
 
 
 def config_target(target_dir: Path, scope: str = "project") -> Path:
@@ -22,7 +28,9 @@ def config_target(target_dir: Path, scope: str = "project") -> Path:
 
 
 def hook_target(target_dir: Path, scope: str = "project") -> Path | None:
-    return None  # Copilot has no declarative session-end hooks yet.
+    if scope != "user":
+        return None
+    return _copilot_home() / "hooks" / "lorekeep.json"
 
 
 def write_config(
@@ -50,3 +58,24 @@ def write_config(
     return merge_json_config(
         config_target(target_dir, scope), mutate, reset_if_corrupt=True,
     )
+
+
+def write_hook(
+    target_dir: Path,
+    command: str,
+    args: list[str],
+    *,
+    scope: str = "project",
+) -> Path | None:
+    path = hook_target(target_dir, scope)
+    if path is None:
+        return None
+    cmd = shell_join(command, args)
+
+    def mutate(data: dict) -> None:
+        data["version"] = 1
+        upsert_lorekeep_hook(data, "sessionEnd", {
+            "type": "command", "command": cmd, "timeoutSec": 5,
+        })
+
+    return merge_json_config(path, mutate, reset_if_corrupt=True)

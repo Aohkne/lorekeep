@@ -1,9 +1,8 @@
-"""Grok Build MCP config (~/.grok/config.toml) writer.
+"""Grok Build MCP config plus native SessionEnd hook writer.
 
 Grok Build uses a Codex-style TOML config with ``[mcp_servers.<name>]`` tables.
-There is no project-scope config today — only user-scope (``~/.grok/config.toml``).
-Project-scope falls back to the same user file so ``lorekeep mcp add --agent grok``
-always works.
+Project scope writes ``.grok/config.toml`` and ``.grok/hooks/lorekeep.json``;
+user scope writes below ``$GROK_HOME``.
 
 The TOML is edited by hand (not round-tripped through a parser) for the same
 reason as the Codex writer: Grok Build writes its own tables into the same file,
@@ -14,7 +13,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from lorekeep.integrations.common import atomic_write
+from lorekeep.integrations.common import (
+    atomic_write,
+    merge_json_config,
+    shell_join,
+    upsert_lorekeep_hook,
+)
 
 _HEADER = "[mcp_servers.lorekeep]"
 _ENV_HEADER = "[mcp_servers.lorekeep.env]"
@@ -25,11 +29,15 @@ def _grok_home() -> Path:
 
 
 def config_target(target_dir: Path, scope: str = "project") -> Path:
-    return _grok_home() / "config.toml"
+    if scope == "user":
+        return _grok_home() / "config.toml"
+    return Path(target_dir) / ".grok" / "config.toml"
 
 
-def hook_target(target_dir: Path, scope: str = "project") -> Path | None:
-    return None  # Grok Build has no declarative session-end hooks yet.
+def hook_target(target_dir: Path, scope: str = "project") -> Path:
+    if scope == "user":
+        return _grok_home() / "hooks" / "lorekeep.json"
+    return Path(target_dir) / ".grok" / "hooks" / "lorekeep.json"
 
 
 def _toml_escape(s: str) -> str:
@@ -90,3 +98,23 @@ def write_config(
     if new_text == text:
         return None
     return atomic_write(path, new_text)
+
+
+def write_hook(
+    target_dir: Path,
+    command: str,
+    args: list[str],
+    *,
+    scope: str = "project",
+) -> Path | None:
+    """Write Grok Build's Claude-compatible SessionEnd hook JSON."""
+    cmd = shell_join(command, args)
+
+    def mutate(data: dict) -> None:
+        upsert_lorekeep_hook(data, "SessionEnd", {
+            "hooks": [{"type": "command", "command": cmd, "timeout": 30}]
+        })
+
+    return merge_json_config(
+        hook_target(target_dir, scope), mutate, reset_if_corrupt=True,
+    )

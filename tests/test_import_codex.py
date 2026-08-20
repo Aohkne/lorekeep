@@ -125,6 +125,21 @@ def test_find_current_session_no_dir(tmp_path: Path, monkeypatch):
     assert find_current_session() is None
 
 
+def test_session_from_hook_uses_codex_home_boundary(tmp_path: Path, monkeypatch):
+    from lorekeep.importer.codex import session_from_hook
+
+    codex_home = tmp_path / "codex"
+    rollout = codex_home / "sessions" / "2026" / "rollout-test.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text("")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    assert session_from_hook({"transcript_path": str(rollout)}) == rollout
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("")
+    assert session_from_hook({"transcript_path": str(outside)}) is None
+
+
 # ── import_memories ──────────────────────────────────────────────────────
 
 

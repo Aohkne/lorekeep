@@ -67,11 +67,12 @@ def test_writer_targets_match_the_registry(spec, scope, isolated_home, tmp_path)
 @pytest.mark.parametrize("scope", ["project", "user"])
 def test_rewriting_identical_wiring_does_not_touch_the_file(spec, scope, isolated_home, tmp_path):
     """The daemon re-checks on a timer; churning mtime would retrigger watchers."""
-    if not spec.supports_hook:
-        pytest.skip(f"{spec.name}: no hooks")
     project = tmp_path / "project"
     project.mkdir(exist_ok=True)
     writer = WRITERS[spec.name]
+    _, expected_hook = _expected(spec, scope, project, isolated_home)
+    if expected_hook is None:
+        pytest.skip(f"{spec.name}: no {scope}-scope local hook")
 
     config = writer.write_config(project, CMD, ARGS, "me", scope=scope)
     hook = writer.write_hook(project, CMD, HOOK_ARGS, scope=scope)
@@ -179,6 +180,20 @@ def test_codex_user_scope_honors_codex_home(isolated_home, tmp_path, monkeypatch
     assert codex.write_hook(tmp_path, CMD, HOOK_ARGS, scope="user") == elsewhere / "hooks.json"
 
 
+def test_claude_user_scope_honors_claude_config_dir(
+    isolated_home, tmp_path, monkeypatch,
+):
+    elsewhere = tmp_path / "custom-claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(elsewhere))
+
+    assert claude_code.write_config(
+        tmp_path, CMD, ARGS, "me", scope="user",
+    ) == elsewhere / ".claude.json"
+    assert claude_code.write_hook(
+        tmp_path, CMD, HOOK_ARGS, scope="user",
+    ) == elsewhere / "settings.json"
+
+
 def test_codex_user_scope_preserves_other_tables(isolated_home, tmp_path):
     path = isolated_home / ".codex" / "config.toml"
     path.parent.mkdir(parents=True)
@@ -269,7 +284,20 @@ def test_cmd_user_scope_target(isolated_home):
 
 
 def test_cmd_project_scope_target(tmp_path):
-    assert commandcode.config_target(tmp_path, "project") == tmp_path / ".commandcode" / "mcp.json"
+    # Command Code's documented project-level MCP location is `.mcp.json` at
+    # the project root; it never reads `.commandcode/mcp.json`.
+    assert commandcode.config_target(tmp_path, "project") == tmp_path / ".mcp.json"
+
+
+def test_cmd_targets_honor_custom_home(isolated_home, monkeypatch):
+    custom = isolated_home / "cmd-home"
+    monkeypatch.setenv("COMMANDCODE_HOME", str(custom))
+    assert commandcode.config_target(
+        Path("/ignored"), "user",
+    ) == custom / "mcp.json"
+    assert commandcode.hook_target(
+        Path("/ignored"), "user",
+    ) == custom / "settings.json"
 
 
 def test_cmd_write_config_sets_mcp_servers(isolated_home, tmp_path):

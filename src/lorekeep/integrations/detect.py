@@ -28,6 +28,24 @@ def _env_truthy(name: str) -> bool:
     return val not in ("", "0", "false", "False")
 
 
+def resolve_agent_markers(spec, markers: tuple[str, ...]) -> tuple[Path, ...]:
+    """Resolve registry markers through an agent's custom-home variable."""
+    custom = os.environ.get(spec.home_env) if spec.home_env else None
+    if not custom or not spec.install_markers:
+        return tuple(Path(marker).expanduser() for marker in markers)
+
+    default_root = Path(spec.install_markers[0]).expanduser()
+    custom_root = Path(custom).expanduser()
+    resolved: list[Path] = []
+    for marker in markers:
+        path = Path(marker).expanduser()
+        try:
+            resolved.append(custom_root / path.relative_to(default_root))
+        except ValueError:
+            resolved.append(path)
+    return tuple(resolved)
+
+
 def detect_active_agent() -> str | None:
     """Return the agent whose shell we are running inside, or ``None``."""
     for spec in all_specs():
@@ -40,7 +58,9 @@ def detect_installed_agents() -> list[str]:
     """Return all agents detected on this machine (filesystem + PATH)."""
     found: list[str] = []
     for spec in all_specs():
-        if any(Path(m).expanduser().exists() for m in spec.install_markers):
+        if any(path.exists() for path in resolve_agent_markers(
+            spec, spec.install_markers,
+        )):
             found.append(spec.name)
             continue
         if any(shutil.which(b) for b in spec.binaries):

@@ -39,6 +39,16 @@ def test_detect_installed_empty(isolated_home):
     assert detect_installed_agents() == []
 
 
+def test_detect_installed_honors_agent_custom_home(
+    isolated_home, tmp_path, monkeypatch,
+):
+    custom = tmp_path / "qoder-custom"
+    custom.mkdir()
+    monkeypatch.setenv("QODER_CONFIG_DIR", str(custom))
+
+    assert "qoder" in detect_installed_agents()
+
+
 def test_detect_agents_puts_active_first_without_hiding_others(isolated_home, monkeypatch):
     """Inside an agent session, that agent leads but the rest still wire up."""
     monkeypatch.setenv("OPENCODE", "1")

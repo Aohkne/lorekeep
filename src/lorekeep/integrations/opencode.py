@@ -10,7 +10,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from lorekeep.integrations.common import merge_json_config, write_text_if_changed
+from lorekeep.integrations.common import (
+    merge_json_config,
+    shell_join,
+    write_text_if_changed,
+)
 
 
 def _opencode_config_dir() -> Path:
@@ -59,13 +63,20 @@ def write_config(
 _PLUGIN_TS = """\
 import type {{ Plugin }} from "@opencode-ai/plugin"
 
-export default {{
-  event: async ({{ $, event }}) => {{
+// A plugin is a function, not a hooks object: opencode passes the shell tag
+// ``$`` to the outer function and only ``{{ event }}`` to the event hook, and
+// the loader rejects non-function exports outright.
+export const LorekeepPlugin: Plugin = async ({{ $ }}) => ({{
+  event: async ({{ event }}) => {{
     if (event.type === "session.idle") {{
-      await $`{cmd}`
+      const sessionID = (event as any).properties?.sessionID ?? ""
+      // {cmd} is substituted at wiring time; Bun's shell parses the literal
+      // text as command + args. Keep it a literal, never a JS interpolation:
+      // interpolated values become one single argv entry.
+      await $`{cmd} --session-id ${{sessionID}} --cwd ${{process.cwd()}}`
     }}
   }},
-}} satisfies Plugin
+}})
 """
 
 
@@ -79,8 +90,10 @@ def write_hook(
     """Write a session.idle plugin to plugins/lorekeep.ts.
 
     opencode has no declarative hooks — this TS plugin subscribes to
-    session.idle and runs the lorekeep hook command.
+    session.idle and runs the lorekeep hook command. It must be a plugin
+    *function* that closes over ``$`` (Bun's shell tag): the event hook
+    itself receives only ``{ event }``.
     """
-    cmd = " ".join([command, *args])
+    cmd = shell_join(command, args)
     path = hook_target(target_dir, scope)
     return write_text_if_changed(path, _PLUGIN_TS.format(cmd=cmd))

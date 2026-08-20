@@ -114,6 +114,19 @@ def test_parse_session_empty(tmp_path: Path):
     assert turns == []
 
 
+def test_session_from_hook_prefers_id_then_falls_back_to_cwd(
+    tmp_path: Path, monkeypatch,
+):
+    from lorekeep.importer.opencode import session_from_hook
+
+    assert session_from_hook({"session_id": "ses_direct"}) == "ses_direct"
+    monkeypatch.setattr(
+        "lorekeep.importer.opencode.locate_session",
+        lambda cwd=None: "ses_by_cwd" if cwd == tmp_path else None,
+    )
+    assert session_from_hook({"cwd": str(tmp_path)}) == "ses_by_cwd"
+
+
 # ── import_session_deep ──────────────────────────────────────────────────
 
 

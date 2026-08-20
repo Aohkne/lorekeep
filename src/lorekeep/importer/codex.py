@@ -235,6 +235,20 @@ def session_key(rollout_path: Path) -> str:
     return rollout_path.stem
 
 
+def session_from_hook(event: dict) -> Path | None:
+    """Resolve the rollout supplied by Codex's native SessionEnd hook."""
+    from lorekeep.importer.hook_utils import (
+        event_cwd,
+        event_text,
+        validated_event_path,
+    )
+
+    cwd = event_cwd(event)
+    if event_text(event, "transcript_path") is not None:
+        return validated_event_path(event, [_codex_home() / "sessions"])
+    return locate_session(cwd)
+
+
 def dump_current_session(
     raw_root: Path,
     cwd: Path | None = None,

@@ -101,6 +101,27 @@ def session_key(session_dir: Path) -> str:
     return f"{cwd_basename}-{short_uuid}"
 
 
+def session_from_hook(event: dict) -> Path | None:
+    """Resolve Grok's session directory from its SessionEnd payload."""
+    from lorekeep.importer.hook_utils import (
+        event_cwd,
+        event_text,
+        validated_event_path,
+    )
+
+    cwd = event_cwd(event)
+    if event_text(event, "transcript_path") is not None:
+        transcript = validated_event_path(
+            event, [_grok_home() / _SESSIONS_ROOT],
+        )
+        # Never fall back to the newest session when a transcript was named:
+        # an unexpected file name is a retry, not a different session.
+        if transcript is not None and transcript.name == "chat_history.jsonl":
+            return transcript.parent
+        return None
+    return locate_session(cwd)
+
+
 # ---------------------------------------------------------------------------
 # Transcript parsing
 # ---------------------------------------------------------------------------

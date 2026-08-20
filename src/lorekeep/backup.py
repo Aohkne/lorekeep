@@ -30,6 +30,7 @@ _LOCAL_ONLY_PATTERNS = (
     "wiki/.trash/",
     "wiki/.DS_Store",
     "logs/",
+    "hook-events/",
     ".daemon.pid",
     "*.lock",
 )
@@ -52,6 +53,7 @@ wiki/.obsidian/
 wiki/.trash/
 wiki/.DS_Store
 logs/
+hook-events/
 .daemon.pid
 *.lock
 # END lorekeep local-only state
@@ -171,7 +173,8 @@ def _prepare_repo_metadata(home: Path) -> None:
         "rm", "-r", "--cached", "--ignore-unmatch", "--",
         "config.yaml", "cache.json", "fts.sqlite", "graph/fts.sqlite",
         ".wiki-build.tmp", ".wiki-rollback.tmp", "wiki/.obsidian",
-        "wiki/.trash", "wiki/.DS_Store", "logs", ".daemon.pid",
+        "wiki/.trash", "wiki/.DS_Store", "logs", "hook-events",
+        ".daemon.pid",
     ], home)
 
 

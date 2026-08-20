@@ -116,6 +116,10 @@ class AgentsConfig(BaseModel):
     transcript_max_batches: int = Field(default=20, gt=0)
     transcript_max_chars: int = Field(default=20_000, gt=0)
     transcript_retain_sessions: int = Field(default=5, gt=0)
+    # Native SessionEnd events ingest immediately. Agents that expose only a
+    # turn/idle boundary are coalesced for this long before being treated as
+    # an approximate session end.
+    session_end_idle_seconds: int = Field(default=300, ge=1)
     deep_import: bool = False                # advanced opt-in: LLM summarization
     self_heal: bool = True                   # daemon auto-heals graph after compile
     auto_backup: bool = True                 # daemon auto-backups after graph changes

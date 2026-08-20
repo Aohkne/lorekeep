@@ -160,6 +160,15 @@ def session_key(session_id: str) -> str:
     return session_id
 
 
+def session_from_hook(event: dict) -> str | None:
+    """Use the session id passed by the opencode ``session.idle`` plugin."""
+    session_id = event.get("session_id")
+    if isinstance(session_id, str) and session_id:
+        return session_id
+    cwd = event.get("cwd")
+    return locate_session(Path(cwd) if isinstance(cwd, str) and cwd else None)
+
+
 def dump_current_session(
     raw_root: Path,
     cwd: Path | None = None,

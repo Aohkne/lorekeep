@@ -254,7 +254,8 @@ def test_agents_section_is_read_from_yaml(tmp_path: Path):
     assert agents.watch_transcripts is True        # unspecified keys keep defaults
 @pytest.mark.parametrize(
     "key", ["wire_interval_seconds", "transcript_max_batches",
-            "transcript_max_chars", "transcript_retain_sessions"],
+            "transcript_max_chars", "transcript_retain_sessions",
+            "session_end_idle_seconds"],
 )
 def test_agents_rejects_non_positive_limits(key: str):
     """A zero cap would mean 'dump nothing' or 'poll continuously' — reject it."""

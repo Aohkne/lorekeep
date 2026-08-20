@@ -30,6 +30,35 @@ def test_find_current_session_returns_none_for_non_claude_dir(tmp_path: Path):
     assert find_current_session(cwd=tmp_path) is None
 
 
+def test_session_from_hook_uses_validated_transcript_path(
+    tmp_path: Path, isolated_home: Path,
+):
+    from lorekeep.importer.claude import session_from_hook
+
+    transcript = isolated_home / ".claude" / "projects" / "demo" / "s.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text("")
+    assert session_from_hook({"transcript_path": str(transcript)}) == transcript
+
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("")
+    assert session_from_hook({"transcript_path": str(outside)}) is None
+
+
+def test_session_from_hook_honors_claude_config_dir(
+    tmp_path: Path, monkeypatch,
+):
+    from lorekeep.importer.claude import session_from_hook
+
+    config_dir = tmp_path / "claude-custom"
+    transcript = config_dir / "projects" / "demo" / "s.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text("")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+
+    assert session_from_hook({"transcript_path": str(transcript)}) == transcript
+
+
 # ---------------------------------------------------------------------------
 # XML stripping
 # ---------------------------------------------------------------------------

@@ -21,8 +21,8 @@ Source: `src/lorekeep/cli.py` (32 command registrations, 30 user-visible command
 | `lorekeep doctor` | 875 | Validate full install: graph, schema, MCP, provider | All |
 | `lorekeep init` | 973 | Bootstrap data home, wire agents, import, compile, daemon | All |
 | `lorekeep backup` | 1424 | Commit + push .lorekeep/ to backup git repo | Curator |
-| `lorekeep import` | 1450 | Import agent sessions → raw/ (claude/cursor/codex/opencode) | Curator |
-| `lorekeep hook` | 94 (**hidden**) | Session-end hook: quick-import memories (all agents) | Agent (auto) |
+| `lorekeep import` | 1450 | Import supported agent sessions → raw/ | Curator |
+| `lorekeep hook` | 94 (**hidden**) | Fast lifecycle-event queue ingress | Agent (auto) |
 | `lorekeep eval` | 391 (**hidden**) | Construction-quality eval vs gold corpus | Dev |
 | `lorekeep eval-locomo` | 408 (**hidden**) | LoCoMo benchmark eval | Dev |
 
@@ -96,7 +96,8 @@ The standalone `check` command is removed. `doctor` is the sole validation comma
 ### R5: Three ingestion paths with inconsistent interfaces (HIGH — future breaking change)
 
 - `import`: Batch agent session import (with `--quick` flag)
-- `hook`: Hidden, auto-triggered on session end (already documented as internal ✓)
+- `hook`: Hidden, auto-triggered by each client's closest lifecycle boundary
+  (already documented as internal ✓)
 - `agent ingest`: Conversational LLM extraction (different — writes journals not raw/)
 
 Future: rename `agent ingest` → `agent extract` to distinguish from file import.

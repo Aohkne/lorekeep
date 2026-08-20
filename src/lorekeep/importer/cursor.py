@@ -238,6 +238,20 @@ def session_key(blob: dict) -> str:
     return str(blob.get("composerId") or "unknown")
 
 
+def session_from_hook(event: dict) -> dict | None:
+    """Resolve the composer named by Cursor's ``sessionEnd`` payload."""
+    session_id = str(event.get("session_id") or "")
+    db = find_cursor_state_db()
+    if session_id:
+        if db is None:
+            return None
+        for blob in load_composer_conversations(db):
+            if session_key(blob) == session_id:
+                return blob
+        return None
+    return locate_session()
+
+
 def dump_current_session(
     raw_root: Path,
     cwd: Path | None = None,

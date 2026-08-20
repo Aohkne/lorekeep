@@ -26,7 +26,7 @@ status checks do not call another LLM.
 | Query | Eight MCP tools plus passive schema, namespace, and status resources |
 | Permission | Deny-by-default namespace filtering through one `ScopedGraph` chokepoint |
 | Time | Half-open validity windows plus snapshot, history, and change queries |
-| Agent input | Session import and hooks for Claude Code, Cursor, Codex, opencode, Grok Build, Qoder, GitHub Copilot, Command Code |
+| Agent input | Native session-end capture where available; debounced idle/turn fallback for opencode and Command Code |
 | Agent writes | Namespace-enforced, confidence-gated journals; no direct graph mutation |
 | Automation | Watch raw docs, journals, memories/transcripts, agent wiring, backup sync, and restart after an external package upgrade |
 | Human view | Deterministic, readable Markdown wiki for Obsidian and Tolaria |
@@ -99,7 +99,7 @@ starts the daemon. Idempotent — re-run anytime to pick up newly installed agen
 
 ```bash
 # Drop Markdown under raw/<namespace>/
-cp your-docs.md ~/.local/share/lorekeep/raw/backend/
+cp your-docs.md ~/.lorekeep/raw/backend/
 
 # Compile runs in the background by default — wiki updates automatically
 lorekeep compile
@@ -209,7 +209,7 @@ and currently performs event-driven maintenance:
 - raw file count/mtime or schema change → compile;
 - journal mtime change → resolve;
 - Claude/Codex memory change → quick import;
-- supported live transcripts → bounded Markdown dumps under `raw/`;
+- lifecycle events → targeted bounded transcript Markdown under `raw/`;
 - detected agent change → idempotent MCP/hook wiring;
 - successful compile → self-heal, wiki refresh, and backup sync when configured;
 - external compile detected (manifest mtime change) → backup sync so graph
@@ -296,6 +296,7 @@ agents:
   auto_wire: true
   wire_scope: user
   watch_transcripts: true
+  session_end_idle_seconds: 300
   self_heal: true
 ```
 

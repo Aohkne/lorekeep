@@ -152,6 +152,7 @@ def test_codex_write_config_replaces_with_following_table(tmp_path: Path):
 
 def test_cursor_write_hook(tmp_path: Path):
     path = cursor.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
+    assert path == tmp_path / ".cursor" / "hooks.json"
     assert path.exists()
     data = json.loads(path.read_text())
     assert "sessionEnd" in data["hooks"]
@@ -171,7 +172,8 @@ def test_codex_write_hook(tmp_path: Path):
     path = codex.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
     assert path.exists()
     data = json.loads(path.read_text())
-    assert "Stop" in data["hooks"]
+    assert "SessionEnd" in data["hooks"]
+    assert data["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"] == 3
 
 
 def test_codex_write_hook_merges_existing(tmp_path: Path):
@@ -183,7 +185,7 @@ def test_codex_write_hook_merges_existing(tmp_path: Path):
     codex.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
     data = json.loads((d / "hooks.json").read_text())
     assert "PreToolUse" in data["hooks"]
-    assert "Stop" in data["hooks"]
+    assert "SessionEnd" in data["hooks"]
 
 
 def test_codex_write_hook_corrupt_existing(tmp_path: Path):
@@ -192,7 +194,28 @@ def test_codex_write_hook_corrupt_existing(tmp_path: Path):
     (d / "hooks.json").write_text("corrupt")
     codex.write_hook(tmp_path, "uvx", ["lorekeep", "hook"])
     data = json.loads((d / "hooks.json").read_text())
-    assert "Stop" in data["hooks"]
+    assert "SessionEnd" in data["hooks"]
+
+
+def test_codex_write_hook_migrates_only_lorekeep_stop(tmp_path: Path):
+    path = tmp_path / ".codex" / "hooks.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "hooks": {
+            "Stop": [
+                {"hooks": [{"type": "command", "command": "uvx lorekeep hook"}]},
+                {"hooks": [{"type": "command", "command": "./keep-me.sh"}]},
+            ]
+        }
+    }))
+
+    codex.write_hook(tmp_path, "python", ["-m", "lorekeep.cli", "hook"])
+
+    hooks = json.loads(path.read_text())["hooks"]
+    assert hooks["Stop"] == [
+        {"hooks": [{"type": "command", "command": "./keep-me.sh"}]}
+    ]
+    assert "SessionEnd" in hooks
 
 
 def test_claude_write_hook(tmp_path: Path):
