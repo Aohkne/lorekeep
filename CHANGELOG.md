@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.38.0 (2026-08-20)
+
+## What's Changed
+* feat(agents): capture session-end knowledge by @manhhailua in https://github.com/manhhailua/lorekeep/pull/267
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.37.0...v0.38.0
+
 ## 0.37.0 (2026-08-15)
 
 ## What's Changed
