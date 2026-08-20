@@ -1,3 +1,3 @@
 """Lorekeep — temporal knowledge graph for AI agents via MCP."""
 
-__version__ = "0.37.0"
+__version__ = "0.38.0"
