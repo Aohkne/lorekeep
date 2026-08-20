@@ -29,8 +29,8 @@ def test_qoder_user_settings_preserve_mcp_when_hook_is_added(
     assert "lorekeep" in data["mcpServers"]
     assert "SessionEnd" in data["hooks"]
     handler = data["hooks"]["SessionEnd"][0]["hooks"][0]
-    assert handler["command"] == "python"
-    assert handler["args"] == ["-m", "lorekeep.cli"]
+    assert handler["command"] == "python -m lorekeep.cli"
+    assert "args" not in handler
 
 
 def test_copilot_writes_flat_user_hook_and_skips_project(
@@ -73,6 +73,29 @@ def test_commandcode_writes_debounced_turn_end_fallback(tmp_path: Path):
     handler = data["hooks"]["Stop"][0]["hooks"][0]
     assert handler["type"] == "command"
     assert handler["timeout"] == 30
+
+
+def test_qoder_rewrite_migrates_args_form_handler(tmp_path: Path):
+    """A pre-fix args-form lorekeep handler is replaced by the shell form."""
+    path = tmp_path / ".qoder" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "hooks": {"SessionEnd": [{
+            "hooks": [{
+                "type": "command", "command": "/old/python",
+                "args": ["-m", "lorekeep.cli", "hook", "--agent", "qoder"],
+                "timeout": 30,
+            }]},
+        ]},
+    }))
+
+    qoder.write_hook(tmp_path, "python", ["-m", "lorekeep.cli", "hook"])
+
+    groups = json.loads(path.read_text())["hooks"]["SessionEnd"]
+    assert len(groups) == 1
+    handler = groups[0]["hooks"][0]
+    assert handler["command"] == "python -m lorekeep.cli hook"
+    assert "args" not in handler
 
 
 def test_hook_rewrite_preserves_third_party_handler(tmp_path: Path):

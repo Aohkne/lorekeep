@@ -8,6 +8,7 @@ dump path produces markdown batches under ``raw/grok-session/``.
 from __future__ import annotations
 
 import json
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -153,6 +154,20 @@ class TestLocateSession:
         assert grok.session_from_hook({
             "transcript_path": str(other),
         }) is None
+
+    def test_session_from_hook_without_path_uses_cwd(
+        self, tmp_path, monkeypatch,
+    ):
+        grok_home = tmp_path / "grok-home"
+        encoded = urllib.parse.quote(str(tmp_path.resolve()), safe="")
+        history = grok_home / "sessions" / encoded / "s1" / "chat_history.jsonl"
+        history.parent.mkdir(parents=True)
+        history.write_text("{}\n")
+        monkeypatch.setenv("GROK_HOME", str(grok_home))
+
+        assert grok.session_from_hook({
+            "cwd": str(tmp_path),
+        }) == history.parent
 
 
 # ---------------------------------------------------------------------------

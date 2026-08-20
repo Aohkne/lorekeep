@@ -114,10 +114,11 @@ def session_from_hook(event: dict) -> Path | None:
         transcript = validated_event_path(
             event, [_grok_home() / _SESSIONS_ROOT],
         )
-        if transcript is None:
-            return None
-        if transcript.name == "chat_history.jsonl":
+        # Never fall back to the newest session when a transcript was named:
+        # an unexpected file name is a retry, not a different session.
+        if transcript is not None and transcript.name == "chat_history.jsonl":
             return transcript.parent
+        return None
     return locate_session(cwd)
 
 

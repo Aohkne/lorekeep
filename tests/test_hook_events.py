@@ -10,6 +10,7 @@ from pathlib import Path
 from lorekeep.config import AgentsConfig
 from lorekeep.hook_events import (
     MAX_HOOK_PAYLOAD_BYTES,
+    MAX_HOOK_RETRY_ATTEMPTS,
     drain_hook_events,
     enqueue_hook_event,
     parse_hook_payload,
@@ -238,6 +239,31 @@ def test_empty_transcript_is_retained_for_retry(
 
     assert report.failed == 1
     assert json.loads(event.read_text())["attempts"] == 1
+
+
+def test_event_is_dropped_after_max_retry_attempts(
+    tmp_path: Path, isolated_home: Path,
+):
+    event = enqueue_hook_event(
+        tmp_path,
+        agent="claude",
+        trigger="session_end",
+        raw_payload=json.dumps({"session_id": "gone"}),
+        now=1.0,
+    )
+    data = json.loads(event.read_text())
+    data["attempts"] = MAX_HOOK_RETRY_ATTEMPTS - 1
+    data["last_attempt_at"] = 0.0
+    event.write_text(json.dumps(data) + "\n")
+
+    # far enough past the capped backoff window for the final try to run
+    report = drain_hook_events(
+        tmp_path, tmp_path / "raw", AgentsConfig(enabled=["claude"]), now=1000.0,
+    )
+
+    assert report.processed == 1
+    assert report.failed == 1
+    assert not event.exists()
 
 
 def test_disabled_agent_event_is_removed(tmp_path: Path):

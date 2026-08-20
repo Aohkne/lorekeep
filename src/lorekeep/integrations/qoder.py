@@ -10,6 +10,7 @@ from pathlib import Path
 
 from lorekeep.integrations.common import (
     merge_json_config,
+    shell_join,
     upsert_lorekeep_hook,
 )
 
@@ -63,12 +64,19 @@ def write_hook(
     *,
     scope: str = "project",
 ) -> Path | None:
+    """Write a SessionEnd hook to settings.json.
+
+    The handler uses the shell-string form: Qoder's IDE documents only
+    ``type/command/timeout`` on a hook entry (the separate ``args`` array is
+    documented for the CLI alone), and the shell form works in both.
+    """
+    cmd_str = shell_join(command, args)
+
     def mutate(data: dict) -> None:
         upsert_lorekeep_hook(data, "SessionEnd", {
             "hooks": [{
                 "type": "command",
-                "command": command,
-                "args": args,
+                "command": cmd_str,
                 "timeout": 30,
             }]
         })

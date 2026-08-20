@@ -20,6 +20,10 @@ from lorekeep.integrations.common import atomic_write
 
 MAX_HOOK_PAYLOAD_BYTES = 256 * 1024
 MAX_RETRY_DELAY_SECONDS = 300
+# A permanently unresolvable event (transcript deleted, unreadable format)
+# must not retry forever; it is dropped after this many attempts and the
+# failure stays visible in `doctor` until then.
+MAX_HOOK_RETRY_ATTEMPTS = 10
 _UNSAFE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
 log = logging.getLogger("lorekeep.hooks")
 
@@ -249,6 +253,15 @@ def drain_hook_events(
         except Exception as exc:
             event.attempts += 1
             event.last_attempt_at = current
+            if event.attempts >= MAX_HOOK_RETRY_ATTEMPTS:
+                path.unlink(missing_ok=True)
+                log.warning(
+                    "hook event dropped after retries agent=%s session=%s",
+                    event.agent, event.session_id,
+                    extra={"event": "hook.event_dropped"},
+                )
+                failed += 1
+                continue
             atomic_write(
                 path,
                 json.dumps(asdict(event), sort_keys=True) + "\n",
