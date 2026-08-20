@@ -323,8 +323,9 @@ _SPECS: tuple[AgentSpec, ...] = (
     AgentSpec(
         name="cmd",
         label="Command Code",
+        home_env="COMMANDCODE_HOME",
         install_markers=("~/.commandcode",),
-        binaries=("cmd", "command-code"),
+        binaries=("cmd", "cmdc", "command-code"),
         data_markers=("~/.commandcode/projects",),
         writer_module="lorekeep.integrations.commandcode",
         hook=HookSpec(
@@ -332,7 +333,7 @@ _SPECS: tuple[AgentSpec, ...] = (
             project_path=".commandcode/settings.json",
             user_path="~/.commandcode/settings.json", timeout_seconds=30,
         ),
-        project_config=".commandcode/mcp.json",
+        project_config=".mcp.json",
         user_config="~/.commandcode/mcp.json",
         importer_module="lorekeep.importer.commandcode",
         session_ns="cmd-session",

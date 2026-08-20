@@ -284,7 +284,20 @@ def test_cmd_user_scope_target(isolated_home):
 
 
 def test_cmd_project_scope_target(tmp_path):
-    assert commandcode.config_target(tmp_path, "project") == tmp_path / ".commandcode" / "mcp.json"
+    # Command Code's documented project-level MCP location is `.mcp.json` at
+    # the project root; it never reads `.commandcode/mcp.json`.
+    assert commandcode.config_target(tmp_path, "project") == tmp_path / ".mcp.json"
+
+
+def test_cmd_targets_honor_custom_home(isolated_home, monkeypatch):
+    custom = isolated_home / "cmd-home"
+    monkeypatch.setenv("COMMANDCODE_HOME", str(custom))
+    assert commandcode.config_target(
+        Path("/ignored"), "user",
+    ) == custom / "mcp.json"
+    assert commandcode.hook_target(
+        Path("/ignored"), "user",
+    ) == custom / "settings.json"
 
 
 def test_cmd_write_config_sets_mcp_servers(isolated_home, tmp_path):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -268,6 +269,27 @@ def test_commandcode_locate_fallback_and_dump_current_session(
     )
     assert len(written) == 1
     assert commandcode.session_key(transcript) == "cmd-1"
+
+
+def test_commandcode_locate_skips_sidecar_files(
+    tmp_path: Path, isolated_home: Path, monkeypatch,
+):
+    """Checkpoints/prompt sidecars newer than the transcript are not picked."""
+    root = isolated_home / "command-home"
+    monkeypatch.setenv("COMMANDCODE_HOME", str(root))
+    transcript = _write_jsonl(root / "projects" / "p" / "cmd-1.jsonl", [
+        {"type": "user", "message": "Ship it"},
+        {"type": "assistant", "content": "Done"},
+    ])
+    sidecars = [
+        root / "projects" / "p" / "cmd-1.checkpoints.jsonl",
+        root / "projects" / "p" / "cmd-1.prompts.jsonl",
+    ]
+    for sidecar in sidecars:
+        sidecar.write_text(json.dumps({"checkpoint": 1}) + "\n")
+        os.utime(sidecar, (2000000000, 2000000000))
+
+    assert commandcode.locate_session() == transcript
 
 
 def test_manual_qoder_import_reuses_zero_llm_adapter(

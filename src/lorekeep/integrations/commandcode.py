@@ -1,13 +1,16 @@
 """Command Code MCP config plus debounced Stop-hook writer.
 
 Command Code uses the standard ``mcpServers`` JSON format with a
-``transport: "stdio"`` field on each entry.  Project scope writes
-``.commandcode/mcp.json``; user scope writes ``~/.commandcode/mcp.json``.
+``transport: "stdio"`` field on each entry.  Project scope writes ``.mcp.json``
+at the project root (the documented project-level location — Command Code
+never reads ``.commandcode/mcp.json``); user scope writes
+``~/.commandcode/mcp.json``.
 Command Code has no SessionEnd event, so Stop is coalesced by Lorekeep's daemon
 and treated as an approximate end only after the configured idle grace.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from lorekeep.integrations.common import (
@@ -18,13 +21,15 @@ from lorekeep.integrations.common import (
 
 
 def _commandcode_home() -> Path:
-    return Path.home() / ".commandcode"
+    return Path(os.environ.get(
+        "COMMANDCODE_HOME", Path.home() / ".commandcode"
+    ))
 
 
 def config_target(target_dir: Path, scope: str = "project") -> Path:
     if scope == "user":
         return _commandcode_home() / "mcp.json"
-    return Path(target_dir) / ".commandcode" / "mcp.json"
+    return Path(target_dir) / ".mcp.json"
 
 
 def hook_target(target_dir: Path, scope: str = "project") -> Path:
