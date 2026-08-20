@@ -18,12 +18,25 @@ def _transcript_root() -> Path:
     return _commandcode_home() / "projects"
 
 
+# Command Code stores checkpoints and prompt history next to each transcript
+# as <id>.checkpoints.jsonl / <id>.prompts.jsonl. They are sidecars, not
+# conversations — and they can be newer than the transcript itself.
+_SIDECAR_SUFFIXES = (".checkpoints", ".prompts", ".share")
+
+
+def _is_sidecar(path: Path) -> bool:
+    return any(
+        path.name.endswith(suffix + ".jsonl") for suffix in _SIDECAR_SUFFIXES
+    )
+
+
 def locate_session(cwd: Path | None = None) -> Path | None:
     root = _transcript_root()
     if not root.is_dir():
         return None
     candidates = sorted(
-        root.rglob("*.jsonl"), key=lambda path: path.stat().st_mtime,
+        (path for path in root.rglob("*.jsonl") if not _is_sidecar(path)),
+        key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
     return candidates[0] if candidates else None
