@@ -71,18 +71,37 @@ cloud also loads project hook files, but does not fire the IDE-lifetime
 `sessionEnd` event, so both Cursor scopes are safe. `agent detect` reports the
 real event name and whether it is native or fallback.
 
+Two clients gate hooks behind an explicit trust step, so freshly written hooks
+stay silent until the user approves them once:
+
+- **Codex** records trust against the hook command's hash. Review via `/hooks`
+  inside Codex; any later change to the command string (different interpreter
+  or `--home`) requires re-trust.
+- **Grok Build** requires `/hooks-trust` (or a `--trust` launch) before
+  project-scope hooks run; user-scope hooks need no trust.
+
+Codex also fires `SessionEnd` only when a conversation closes, is archived, or
+has been idle for 30 minutes — never on conversation switch — which is why the
+watcher's startup recovery pass exists.
+
 Native handlers run the exact Python interpreter that wired Lorekeep; they do
 not cold-start `uvx`. A handler reads at most 256 KiB of JSON stdin, normalizes
 only session id/transcript path/cwd/reason, atomically writes a mode-0600 event
 inside mode-0700 `hook-events/<agent>/` directories, and exits. Repeated fallback events for one
 session replace the same file and restart its idle window. Transcript I/O and
-compilation never run inside the hook process.
+compilation never run inside the hook process. Because the interpreter path is
+machine-local, project-scope hook files (which clients encourage committing)
+should be wired per machine; rewiring on another machine simply rewrites the
+path. Claude Code and Command Code share `.mcp.json` as their project MCP
+location — wiring both at project scope makes them alternate the
+`mcpServers.lorekeep` entry, so prefer user scope when running both.
 
 The queue is device-local and excluded from backup because its transcript paths
 belong to that device. The daemon validates paths against the owning client's
 data roots, imports only the named session, removes successful events, and
-retains failures with exponential retry backoff. `doctor` shows queued,
-idle-waiting, retrying, or invalid events for troubleshooting.
+retains failures with bounded exponential retry backoff (dropped after ten
+attempts). `doctor` shows queued, idle-waiting, retrying, or invalid events
+for troubleshooting.
 
 ## Watcher startup
 
