@@ -277,8 +277,9 @@ fact does not exist globally.
 
 All model names must use LiteLLM's `{provider}/{model}` form. Native providers
 include OpenAI, Anthropic, DeepSeek, DashScope/Qwen, Gemini, OpenRouter, Mistral,
-Groq, Together AI, and others exposed by LiteLLM. Ollama, vLLM, and LM Studio are
-available for local/custom endpoints.
+Groq, Together AI, and others exposed by LiteLLM. `lorekeep init` also offers
+**OpenAI-compatible** (vLLM, LM Studio, LiteLLM proxy, or any custom `/v1`
+gateway) next to local Ollama.
 
 ```yaml
 provider:

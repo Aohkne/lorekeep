@@ -158,6 +158,50 @@ def test_init_interactive_ollama_no_key(tmp_path: Path, monkeypatch):
     assert cfg["namespaces"]["write"] == "myproject"
 
 
+def test_init_interactive_openai_compat(tmp_path: Path, monkeypatch):
+    """OpenAI-compatible: free-text model, api_base, optional key, openai/ prefix."""
+    home = tmp_path / "home"
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    monkeypatch.setattr("lorekeep.cli._is_interactive", lambda: True)
+
+    from lorekeep.providers import POPULAR
+    idx = POPULAR.index("openai_compat") + 1
+
+    # provider, model, api_base (default), empty key, ns, name, bio
+    inp = f"{idx}\nllama3.2\n\n\nme\nCJ\nlocal vllm\n"
+    result = runner.invoke(app, ["init", "--no-watch"], input=inp)
+    assert result.exit_code == 0, result.stdout
+    assert "OpenAI-compatible" in result.stdout
+    cfg = yaml.safe_load((home / "config.yaml").read_text())
+    assert cfg["provider"]["model"] == "openai/llama3.2"
+    assert cfg["provider"]["api_base"] == "http://localhost:8000/v1"
+    assert cfg["provider"]["api_key"] is None
+    assert cfg["namespaces"]["write"] == "me"
+    about = home / "raw" / "me" / "about.md"
+    assert about.exists()
+    assert "CJ" in about.read_text()
+
+
+def test_init_interactive_openai_compat_with_key(tmp_path: Path, monkeypatch):
+    """OpenAI-compatible gateway with custom base URL and inline key."""
+    home = tmp_path / "home"
+    monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    monkeypatch.setattr("lorekeep.cli._is_interactive", lambda: True)
+
+    from lorekeep.providers import POPULAR
+    idx = POPULAR.index("openai_compat") + 1
+
+    inp = f"{idx}\nqwen-plus\nhttps://gateway.example.com/v1\nsk-proxy\nmyteam\nAnn\ngateway\n"
+    result = runner.invoke(app, ["init", "--no-watch"], input=inp)
+    assert result.exit_code == 0, result.stdout
+    cfg = yaml.safe_load((home / "config.yaml").read_text())
+    assert cfg["provider"]["model"] == "openai/qwen-plus"
+    assert cfg["provider"]["api_base"] == "https://gateway.example.com/v1"
+    assert cfg["provider"]["api_key"] == "sk-proxy"
+    assert cfg["provider"]["api_key_env"] is None
+    assert cfg["namespaces"]["write"] == "myteam"
+
+
 def test_init_preserves_existing_config(tmp_path: Path, monkeypatch):
     home = tmp_path / "home"
     (home).mkdir()

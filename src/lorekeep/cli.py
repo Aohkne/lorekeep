@@ -1279,11 +1279,17 @@ def doctor() -> None:
         ns = []
 
     # Hint: api_base is redundant for native providers — litellm already knows
-    # their endpoint. Surfaced as a non-fatal note (a user may intentionally
-    # point a native provider at a mirror/proxy).
+    # their endpoint. openai/ + api_base is the documented custom
+    # OpenAI-compatible pattern (vLLM, LM Studio, proxy), so that is a
+    # confirmation note rather than a "usually unnecessary" warning.
     if config.provider.api_base:
         prefix = model_provider(config.provider.model)
-        if prefix in NATIVE_PROVIDERS:
+        if prefix == "openai":
+            notes.append(
+                "provider: custom OpenAI-compatible endpoint "
+                f"({config.provider.api_base})"
+            )
+        elif prefix in NATIVE_PROVIDERS:
             notes.append(
                 f"provider: hint — api_base set for {prefix}/, but litellm "
                 "already knows this endpoint; usually unnecessary (only "
@@ -1538,10 +1544,16 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
     Returns ``(ns, name, bio)`` — the concrete write namespace plus the
     user's profile answers, so the caller can write ``raw/<ns>/about.md``.
     """
-    import yaml
     from lorekeep.providers import (
-        list_models, search_providers,
-        format_cost, is_dynamic, POPULAR,
+        DYNAMIC_ENDPOINT_DEFAULTS,
+        POPULAR,
+        config_model_name,
+        format_cost,
+        is_dynamic,
+        list_models,
+        optional_api_key,
+        provider_label,
+        search_providers,
     )
 
     typer.echo("\n=== Lorekeep setup ===\n")
@@ -1555,7 +1567,7 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
     # ── Provider selection ─────────────────────────────────────────────
     typer.echo("Popular providers:")
     for i, prov in enumerate(POPULAR, 1):
-        typer.echo(f"  {i}. {prov}")
+        typer.echo(f"  {i}. {provider_label(prov)}")
     typer.echo(f"  {len(POPULAR) + 1}. [Search all providers]")
     typer.echo(f"  {len(POPULAR) + 2}. [Skip — configure later]")
 
@@ -1582,7 +1594,11 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
         else:
             typer.echo("")
             for i, (prov, count) in enumerate(results[:20], 1):
-                typer.echo(f"  {i}. {prov} ({count} models)")
+                label = provider_label(prov)
+                if count:
+                    typer.echo(f"  {i}. {label} ({count} models)")
+                else:
+                    typer.echo(f"  {i}. {label}")
             sub = typer.prompt("Choice", default="1")
             sub_idx = int(sub) if sub.isdigit() else 1
             provider_name = results[min(sub_idx - 1, len(results) - 1)][0]
@@ -1591,17 +1607,31 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
     else:
         provider_name = "openai"
 
-    typer.echo(f"  → {provider_name}\n")
+    typer.echo(f"  → {provider_label(provider_name)}\n")
 
     # ── Model selection ────────────────────────────────────────────────
-    typer.echo(f"Select a model for {provider_name} (used for knowledge extraction):\n")
+    typer.echo(f"Select a model for {provider_label(provider_name)} (used for knowledge extraction):\n")
     if is_dynamic(provider_name):
-        model = typer.prompt(
-            f"Model name (free-text for {provider_name})",
-            default="llama3.2" if provider_name == "ollama" else "",
+        model_default, base_default = DYNAMIC_ENDPOINT_DEFAULTS.get(
+            provider_name, ("", ""),
         )
+        if provider_name == "openai_compat":
+            typer.echo(
+                "Any OpenAI-compatible /v1/chat/completions endpoint works here\n"
+                "(vLLM, LM Studio, LiteLLM proxy, OneAPI/NewAPI, or a custom gateway).\n"
+                "LiteLLM routes it as openai/{model} plus api_base.\n"
+            )
+        model = typer.prompt(
+            "Model name as served by the endpoint",
+            default=model_default,
+        )
+        if not model.strip():
+            model = typer.prompt("Model name (required)", default="")
+        if not model.strip():
+            typer.echo("  a model name is required for this provider")
+            raise typer.Exit(code=1)
         api_base = typer.prompt(
-            "API base URL", default="http://localhost:11434" if provider_name == "ollama" else "",
+            "API base URL", default=base_default,
         ) or None
     else:
         models = list_models(provider_name)
@@ -1625,18 +1655,26 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
             model = typer.prompt("Model name (litellm string)", default="")
         api_base = None
 
-    # Prefix a bare model name with the explicitly-selected provider so the
-    # written config is always a valid litellm string. (Not a guess — the user
-    # picked this provider; only bare names get prefixed.)
-    if "/" not in model:
-        from lorekeep.providers import _normalize_model_name
-        model = _normalize_model_name(model, provider_name)
+    # Prefix a bare model name with the litellm route so the written config
+    # is always a valid litellm string. openai_compat is a menu alias and
+    # persists as openai/{model} plus api_base.
+    model = config_model_name(model, provider_name)
 
     typer.echo(f"  → {model}\n")
 
-    # ── API key (skip for local providers) ─────────────────────────────
+    # ── API key (skip for local providers; optional for openai_compat) ─
     env_var = None
-    if is_dynamic(provider_name):
+    if optional_api_key(provider_name):
+        api_key = typer.prompt(
+            "API key (optional — many local servers need none)",
+            default="",
+            hide_input=True,
+        ) or None
+        if api_key:
+            typer.echo("  → key stored in config.yaml\n")
+        else:
+            typer.echo("  → no key (add one in config.yaml if the endpoint requires it)\n")
+    elif is_dynamic(provider_name):
         typer.echo("  → No API key needed for local provider.\n")
         api_key = None
     else:

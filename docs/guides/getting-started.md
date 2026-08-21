@@ -46,8 +46,9 @@ lorekeep init
 
 On the first interactive run, `init` asks for:
 
-1. an extraction provider/model and either an inline local key or the name of an
-   environment variable;
+1. an extraction provider/model — cloud APIs, local Ollama, or an
+   **OpenAI-compatible** endpoint (vLLM, LM Studio, LiteLLM proxy, OneAPI/NewAPI,
+   or a custom `/v1` gateway) — plus an inline key or environment variable;
 2. the write namespace, initially `me` (read scope defaults to `*`);
 3. your name and one-line bio.
 
@@ -101,9 +102,12 @@ lorekeep config set provider.api_key_env OPENROUTER_API_KEY
 export OPENROUTER_API_KEY=...
 ```
 
-Native cloud providers normally need no `api_base`. Set `api_base` for a custom
-OpenAI-compatible endpoint, or for Ollama when it is not at its normal local
-address. The full validated example is
+Native cloud providers normally need no `api_base`. Interactive `init` lists
+**OpenAI-compatible** next to Ollama: pick it, enter the model name your
+endpoint serves, and set `api_base` (for example `http://localhost:8000/v1`).
+That writes LiteLLM's `openai/{model}` form plus `api_base`. Set `api_base`
+yourself for Ollama when it is not at its normal local address. The full
+validated example is
 [`.lorekeep/config.yaml.example`](../../.lorekeep/config.yaml.example).
 
 The provider is used during `compile`, `agent ingest`, and manual deep import.
