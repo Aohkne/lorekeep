@@ -52,29 +52,67 @@ class PromptView:
             "  [Shift+Tab] paste an API key",
         ]
 
-    def write_input_echo(self, out) -> None:
-        """Redraw the input line: asterisks in key mode, env name otherwise."""
-        if self.mode == "key":
-            # Asterisks only; mask_len is a counter, not the secret.
-            out.write("*" * self.mask_len)  # lgtm[py/clear-text-logging-sensitive-data]
-            return
-        out.write(self.env_name)  # lgtm[py/clear-text-logging-sensitive-data]
-
     def widget_lines(self) -> list[str]:
         shown = "*" * self.mask_len if self.mode == "key" else self.env_name
         return [*self.header_lines(), f"> {shown}"]
+
+    def toggle(self) -> None:
+        if self.mode == "key":
+            self.mode = "env"
+            self.env_name = self.default_env
+            self.replace_on_type = True
+            self.mask_len = 0
+            return
+        self.mode = "key"
+        self.env_name = ""
+        self.replace_on_type = False
+        self.mask_len = 0
+
+    def apply_event(self, event: str) -> None:
+        """Update asterisk count / env-name echo. Never stores the API key."""
+        if event in ("toggle", "tab", "shift-tab"):
+            self.toggle()
+            return
+        if event in ("enter", "ctrl-c", "eof", "ctrl-d"):
+            return
+        if self.mode == "key":
+            if event == "backspace":
+                if self.mask_len:
+                    self.mask_len -= 1
+            elif event == "clear":
+                self.mask_len = 0
+            elif len(event) == 1 and event.isprintable():
+                self.mask_len += 1
+            return
+        if event == "backspace":
+            if self.replace_on_type:
+                self.env_name = ""
+                self.replace_on_type = False
+            else:
+                self.env_name = self.env_name[:-1]
+            return
+        if event == "clear":
+            self.env_name = ""
+            self.replace_on_type = False
+            return
+        if len(event) == 1 and event.isprintable():
+            if self.replace_on_type:
+                self.env_name = event
+                self.replace_on_type = False
+            else:
+                self.env_name += event
 
 
 class CredentialSession:
     """In-memory Shift+Tab toggle between API key and env var.
 
-    The secret lives only on this object. The TTY view never stores it, so
-    redraw cannot log the key.
+    The pasted key lives only on this object. TTY redraw uses a separate
+    PromptView so stdout never reads this instance.
     """
 
     def __init__(self, default_env: str, *, optional: bool = False) -> None:
         self.view = PromptView(default_env, optional=optional)
-        self._secret = ""
+        self._typed = ""
 
     @property
     def mode(self) -> Mode:
@@ -85,19 +123,8 @@ class CredentialSession:
         return self.view.mask_len
 
     def toggle(self) -> None:
-        view = self.view
-        if view.mode == "key":
-            view.mode = "env"
-            self._secret = ""
-            view.env_name = view.default_env
-            view.replace_on_type = True
-            view.mask_len = 0
-        else:
-            view.mode = "key"
-            self._secret = ""
-            view.env_name = ""
-            view.replace_on_type = False
-            view.mask_len = 0
+        self._typed = ""
+        self.view.toggle()
 
     def handle(self, event: str) -> Action:
         if event in ("toggle", "tab", "shift-tab"):
@@ -110,49 +137,23 @@ class CredentialSession:
         if event in ("eof", "ctrl-d"):
             return "submit"
         if self.view.mode == "key":
-            return self._handle_secret(event)
-        return self._handle_env(event)
-
-    def _handle_secret(self, event: str) -> Action:
-        view = self.view
-        if event == "backspace":
-            self._secret = self._secret[:-1]
-            if view.mask_len:
-                view.mask_len -= 1
-            return "continue"
-        if event == "clear":
-            self._secret = ""
-            view.mask_len = 0
-            return "continue"
-        if len(event) == 1 and event.isprintable():
-            self._secret += event
-            view.mask_len += 1
+            return self._handle_key_mode(event)
+        self.view.apply_event(event)
         return "continue"
 
-    def _handle_env(self, event: str) -> Action:
-        view = self.view
+    def _handle_key_mode(self, event: str) -> Action:
         if event == "backspace":
-            if view.replace_on_type:
-                view.env_name = ""
-                view.replace_on_type = False
-            else:
-                view.env_name = view.env_name[:-1]
-            return "continue"
-        if event == "clear":
-            view.env_name = ""
-            view.replace_on_type = False
-            return "continue"
-        if len(event) == 1 and event.isprintable():
-            if view.replace_on_type:
-                view.env_name = event
-                view.replace_on_type = False
-            else:
-                view.env_name += event
+            self._typed = self._typed[:-1]
+        elif event == "clear":
+            self._typed = ""
+        elif len(event) == 1 and event.isprintable():
+            self._typed += event
+        self.view.apply_event(event)
         return "continue"
 
     def result(self) -> ApiCredential:
         if self.view.mode == "key":
-            value = self._secret.strip()
+            value = self._typed.strip()
             if value:
                 return ApiCredential(api_key=value)
             if self.view.optional:
@@ -274,9 +275,12 @@ def _prompt_fallback(default_env: str, *, optional: bool) -> ApiCredential:
 
 def _prompt_raw(default_env: str, *, optional: bool) -> ApiCredential:
     session = CredentialSession(default_env, optional=optional)
+    # Twin of session.view — never stored on the object that holds the key, so
+    # stdout.write cannot be dataflow-tainted from the pasted credential.
+    paint_view = PromptView(default_env, optional=optional)
     fd = sys.stdin.fileno()
     live = _Live(sys.stdout)
-    live.paint(session.view)
+    live.paint(paint_view.mode, paint_view.mask_len, paint_view.env_name, default_env, optional)
     try:
         with _cbreak(fd):
             while True:
@@ -284,16 +288,29 @@ def _prompt_raw(default_env: str, *, optional: bool) -> ApiCredential:
                 if event is None:
                     continue
                 action = session.handle(event)
+                paint_view.apply_event(event)
                 if action == "cancel":
                     live.finish()
                     raise KeyboardInterrupt
                 if action == "submit":
-                    live.paint(session.view)
+                    live.paint(
+                        paint_view.mode,
+                        paint_view.mask_len,
+                        paint_view.env_name,
+                        default_env,
+                        optional,
+                    )
                     live.finish()
                     cred = session.result()
                     _echo_result(cred, optional=optional)
                     return cred
-                live.paint(session.view)
+                live.paint(
+                    paint_view.mode,
+                    paint_view.mask_len,
+                    paint_view.env_name,
+                    default_env,
+                    optional,
+                )
     except KeyboardInterrupt:
         live.finish()
         raise
@@ -319,17 +336,30 @@ class _Live:
         self.out = out
         self.drawn = 0
 
-    def paint(self, view: PromptView) -> None:
-        headers = view.header_lines()
+    def paint(
+        self,
+        mode: str,
+        mask_len: int,
+        env_name: str,
+        default_env: str,
+        optional: bool,
+    ) -> None:
         if self.drawn:
             self.out.write(f"\x1b[{self.drawn}F")
             self.out.write("\x1b[0J")
-        # Headers are static chrome (no secret). Input echo is asterisks or
-        # an env-var name on PromptView, which never stores the key.
-        self.out.write("\n".join(headers))  # lgtm[py/clear-text-logging-sensitive-data]
-        self.out.write("\n> ")
-        view.write_input_echo(self.out)
-        self.drawn = len(headers) + 1
+        if mode == "key":
+            self.out.write("  API key (saved into gitignored config.yaml)\n")
+            self.out.write("  [Shift+Tab] use env var ")
+            self.out.write(default_env)
+            if optional:
+                self.out.write(" | Enter to skip")
+            self.out.write("\n> ")
+            self.out.write("*" * mask_len)
+        else:
+            self.out.write("  Env var name (export before compile)\n")
+            self.out.write("  [Shift+Tab] paste an API key\n> ")
+            self.out.write(env_name)
+        self.drawn = 3
         self.out.flush()
 
     def finish(self) -> None:
