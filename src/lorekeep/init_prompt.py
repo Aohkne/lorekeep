@@ -29,88 +29,18 @@ class ApiCredential:
     api_key_env: str | None = None
 
 
-class CredentialSession:
-    """In-memory Shift+Tab toggle between API key and env var."""
+class PromptView:
+    """TTY chrome for the credential prompt. Holds no secret key material."""
 
     def __init__(self, default_env: str, *, optional: bool = False) -> None:
         self.mode: Mode = "key"
-        self._api_key = ""
-        self._env_name = ""
         self.default_env = default_env
         self.optional = optional
-        # Env mode starts with the suggested name selected: first printable
-        # replaces it (same idea as a highlighted typer default).
+        self.env_name = ""
         self.replace_on_type = False
-        # Count of hidden keystrokes; never derived by reading _api_key.
         self.mask_len = 0
 
-    def toggle(self) -> None:
-        if self.mode == "key":
-            self.mode = "env"
-            self._api_key = ""
-            self._env_name = self.default_env
-            self.replace_on_type = True
-            self.mask_len = 0
-        else:
-            self.mode = "key"
-            self._api_key = ""
-            self._env_name = ""
-            self.replace_on_type = False
-            self.mask_len = 0
-
-    def handle(self, event: str) -> Action:
-        if event in ("toggle", "tab", "shift-tab"):
-            self.toggle()
-            return "continue"
-        if event == "enter":
-            return "submit"
-        if event == "ctrl-c":
-            return "cancel"
-        if event in ("eof", "ctrl-d"):
-            return "submit"
-        if event == "backspace":
-            if self.mode == "key":
-                self._api_key = self._api_key[:-1]
-                if self.mask_len:
-                    self.mask_len -= 1
-            elif self.replace_on_type:
-                self._env_name = ""
-                self.replace_on_type = False
-            else:
-                self._env_name = self._env_name[:-1]
-            return "continue"
-        if event == "clear":
-            self._api_key = ""
-            self._env_name = ""
-            self.replace_on_type = False
-            self.mask_len = 0
-            return "continue"
-        if len(event) == 1 and event.isprintable():
-            if self.mode == "key":
-                self._api_key += event
-                self.mask_len += 1
-            elif self.replace_on_type:
-                self._env_name = event
-                self.replace_on_type = False
-            else:
-                self._env_name += event
-        return "continue"
-
-    def result(self) -> ApiCredential:
-        if self.mode == "key":
-            value = self._api_key.strip()
-            if value:
-                return ApiCredential(api_key=value)
-            if self.optional:
-                return ApiCredential()
-            return ApiCredential(api_key_env=self.default_env)
-        value = self._env_name.strip()
-        if not value or value.lower() == "skip":
-            return ApiCredential()
-        return ApiCredential(api_key_env=value)
-
     def header_lines(self) -> list[str]:
-        """Prompt chrome with no secret material (safe to write to a TTY)."""
         if self.mode == "key":
             skip = " | Enter to skip" if self.optional else ""
             return [
@@ -125,13 +55,116 @@ class CredentialSession:
     def write_input_echo(self, out) -> None:
         """Redraw the input line: asterisks in key mode, env name otherwise."""
         if self.mode == "key":
-            out.write("*" * self.mask_len)
+            # Asterisks only; mask_len is a counter, not the secret.
+            out.write("*" * self.mask_len)  # lgtm[py/clear-text-logging-sensitive-data]
             return
-        out.write(self._env_name)
+        out.write(self.env_name)  # lgtm[py/clear-text-logging-sensitive-data]
 
     def widget_lines(self) -> list[str]:
-        shown = "*" * self.mask_len if self.mode == "key" else self._env_name
+        shown = "*" * self.mask_len if self.mode == "key" else self.env_name
         return [*self.header_lines(), f"> {shown}"]
+
+
+class CredentialSession:
+    """In-memory Shift+Tab toggle between API key and env var.
+
+    The secret lives only on this object. The TTY view never stores it, so
+    redraw cannot log the key.
+    """
+
+    def __init__(self, default_env: str, *, optional: bool = False) -> None:
+        self.view = PromptView(default_env, optional=optional)
+        self._secret = ""
+
+    @property
+    def mode(self) -> Mode:
+        return self.view.mode
+
+    @property
+    def mask_len(self) -> int:
+        return self.view.mask_len
+
+    def toggle(self) -> None:
+        view = self.view
+        if view.mode == "key":
+            view.mode = "env"
+            self._secret = ""
+            view.env_name = view.default_env
+            view.replace_on_type = True
+            view.mask_len = 0
+        else:
+            view.mode = "key"
+            self._secret = ""
+            view.env_name = ""
+            view.replace_on_type = False
+            view.mask_len = 0
+
+    def handle(self, event: str) -> Action:
+        if event in ("toggle", "tab", "shift-tab"):
+            self.toggle()
+            return "continue"
+        if event == "enter":
+            return "submit"
+        if event == "ctrl-c":
+            return "cancel"
+        if event in ("eof", "ctrl-d"):
+            return "submit"
+        if self.view.mode == "key":
+            return self._handle_secret(event)
+        return self._handle_env(event)
+
+    def _handle_secret(self, event: str) -> Action:
+        view = self.view
+        if event == "backspace":
+            self._secret = self._secret[:-1]
+            if view.mask_len:
+                view.mask_len -= 1
+            return "continue"
+        if event == "clear":
+            self._secret = ""
+            view.mask_len = 0
+            return "continue"
+        if len(event) == 1 and event.isprintable():
+            self._secret += event
+            view.mask_len += 1
+        return "continue"
+
+    def _handle_env(self, event: str) -> Action:
+        view = self.view
+        if event == "backspace":
+            if view.replace_on_type:
+                view.env_name = ""
+                view.replace_on_type = False
+            else:
+                view.env_name = view.env_name[:-1]
+            return "continue"
+        if event == "clear":
+            view.env_name = ""
+            view.replace_on_type = False
+            return "continue"
+        if len(event) == 1 and event.isprintable():
+            if view.replace_on_type:
+                view.env_name = event
+                view.replace_on_type = False
+            else:
+                view.env_name += event
+        return "continue"
+
+    def result(self) -> ApiCredential:
+        if self.view.mode == "key":
+            value = self._secret.strip()
+            if value:
+                return ApiCredential(api_key=value)
+            if self.view.optional:
+                return ApiCredential()
+            return ApiCredential(api_key_env=self.view.default_env)
+        value = self.view.env_name.strip()
+        if not value or value.lower() == "skip":
+            return ApiCredential()
+        return ApiCredential(api_key_env=value)
+
+    def widget_lines(self) -> list[str]:
+        return self.view.widget_lines()
 
 
 def classify_escape(seq: bytes) -> str | None:
@@ -243,7 +276,7 @@ def _prompt_raw(default_env: str, *, optional: bool) -> ApiCredential:
     session = CredentialSession(default_env, optional=optional)
     fd = sys.stdin.fileno()
     live = _Live(sys.stdout)
-    live.paint(session)
+    live.paint(session.view)
     try:
         with _cbreak(fd):
             while True:
@@ -255,12 +288,12 @@ def _prompt_raw(default_env: str, *, optional: bool) -> ApiCredential:
                     live.finish()
                     raise KeyboardInterrupt
                 if action == "submit":
-                    live.paint(session)
+                    live.paint(session.view)
                     live.finish()
                     cred = session.result()
                     _echo_result(cred, optional=optional)
                     return cred
-                live.paint(session)
+                live.paint(session.view)
     except KeyboardInterrupt:
         live.finish()
         raise
@@ -286,14 +319,16 @@ class _Live:
         self.out = out
         self.drawn = 0
 
-    def paint(self, session: CredentialSession) -> None:
-        headers = session.header_lines()
+    def paint(self, view: PromptView) -> None:
+        headers = view.header_lines()
         if self.drawn:
             self.out.write(f"\x1b[{self.drawn}F")
             self.out.write("\x1b[0J")
-        self.out.write("\n".join(headers))
+        # Headers are static chrome (no secret). Input echo is asterisks or
+        # an env-var name on PromptView, which never stores the key.
+        self.out.write("\n".join(headers))  # lgtm[py/clear-text-logging-sensitive-data]
         self.out.write("\n> ")
-        session.write_input_echo(self.out)
+        view.write_input_echo(self.out)
         self.drawn = len(headers) + 1
         self.out.flush()
 
