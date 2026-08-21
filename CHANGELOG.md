@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.39.0 (2026-08-21)
+
+## What's Changed
+* feat(init): OpenAI-compatible provider, Shift+Tab credentials, persistent daemon by @manhhailua in https://github.com/manhhailua/lorekeep/pull/269
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.38.0...v0.39.0
+
 ## 0.38.0 (2026-08-20)
 
 ## What's Changed
