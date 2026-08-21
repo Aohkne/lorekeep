@@ -14,6 +14,7 @@ def isolate_project_cwd(tmp_path: Path, monkeypatch):
     # Prevent _start_daemon from spawning real background processes.
     # Interactive init tests would otherwise leak 'agent watch' zombies.
     monkeypatch.setattr("lorekeep.cli._start_daemon", lambda p: None)
+    monkeypatch.setattr("lorekeep.cli._install_daemon_service", lambda p: False)
 
 
 def test_init_creates_home(tmp_path: Path, monkeypatch):

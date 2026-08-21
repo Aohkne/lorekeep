@@ -1433,10 +1433,10 @@ def init(
     ),
     watch: bool = typer.Option(
         True, "--watch/--no-watch",
-        help="Start the daemon (agent watch) in background after setup",
+        help="Install the OS daemon service (systemd/launchd/startup) after setup",
     ),
 ) -> None:
-    """Bootstrap the data home, wire agents, import sessions, compile, and start daemon."""
+    """Bootstrap the data home, wire agents, import sessions, compile, and install the daemon service."""
     p = resolve_paths()
     created = []
     p["config"].parent.mkdir(parents=True, exist_ok=True)
@@ -1505,7 +1505,7 @@ def init(
                     "Obsidian/Tolaria, then `lorekeep compile` — the wiki reflects you."
                 )
 
-    # --- One-click chain: wire → import → compile → daemon -----------------
+    # --- One-click chain: wire → import → compile → persistent daemon ------
     # Wiring runs on every init: it is free and idempotent, so re-running
     # init is how you pick up an agent installed after the first run.
     wire_scope = _wire_scope(load_config(p["config"]).agents)
@@ -1514,18 +1514,36 @@ def init(
     if not config_existed:
         _auto_import_and_compile(p)
 
-    # Daemon: start on fresh init or revive if dead (regardless of config_existed)
-    if watch and _is_interactive():
-        _start_daemon(p)
-        if not config_existed:
+    # Persistent OS service is the default. --no-watch skips it (agent-controlled
+    # mode). If install fails, fall back to an ad-hoc `agent watch` on a TTY.
+    if watch:
+        import sys
+        installed = _install_daemon_service(p)
+        ad_hoc = False
+        if installed and sys.platform == "win32" and _is_interactive():
+            # Windows startup scripts do not launch until the next login.
+            _start_daemon(p)
+            ad_hoc = True
+        elif not installed and _is_interactive():
+            _start_daemon(p)
+            ad_hoc = True
+        elif not installed and not _is_interactive():
+            typer.echo(
+                "\n  (skipped daemon start in non-interactive mode — "
+                "run `lorekeep agent service install` or `lorekeep agent watch`)"
+            )
+
+        if not config_existed and (installed or ad_hoc):
             log_path = p.get("logs", p["home"] / "logs") / "daemon-bootstrap.log"
             wiki_path = p.get("wiki", p["home"] / "wiki")
-            typer.echo("\n  Daemon watching raw/ for changes.")
+            if installed:
+                typer.echo("\n  Daemon installed as a persistent OS service.")
+                typer.echo("  Uninstall later:  lorekeep agent service uninstall")
+            else:
+                typer.echo("\n  Daemon watching raw/ for changes.")
             typer.echo(f"  Watch progress:  tail -f {log_path}")
             typer.echo(f"  Open wiki:       {wiki_path}")
             typer.echo("\nRestart your agent")
-    elif watch and not _is_interactive():
-        typer.echo("\n  (skipped daemon start in non-interactive mode — run `lorekeep agent watch` manually)")
     else:
         typer.echo(
             "\n  Daemon disabled (--no-watch). Agent-controlled mode:\n"
@@ -1899,6 +1917,31 @@ def _auto_import_and_compile(p: dict, *, defer: bool = False) -> None:
             extra={"event": "init.compile_failed"},
         )
         typer.echo(f"  compile skipped: {exc}")
+
+
+def _install_daemon_service(p: dict) -> bool:
+    """Install the OS-persistent daemon. Returns True on success.
+
+    Never raises: init must still finish if systemd/launchd is unavailable.
+    Tests monkeypatch this to avoid writing the developer's real user service.
+    """
+    from lorekeep.daemon_service import install as svc_install
+
+    try:
+        platform_name, config_path = svc_install(p["home"])
+    except Exception as exc:
+        log.warning(
+            "daemon service install failed error_type=%s",
+            type(exc).__name__, extra={"event": "init.service_install_failed"},
+        )
+        typer.echo(f"  daemon service skipped: {exc}")
+        return False
+    log.info(
+        "daemon service installed platform=%s", platform_name,
+        extra={"event": "daemon.service_installed"},
+    )
+    typer.echo(f"  daemon service: {platform_name} → {config_path}")
+    return True
 
 
 def _start_daemon(p: dict) -> None:
@@ -3054,8 +3097,8 @@ def watch(
     Watches Claude + Codex memory dirs → delta quick import → raw/.
     Drains exact/fallback lifecycle events → targeted transcript dump → raw/.
 
-    For unattended operation, use `lorekeep agent service install` to run this
-    as a background OS service.
+    `lorekeep init` installs this as a persistent OS service by default.
+    Re-run `lorekeep agent service install` if the data home or command changed.
     """
     import signal
     import sys

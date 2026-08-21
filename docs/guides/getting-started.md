@@ -64,8 +64,10 @@ It then performs an idempotent setup chain:
 - writes their MCP configuration plus the closest supported lifecycle hook;
 - quick-imports available agent memory files without an LLM;
 - runs the initial compile when a usable provider key exists; and
-- starts `agent watch` in the background when the command is interactive and
-  `--no-watch` was not passed.
+- installs the daemon as a persistent OS service (systemd user unit, launchd
+  LaunchAgent, or Windows startup script) unless `--no-watch` was passed. If
+  that install fails on an interactive terminal, `init` falls back to a
+  one-shot background `agent watch`.
 
 Exact session-end events are used where available. opencode and Command Code
 use debounced idle/end-of-turn fallbacks. Copilot capture is user/local-only so
@@ -215,17 +217,18 @@ remain pending until `resolve` or the watcher merges them.
 
 ## 8. Keep the graph current
 
-Foreground watcher:
+`lorekeep init` installs the persistent daemon service by default. Check it
+or remove it later:
 
 ```bash
-lorekeep agent watch
+lorekeep agent service status
+lorekeep agent service uninstall
 ```
 
-Persistent login/restart service:
+Reinstall only when the data home or lorekeep command changed:
 
 ```bash
 lorekeep agent service install
-lorekeep agent service status
 ```
 
 The watcher reacts to raw/schema changes, pending journals, supported memory and

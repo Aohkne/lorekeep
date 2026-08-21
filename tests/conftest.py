@@ -19,6 +19,12 @@ def _disable_bugreport_in_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_os_daemon_service(monkeypatch):
+    """Never let `init` write systemd/launchd units on the developer machine."""
+    monkeypatch.setattr("lorekeep.cli._install_daemon_service", lambda p: False)
+
+
+@pytest.fixture(autouse=True)
 def _kill_stray_daemons():
     """Kill any lorekeep daemon processes spawned by tests after each test.
 

@@ -109,16 +109,10 @@ lorekeep doctor
 ```
 
 The daemon watches `raw/` and auto-compiles on file changes. No need to run
-`compile` manually unless you want immediate results.
+`compile` manually unless you want immediate results. `lorekeep init` installs
+this daemon as a persistent OS service by default (`--no-watch` skips it).
 
-### Make the daemon persistent (survives reboot)
-
-```bash
-lorekeep agent service install
-```
-
-This installs a platform-appropriate service so the daemon starts automatically
-and restarts on failure:
+### Daemon service (installed by init)
 
 | Platform | Mechanism | Starts at |
 |---|---|---|
@@ -131,6 +125,12 @@ Check status or remove:
 ```bash
 lorekeep agent service status
 lorekeep agent service uninstall
+```
+
+Reinstall after moving the data home:
+
+```bash
+lorekeep agent service install
 ```
 
 ### Upgrade
@@ -226,7 +226,8 @@ lorekeep agent suggest
 lorekeep agent status
 ```
 
-For login/restart persistence:
+Login/restart persistence is installed by `lorekeep init`. Reinstall only if
+the data home moved:
 
 ```bash
 lorekeep agent service install

@@ -17,7 +17,7 @@ Global options: `--verbose / -v`<br>`--quiet / -q`<br>`--install-completion`<br>
 | `lorekeep resolve` | Merge pending journal entries into facts.jsonl (full resolve pass). | `--archive` |
 | `lorekeep serve` | Serve the scoped graph over MCP. | `--transport` |
 | `lorekeep doctor` | Validate the full install: graph loads with no dangling edges, schema is valid, MCP tools respond, and the configured LLM provider is reachable. | — |
-| `lorekeep init` | Bootstrap the data home, wire agents, import sessions, compile, and start daemon. | `--yes / -y`<br>`--watch / --no-watch` |
+| `lorekeep init` | Bootstrap the data home, wire agents, import sessions, compile, and install the daemon service. | `--yes / -y`<br>`--watch / --no-watch` |
 | `lorekeep backup` | Sync data-home inputs and graph/wiki snapshot to a private Git repo. | `--init`<br>`--force` |
 | `lorekeep import` | Import knowledge from an agent's sessions into raw/. | `--from`<br>`--quick`<br>`--session-path`<br>`--memory-ns`<br>`--session-ns`<br>`--dry-run` |
 | `lorekeep agent` | Agent operations: ingest, lint, suggest, status, watch, profile, contribution, service. | — |
