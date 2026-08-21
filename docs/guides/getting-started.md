@@ -48,7 +48,9 @@ On the first interactive run, `init` asks for:
 
 1. an extraction provider/model — cloud APIs, local Ollama, or an
    **OpenAI-compatible** endpoint (vLLM, LM Studio, LiteLLM proxy, OneAPI/NewAPI,
-   or a custom `/v1` gateway) — plus an inline key or environment variable;
+   or a custom `/v1` gateway) — plus credentials. Paste an API key, or press
+   **Shift+Tab** to name an environment variable instead (the prompt suggests
+   `{PROVIDER}_API_KEY`);
 2. the write namespace, initially `me` (read scope defaults to `*`);
 3. your name and one-line bio.
 

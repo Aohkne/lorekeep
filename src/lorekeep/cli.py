@@ -1662,39 +1662,18 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
 
     typer.echo(f"  → {model}\n")
 
-    # ── API key (skip for local providers; optional for openai_compat) ─
+    # ── API key (skip for local providers; Shift+Tab toggles key ↔ env) ─
     env_var = None
-    if optional_api_key(provider_name):
-        api_key = typer.prompt(
-            "API key (optional — many local servers need none)",
-            default="",
-            hide_input=True,
-        ) or None
-        if api_key:
-            typer.echo("  → key stored in config.yaml\n")
-        else:
-            typer.echo("  → no key (add one in config.yaml if the endpoint requires it)\n")
-    elif is_dynamic(provider_name):
+    api_key = None
+    if is_dynamic(provider_name) and not optional_api_key(provider_name):
         typer.echo("  → No API key needed for local provider.\n")
-        api_key = None
     else:
-        api_key = typer.prompt(
-            "API key (saved into the gitignored config.yaml)",
-            default="",
-            hide_input=True,
-        ) or None
-        if api_key:
-            typer.echo("  → key stored in config.yaml\n")
-        else:
-            env_var = typer.prompt(
-                "API key env var name (or skip)",
-                default=f"{provider_name.upper().replace('-', '_')}_API_KEY",
-            )
-            if env_var.lower() not in ("skip", ""):
-                typer.echo(f"  → set {env_var} before compiling\n")
-            else:
-                env_var = None
-                typer.echo("  → skipped (add key to config.yaml later)\n")
+        from lorekeep.init_prompt import prompt_api_credential
+        cred = prompt_api_credential(
+            provider_name, optional=optional_api_key(provider_name),
+        )
+        api_key = cred.api_key
+        env_var = cred.api_key_env
 
     # ── Namespace + profile ────────────────────────────────────────────
     ns = typer.prompt("Write namespace", default="me")

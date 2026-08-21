@@ -207,6 +207,13 @@ def format_cost(cost_per_token: float) -> str:
     return f"${per_million:.0f}/M"
 
 
+def default_api_key_env(provider: str) -> str:
+    """Suggested ``api_key_env`` name for interactive init."""
+    if provider == "openai_compat":
+        return "OPENAI_API_KEY"
+    return f"{provider.upper().replace('-', '_')}_API_KEY"
+
+
 # Providers that allow free-text model names (local runtimes / custom gateways).
 # ``openai_compat`` is a menu alias, not a litellm prefix — see
 # :func:`config_model_name`.

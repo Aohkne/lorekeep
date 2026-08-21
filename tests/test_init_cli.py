@@ -71,6 +71,7 @@ def test_init_interactive(tmp_path: Path, monkeypatch):
     # provider=3 (deepseek), model=1, key=empty, env=DEEPSEEK_API_KEY, ns=myteam, name, bio
     result = runner.invoke(app, ["init"], input="3\n1\n\n\nmyteam\nAlice\nBuilds backend infra\n")
     assert result.exit_code == 0, result.stdout
+    assert "Shift+Tab" in result.stdout
     cfg = yaml.safe_load((home / "config.yaml").read_text())
     assert cfg["provider"]["model"] == "deepseek/deepseek-chat"
     assert cfg["provider"]["api_key"] is None
