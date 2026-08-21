@@ -207,8 +207,65 @@ def format_cost(cost_per_token: float) -> str:
     return f"${per_million:.0f}/M"
 
 
-# Providers that allow free-text model names (local runtimes)
+def default_api_key_env(provider: str) -> str:
+    """Suggested ``api_key_env`` name for interactive init."""
+    if provider == "openai_compat":
+        return "OPENAI_API_KEY"
+    return f"{provider.upper().replace('-', '_')}_API_KEY"
+
+
+# Providers that allow free-text model names (local runtimes / custom gateways).
+# ``openai_compat`` is a menu alias, not a litellm prefix — see
+# :func:`config_model_name`.
 DYNAMIC_PROVIDERS = {"ollama", "vllm", "lm_studio", "openai_compat", "aleph_alpha"}
+
+# (model default, api_base default) for interactive init.
+DYNAMIC_ENDPOINT_DEFAULTS: dict[str, tuple[str, str]] = {
+    "ollama": ("llama3.2", "http://localhost:11434"),
+    "vllm": ("", "http://localhost:8000/v1"),
+    "lm_studio": ("", "http://localhost:1234/v1"),
+    "openai_compat": ("", "http://localhost:8000/v1"),
+    "aleph_alpha": ("", ""),
+}
+
+# Search aliases for catalog-absent dynamic endpoints. Name substring also matches.
+DYNAMIC_SEARCH_ALIASES: dict[str, tuple[str, ...]] = {
+    "openai_compat": (
+        "openai-compatible", "openai compatible", "compatible",
+        "compat", "gateway", "proxy", "custom endpoint",
+    ),
+    "vllm": ("hosted_vllm",),
+    "lm_studio": ("lm studio", "lmstudio"),
+    "ollama": (),
+    "aleph_alpha": ("aleph alpha",),
+}
+
+PROVIDER_LABELS: dict[str, str] = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic (Claude)",
+    "deepseek": "DeepSeek",
+    "dashscope": "DashScope / Qwen",
+    "gemini": "Google Gemini",
+    "groq": "Groq",
+    "mistral": "Mistral",
+    "xai": "xAI (Grok)",
+    "ollama": "Ollama (local)",
+    "openai_compat": "OpenAI-compatible (vLLM, LM Studio, proxy, custom)",
+    "together_ai": "Together AI",
+    "fireworks_ai": "Fireworks",
+    "openrouter": "OpenRouter",
+    "perplexity": "Perplexity",
+    "cohere": "Cohere",
+    "ai21": "AI21",
+    "vllm": "vLLM (local)",
+    "lm_studio": "LM Studio (local)",
+    "aleph_alpha": "Aleph Alpha",
+}
+
+
+def provider_label(name: str) -> str:
+    """Human-readable menu label; falls back to the provider slug."""
+    return PROVIDER_LABELS.get(name, name)
 
 
 def is_dynamic(provider: str) -> bool:
@@ -216,17 +273,53 @@ def is_dynamic(provider: str) -> bool:
     return provider in DYNAMIC_PROVIDERS
 
 
+def optional_api_key(provider: str) -> bool:
+    """True when an API key is accepted but not required.
+
+    Custom OpenAI-compatible gateways often need a key; local vLLM/LM Studio
+    usually do not.
+    """
+    return provider == "openai_compat"
+
+
+def config_model_name(model: str, provider: str) -> str:
+    """Litellm model string to persist in config.yaml.
+
+    ``openai_compat`` is a menu alias, not a litellm prefix. Custom
+    OpenAI-compatible endpoints are routed as ``openai/{model}`` plus
+    ``api_base`` (see ``.lorekeep/config.yaml.example`` Option F). Already
+    prefixed names are left unchanged.
+    """
+    if "/" in model:
+        return model
+    route = "openai" if provider == "openai_compat" else provider
+    return _normalize_model_name(model, route)
+
+
 def search_providers(query: str, providers: list[tuple[str, int]] | None = None) -> list[tuple[str, int]]:
-    """Fuzzy search providers by name."""
+    """Fuzzy search providers by name, plus catalog-absent dynamic endpoints.
+
+    An empty query browses the catalog (and still injects dynamic aliases
+    that LiteLLM does not list, such as ``openai_compat``).
+    """
     if providers is None:
         providers = list_providers()
-    q = query.lower()
-    return [(p, c) for p, c in providers if q in p.lower()]
+    q = query.lower().strip()
+    result = [(p, c) for p, c in providers if (not q) or q in p.lower()]
+    seen = {p for p, _ in result}
+    for name, aliases in DYNAMIC_SEARCH_ALIASES.items():
+        if name in seen:
+            continue
+        haystacks = (name.replace("_", " "), name, *aliases)
+        if (not q) or any(q in h or h in q for h in haystacks if h):
+            result.append((name, 0))
+    return result
 
 
-# Popular providers shown first in the default list
+# Popular providers shown first in the default list. ``openai_compat`` sits
+# next to Ollama so a custom /v1 gateway is a first-class init choice.
 POPULAR = [
     "openai", "anthropic", "deepseek", "dashscope", "gemini",
-    "groq", "mistral", "xai", "ollama", "together_ai",
-    "fireworks_ai", "openrouter", "perplexity", "cohere", "ai21",
+    "groq", "mistral", "xai", "ollama", "openai_compat",
+    "together_ai", "fireworks_ai", "openrouter", "perplexity", "cohere", "ai21",
 ]

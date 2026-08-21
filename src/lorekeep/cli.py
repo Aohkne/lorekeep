@@ -1279,11 +1279,17 @@ def doctor() -> None:
         ns = []
 
     # Hint: api_base is redundant for native providers — litellm already knows
-    # their endpoint. Surfaced as a non-fatal note (a user may intentionally
-    # point a native provider at a mirror/proxy).
+    # their endpoint. openai/ + api_base is the documented custom
+    # OpenAI-compatible pattern (vLLM, LM Studio, proxy), so that is a
+    # confirmation note rather than a "usually unnecessary" warning.
     if config.provider.api_base:
         prefix = model_provider(config.provider.model)
-        if prefix in NATIVE_PROVIDERS:
+        if prefix == "openai":
+            notes.append(
+                "provider: custom OpenAI-compatible endpoint "
+                f"({config.provider.api_base})"
+            )
+        elif prefix in NATIVE_PROVIDERS:
             notes.append(
                 f"provider: hint — api_base set for {prefix}/, but litellm "
                 "already knows this endpoint; usually unnecessary (only "
@@ -1427,10 +1433,10 @@ def init(
     ),
     watch: bool = typer.Option(
         True, "--watch/--no-watch",
-        help="Start the daemon (agent watch) in background after setup",
+        help="Install the OS daemon service (systemd/launchd/startup) after setup",
     ),
 ) -> None:
-    """Bootstrap the data home, wire agents, import sessions, compile, and start daemon."""
+    """Bootstrap the data home, wire agents, import sessions, compile, and install the daemon service."""
     p = resolve_paths()
     created = []
     p["config"].parent.mkdir(parents=True, exist_ok=True)
@@ -1499,7 +1505,7 @@ def init(
                     "Obsidian/Tolaria, then `lorekeep compile` — the wiki reflects you."
                 )
 
-    # --- One-click chain: wire → import → compile → daemon -----------------
+    # --- One-click chain: wire → import → compile → persistent daemon ------
     # Wiring runs on every init: it is free and idempotent, so re-running
     # init is how you pick up an agent installed after the first run.
     wire_scope = _wire_scope(load_config(p["config"]).agents)
@@ -1508,18 +1514,36 @@ def init(
     if not config_existed:
         _auto_import_and_compile(p)
 
-    # Daemon: start on fresh init or revive if dead (regardless of config_existed)
-    if watch and _is_interactive():
-        _start_daemon(p)
-        if not config_existed:
+    # Persistent OS service is the default. --no-watch skips it (agent-controlled
+    # mode). If install fails, fall back to an ad-hoc `agent watch` on a TTY.
+    if watch:
+        import sys
+        installed = _install_daemon_service(p)
+        ad_hoc = False
+        if installed and sys.platform == "win32" and _is_interactive():
+            # Windows startup scripts do not launch until the next login.
+            _start_daemon(p)
+            ad_hoc = True
+        elif not installed and _is_interactive():
+            _start_daemon(p)
+            ad_hoc = True
+        elif not installed and not _is_interactive():
+            typer.echo(
+                "\n  (skipped daemon start in non-interactive mode — "
+                "run `lorekeep agent service install` or `lorekeep agent watch`)"
+            )
+
+        if not config_existed and (installed or ad_hoc):
             log_path = p.get("logs", p["home"] / "logs") / "daemon-bootstrap.log"
             wiki_path = p.get("wiki", p["home"] / "wiki")
-            typer.echo("\n  Daemon watching raw/ for changes.")
+            if installed:
+                typer.echo("\n  Daemon installed as a persistent OS service.")
+                typer.echo("  Uninstall later:  lorekeep agent service uninstall")
+            else:
+                typer.echo("\n  Daemon watching raw/ for changes.")
             typer.echo(f"  Watch progress:  tail -f {log_path}")
             typer.echo(f"  Open wiki:       {wiki_path}")
             typer.echo("\nRestart your agent")
-    elif watch and not _is_interactive():
-        typer.echo("\n  (skipped daemon start in non-interactive mode — run `lorekeep agent watch` manually)")
     else:
         typer.echo(
             "\n  Daemon disabled (--no-watch). Agent-controlled mode:\n"
@@ -1538,10 +1562,16 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
     Returns ``(ns, name, bio)`` — the concrete write namespace plus the
     user's profile answers, so the caller can write ``raw/<ns>/about.md``.
     """
-    import yaml
     from lorekeep.providers import (
-        list_models, search_providers,
-        format_cost, is_dynamic, POPULAR,
+        DYNAMIC_ENDPOINT_DEFAULTS,
+        POPULAR,
+        config_model_name,
+        format_cost,
+        is_dynamic,
+        list_models,
+        optional_api_key,
+        provider_label,
+        search_providers,
     )
 
     typer.echo("\n=== Lorekeep setup ===\n")
@@ -1555,7 +1585,7 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
     # ── Provider selection ─────────────────────────────────────────────
     typer.echo("Popular providers:")
     for i, prov in enumerate(POPULAR, 1):
-        typer.echo(f"  {i}. {prov}")
+        typer.echo(f"  {i}. {provider_label(prov)}")
     typer.echo(f"  {len(POPULAR) + 1}. [Search all providers]")
     typer.echo(f"  {len(POPULAR) + 2}. [Skip — configure later]")
 
@@ -1582,7 +1612,11 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
         else:
             typer.echo("")
             for i, (prov, count) in enumerate(results[:20], 1):
-                typer.echo(f"  {i}. {prov} ({count} models)")
+                label = provider_label(prov)
+                if count:
+                    typer.echo(f"  {i}. {label} ({count} models)")
+                else:
+                    typer.echo(f"  {i}. {label}")
             sub = typer.prompt("Choice", default="1")
             sub_idx = int(sub) if sub.isdigit() else 1
             provider_name = results[min(sub_idx - 1, len(results) - 1)][0]
@@ -1591,17 +1625,31 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
     else:
         provider_name = "openai"
 
-    typer.echo(f"  → {provider_name}\n")
+    typer.echo(f"  → {provider_label(provider_name)}\n")
 
     # ── Model selection ────────────────────────────────────────────────
-    typer.echo(f"Select a model for {provider_name} (used for knowledge extraction):\n")
+    typer.echo(f"Select a model for {provider_label(provider_name)} (used for knowledge extraction):\n")
     if is_dynamic(provider_name):
-        model = typer.prompt(
-            f"Model name (free-text for {provider_name})",
-            default="llama3.2" if provider_name == "ollama" else "",
+        model_default, base_default = DYNAMIC_ENDPOINT_DEFAULTS.get(
+            provider_name, ("", ""),
         )
+        if provider_name == "openai_compat":
+            typer.echo(
+                "Any OpenAI-compatible /v1/chat/completions endpoint works here\n"
+                "(vLLM, LM Studio, LiteLLM proxy, OneAPI/NewAPI, or a custom gateway).\n"
+                "LiteLLM routes it as openai/{model} plus api_base.\n"
+            )
+        model = typer.prompt(
+            "Model name as served by the endpoint",
+            default=model_default,
+        )
+        if not model.strip():
+            model = typer.prompt("Model name (required)", default="")
+        if not model.strip():
+            typer.echo("  a model name is required for this provider")
+            raise typer.Exit(code=1)
         api_base = typer.prompt(
-            "API base URL", default="http://localhost:11434" if provider_name == "ollama" else "",
+            "API base URL", default=base_default,
         ) or None
     else:
         models = list_models(provider_name)
@@ -1625,38 +1673,25 @@ def _interactive_init(p: dict) -> tuple[str, str, str]:
             model = typer.prompt("Model name (litellm string)", default="")
         api_base = None
 
-    # Prefix a bare model name with the explicitly-selected provider so the
-    # written config is always a valid litellm string. (Not a guess — the user
-    # picked this provider; only bare names get prefixed.)
-    if "/" not in model:
-        from lorekeep.providers import _normalize_model_name
-        model = _normalize_model_name(model, provider_name)
+    # Prefix a bare model name with the litellm route so the written config
+    # is always a valid litellm string. openai_compat is a menu alias and
+    # persists as openai/{model} plus api_base.
+    model = config_model_name(model, provider_name)
 
     typer.echo(f"  → {model}\n")
 
-    # ── API key (skip for local providers) ─────────────────────────────
+    # ── API key (skip for local providers; Shift+Tab toggles key ↔ env) ─
     env_var = None
-    if is_dynamic(provider_name):
+    api_key = None
+    if is_dynamic(provider_name) and not optional_api_key(provider_name):
         typer.echo("  → No API key needed for local provider.\n")
-        api_key = None
     else:
-        api_key = typer.prompt(
-            "API key (saved into the gitignored config.yaml)",
-            default="",
-            hide_input=True,
-        ) or None
-        if api_key:
-            typer.echo("  → key stored in config.yaml\n")
-        else:
-            env_var = typer.prompt(
-                "API key env var name (or skip)",
-                default=f"{provider_name.upper().replace('-', '_')}_API_KEY",
-            )
-            if env_var.lower() not in ("skip", ""):
-                typer.echo(f"  → set {env_var} before compiling\n")
-            else:
-                env_var = None
-                typer.echo("  → skipped (add key to config.yaml later)\n")
+        from lorekeep.init_prompt import prompt_api_credential
+        cred = prompt_api_credential(
+            provider_name, optional=optional_api_key(provider_name),
+        )
+        api_key = cred.api_key
+        env_var = cred.api_key_env
 
     # ── Namespace + profile ────────────────────────────────────────────
     ns = typer.prompt("Write namespace", default="me")
@@ -1882,6 +1917,31 @@ def _auto_import_and_compile(p: dict, *, defer: bool = False) -> None:
             extra={"event": "init.compile_failed"},
         )
         typer.echo(f"  compile skipped: {exc}")
+
+
+def _install_daemon_service(p: dict) -> bool:
+    """Install the OS-persistent daemon. Returns True on success.
+
+    Never raises: init must still finish if systemd/launchd is unavailable.
+    Tests monkeypatch this to avoid writing the developer's real user service.
+    """
+    from lorekeep.daemon_service import install as svc_install
+
+    try:
+        platform_name, config_path = svc_install(p["home"])
+    except Exception as exc:
+        log.warning(
+            "daemon service install failed error_type=%s",
+            type(exc).__name__, extra={"event": "init.service_install_failed"},
+        )
+        typer.echo(f"  daemon service skipped: {exc}")
+        return False
+    log.info(
+        "daemon service installed platform=%s", platform_name,
+        extra={"event": "daemon.service_installed"},
+    )
+    typer.echo(f"  daemon service: {platform_name} → {config_path}")
+    return True
 
 
 def _start_daemon(p: dict) -> None:
@@ -3037,8 +3097,8 @@ def watch(
     Watches Claude + Codex memory dirs → delta quick import → raw/.
     Drains exact/fallback lifecycle events → targeted transcript dump → raw/.
 
-    For unattended operation, use `lorekeep agent service install` to run this
-    as a background OS service.
+    `lorekeep init` installs this as a persistent OS service by default.
+    Re-run `lorekeep agent service install` if the data home or command changed.
     """
     import signal
     import sys

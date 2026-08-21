@@ -10,13 +10,17 @@ from lorekeep.providers import (
     ModelInfo,
     NATIVE_PROVIDERS,
     _normalize_model_name,
+    config_model_name,
     format_cost,
     is_dynamic,
     model_provider,
+    optional_api_key,
+    provider_label,
     search_providers,
     suggest_model_prefix,
     validate_model_prefix,
     DYNAMIC_PROVIDERS,
+    POPULAR,
 )
 
 
@@ -126,8 +130,43 @@ class TestIsDynamic:
     def test_openai_not_dynamic(self):
         assert not is_dynamic("openai")
 
-    def test_deepseek_not_dynamic(self):
-        assert not is_dynamic("deepseek")
+    def test_openai_compat(self):
+        assert is_dynamic("openai_compat")
+
+
+class TestOptionalApiKey:
+    def test_openai_compat_accepts_key(self):
+        assert optional_api_key("openai_compat")
+
+    def test_ollama_does_not(self):
+        assert not optional_api_key("ollama")
+
+
+class TestProviderLabel:
+    def test_openai_compat_is_human_readable(self):
+        label = provider_label("openai_compat")
+        assert "OpenAI-compatible" in label
+        assert "vLLM" in label
+
+    def test_unknown_falls_back_to_slug(self):
+        assert provider_label("not-a-provider") == "not-a-provider"
+
+
+class TestConfigModelName:
+    def test_openai_compat_routes_via_openai_prefix(self):
+        assert config_model_name("llama3.2", "openai_compat") == "openai/llama3.2"
+
+    def test_already_prefixed_unchanged(self):
+        assert config_model_name("openai/qwen-plus", "openai_compat") == "openai/qwen-plus"
+
+    def test_ollama_keeps_own_prefix(self):
+        assert config_model_name("llama3.2", "ollama") == "ollama/llama3.2"
+
+
+class TestPopularMenu:
+    def test_openai_compat_next_to_ollama(self):
+        assert "openai_compat" in POPULAR
+        assert POPULAR.index("openai_compat") == POPULAR.index("ollama") + 1
 
 
 class TestSearchProviders:
@@ -144,14 +183,27 @@ class TestSearchProviders:
     def test_search_partial(self):
         providers = [("openai", 150), ("openrouter", 96), ("anthropic", 22)]
         results = search_providers("open", providers)
-        assert len(results) == 2
-        assert "openai" in [r[0] for r in results]
-        assert "openrouter" in [r[0] for r in results]
+        names = [r[0] for r in results]
+        assert "openai" in names
+        assert "openrouter" in names
+        assert "openai_compat" in names
 
     def test_search_case_insensitive(self):
         providers = [("OpenAI", 150)]
         results = search_providers("open", providers)
-        assert len(results) == 1
+        names = [r[0] for r in results]
+        assert "OpenAI" in names
+        assert "openai_compat" in names
+
+    def test_search_openai_compat_alias(self):
+        providers = [("openai", 150), ("anthropic", 22)]
+        results = search_providers("compatible", providers)
+        assert any(p == "openai_compat" for p, _ in results)
+
+    def test_search_lm_studio_alias(self):
+        providers = [("openai", 150)]
+        results = search_providers("lm studio", providers)
+        assert any(p == "lm_studio" for p, _ in results)
 
 
 class TestListProviders:

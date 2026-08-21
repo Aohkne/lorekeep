@@ -190,6 +190,24 @@ class TestDoctorApiBaseHint:
         assert result.exit_code == 0, result.stdout
         assert "api_base" not in result.stdout.lower()
 
+    def test_openai_api_base_is_custom_endpoint_note(self, tmp_path: Path, fixtures: Path, monkeypatch):
+        """openai/ + api_base is the OpenAI-compatible pattern, not a redundancy warning."""
+        out = _seed_graph(tmp_path, fixtures)
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            "provider:\n"
+            "  model: openai/llama3.2\n"
+            "  api_base: http://localhost:8000/v1\n"
+        )
+        monkeypatch.setenv("LOREKEEP_OUT", str(out))
+        monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
+        monkeypatch.setenv("LOREKEEP_CONFIG", str(cfg))
+        monkeypatch.setattr("lorekeep.cli._has_provider", lambda c: False)
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0, result.stdout
+        assert "openai-compatible" in result.stdout.lower()
+        assert "usually unnecessary" not in result.stdout.lower()
+
 
 # ── agent connection + last session sections ─────────────────────────────────
 

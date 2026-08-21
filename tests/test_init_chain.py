@@ -80,10 +80,47 @@ def test_init_imports_claude_memory(tmp_path: Path, monkeypatch):
 # ── Init starts daemon ────────────────────────────────────────────────────
 
 
-def test_init_starts_daemon(tmp_path: Path, monkeypatch):
-    """init --watch in interactive mode should spawn agent watch."""
+def test_init_installs_daemon_service_by_default(tmp_path: Path, monkeypatch):
+    """init --watch (default) installs the OS service and does not Popen watch."""
+    home, project = _setup_env(tmp_path, monkeypatch)
+    seen: list[Path] = []
+
+    def fake_install(p):
+        seen.append(p["home"])
+        return True
+
+    monkeypatch.setattr("lorekeep.cli._install_daemon_service", fake_install)
+    mock_popen = MagicMock()
+    monkeypatch.setattr("subprocess.Popen", mock_popen)
+
+    result = runner.invoke(app, ["init", "--yes"])
+    assert result.exit_code == 0, result.stdout
+    assert seen == [home]
+    mock_popen.assert_not_called()
+    assert "persistent OS service" in result.stdout
+    assert "agent service uninstall" in result.stdout
+
+
+def test_init_no_watch_skips_daemon_service(tmp_path: Path, monkeypatch):
+    """--no-watch must not install the OS service."""
+    home, project = _setup_env(tmp_path, monkeypatch)
+    calls: list[object] = []
+    monkeypatch.setattr(
+        "lorekeep.cli._install_daemon_service",
+        lambda p: calls.append(p) or True,
+    )
+
+    result = runner.invoke(app, ["init", "--yes", "--no-watch"])
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+    assert "Daemon disabled" in result.stdout
+
+
+def test_init_service_failure_falls_back_to_watch(tmp_path: Path, monkeypatch):
+    """If service install fails on a TTY, spawn ad-hoc agent watch."""
     home, project = _setup_env(tmp_path, monkeypatch)
     monkeypatch.setattr("lorekeep.cli._is_interactive", lambda: True)
+    monkeypatch.setattr("lorekeep.cli._install_daemon_service", lambda p: False)
 
     mock_proc = MagicMock()
     mock_proc.pid = 99999
@@ -92,15 +129,8 @@ def test_init_starts_daemon(tmp_path: Path, monkeypatch):
 
     result = runner.invoke(app, ["init", "--yes"])
     assert result.exit_code == 0, result.stdout
-
     mock_popen.assert_called_once()
-    cmd = mock_popen.call_args[0][0]
-    assert "agent" in cmd
-    assert "watch" in cmd
-
-    pid_file = home / ".daemon.pid"
-    assert pid_file.exists()
-    assert pid_file.read_text().strip() == "99999"
+    assert (home / ".daemon.pid").read_text().strip() == "99999"
 
 
 def test_init_skips_daemon_in_noninteractive(tmp_path: Path, monkeypatch):

@@ -45,7 +45,8 @@ provider:
 #   temperature: 0.0
 #
 # Option F: custom OpenAI-compatible endpoint (vllm / lm_studio / proxy / gateway)
-#   this is the one case api_base is required
+#   this is the one case api_base is required. `lorekeep init` offers this as
+#   "OpenAI-compatible" in the popular-provider list (writes the same shape).
 # provider:
 #   model: openai/your-model
 #   api_base: https://your-gateway.example.com/v1

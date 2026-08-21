@@ -46,8 +46,11 @@ lorekeep init
 
 On the first interactive run, `init` asks for:
 
-1. an extraction provider/model and either an inline local key or the name of an
-   environment variable;
+1. an extraction provider/model — cloud APIs, local Ollama, or an
+   **OpenAI-compatible** endpoint (vLLM, LM Studio, LiteLLM proxy, OneAPI/NewAPI,
+   or a custom `/v1` gateway) — plus credentials. Paste an API key, or press
+   **Shift+Tab** to name an environment variable instead (the prompt suggests
+   `{PROVIDER}_API_KEY`);
 2. the write namespace, initially `me` (read scope defaults to `*`);
 3. your name and one-line bio.
 
@@ -61,8 +64,10 @@ It then performs an idempotent setup chain:
 - writes their MCP configuration plus the closest supported lifecycle hook;
 - quick-imports available agent memory files without an LLM;
 - runs the initial compile when a usable provider key exists; and
-- starts `agent watch` in the background when the command is interactive and
-  `--no-watch` was not passed.
+- installs the daemon as a persistent OS service (systemd user unit, launchd
+  LaunchAgent, or Windows startup script) unless `--no-watch` was passed. If
+  that install fails on an interactive terminal, `init` falls back to a
+  one-shot background `agent watch`.
 
 Exact session-end events are used where available. opencode and Command Code
 use debounced idle/end-of-turn fallbacks. Copilot capture is user/local-only so
@@ -101,9 +106,12 @@ lorekeep config set provider.api_key_env OPENROUTER_API_KEY
 export OPENROUTER_API_KEY=...
 ```
 
-Native cloud providers normally need no `api_base`. Set `api_base` for a custom
-OpenAI-compatible endpoint, or for Ollama when it is not at its normal local
-address. The full validated example is
+Native cloud providers normally need no `api_base`. Interactive `init` lists
+**OpenAI-compatible** next to Ollama: pick it, enter the model name your
+endpoint serves, and set `api_base` (for example `http://localhost:8000/v1`).
+That writes LiteLLM's `openai/{model}` form plus `api_base`. Set `api_base`
+yourself for Ollama when it is not at its normal local address. The full
+validated example is
 [`.lorekeep/config.yaml.example`](../../.lorekeep/config.yaml.example).
 
 The provider is used during `compile`, `agent ingest`, and manual deep import.
@@ -209,17 +217,18 @@ remain pending until `resolve` or the watcher merges them.
 
 ## 8. Keep the graph current
 
-Foreground watcher:
+`lorekeep init` installs the persistent daemon service by default. Check it
+or remove it later:
 
 ```bash
-lorekeep agent watch
+lorekeep agent service status
+lorekeep agent service uninstall
 ```
 
-Persistent login/restart service:
+Reinstall only when the data home or lorekeep command changed:
 
 ```bash
 lorekeep agent service install
-lorekeep agent service status
 ```
 
 The watcher reacts to raw/schema changes, pending journals, supported memory and

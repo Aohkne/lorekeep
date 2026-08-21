@@ -24,7 +24,7 @@ uv run lorekeep <command>                    # run the CLI in dev mode
 
 | Command | Purpose |
 |---|---|
-| `init` | Bootstrap data home (config + schema + raw/graph dirs) |
+| `init` | Bootstrap data home (config + schema + raw/graph dirs); installs daemon OS service |
 | `compile [--foreground]` | `raw/*.md` → `graph/facts.jsonl` + `manifest.json` + `wiki/` — defaults to **background** in interactive mode (delegates to daemon via `.compile-requested` sentinel), `--foreground` for synchronous |
 | `wiki` | Regenerate `wiki/` from `facts.jsonl` (Obsidian-compatible markdown) |
 | `serve [--transport stdio\|http]` | Run the MCP server (8 tools + passive resources) |

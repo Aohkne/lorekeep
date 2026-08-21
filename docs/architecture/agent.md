@@ -259,8 +259,9 @@ they are served.
 
 Each wrapper runs `lorekeep agent watch` and pins `LOREKEEP_HOME` to the home
 resolved at install time, quoting it so paths with spaces survive shell
-tokenisation. Status delegates to the platform service manager or checks the
-script file. Reinstall when the desired home or command changes.
+tokenisation. `init` installs this wrapper by default (`--no-watch` skips it).
+Status delegates to the platform service manager or checks the script file.
+Re-run `agent service install` when the desired home or command changes.
 
 **Install from outside the repo** to avoid dev-mode resolving `LOREKEEP_HOME`
 to `.lorekeep/` — run `cd ~ && lorekeep agent service install` or set
