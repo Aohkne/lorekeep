@@ -51,6 +51,9 @@ def test_codex_writes_toml(tmp_path: Path):
 def test_agent_memory_snippet_mentions_provenance():
     s = agent_memory_snippet()
     assert "src" in s and "namespace" in s.lower()
+    assert "center_id" in s
+    assert "as_of" in s
+    assert "neighbors" in s
 
 
 def test_codex_write_is_idempotent(tmp_path: Path):

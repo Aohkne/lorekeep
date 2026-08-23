@@ -8,7 +8,10 @@ from lorekeep.models import Edge, Node
 from lorekeep.perm.ns import ScopedGraph
 from lorekeep.store.graph import GraphStore
 from lorekeep.store.rank import (
+    HOP_CAP,
     filter_active_edges,
+    filter_active_nodes,
+    is_active,
     rank_facts,
     rank_nodes,
     type_weight,
@@ -35,6 +38,8 @@ def test_type_weight_demotes_relates_to():
     assert type_weight("depends_on") > type_weight("relates_to")
     assert type_weight("relates_to") < type_weight("owns")
     assert type_weight("same_as") < type_weight("part_of")
+    assert type_weight("relates_to") < type_weight("same_as") < type_weight("custom")
+    assert type_weight("custom") < type_weight("depends_on")
 
 
 def test_rank_facts_prefers_semantic_type_over_fts_order():
@@ -52,6 +57,20 @@ def test_rank_facts_prefers_nearer_center():
     assert [e.id for e in ranked] == ["e_near", "e_far"]
 
 
+def test_rank_facts_uses_nearer_endpoint():
+    close = _e("e_close", "depends_on", "far_end", "hub")
+    far = _e("e_far", "depends_on", "x", "y")
+    dist = {"hub": 0, "far_end": 4, "x": 3, "y": 3}
+    ranked = rank_facts([far, close], dist)
+    assert [e.id for e in ranked] == ["e_close", "e_far"]
+
+
+def test_rank_facts_keeps_fts_order_on_ties():
+    a = _e("e_a", "depends_on", "a", "b")
+    b = _e("e_b", "depends_on", "c", "d")
+    assert [e.id for e in rank_facts([a, b], {})] == ["e_a", "e_b"]
+
+
 def test_rank_nodes_by_hop_distance_then_fts_order():
     dist = {"hub": 0, "near": 1, "far": 3}
     assert rank_nodes(["far", "near", "hub", "unknown"], dist) == [
@@ -64,6 +83,15 @@ def test_filter_active_edges_half_open():
     assert filter_active_edges([live], date(2025, 2, 28)) == [live]
     assert filter_active_edges([live], date(2025, 3, 1)) == []
     assert filter_active_edges([live], None) == [live]
+
+
+def test_filter_active_nodes_and_unbounded_window():
+    bounded = _n("old", valid_from=date(2020, 1, 1), valid_to=date(2021, 1, 1))
+    open_ended = _n("live")
+    assert filter_active_nodes([bounded, open_ended], None) == [bounded, open_ended]
+    assert [n.id for n in filter_active_nodes([bounded, open_ended], date(2026, 8, 23))] == ["live"]
+    assert is_active(None, None, date(2026, 8, 23))
+    assert not is_active(date(2027, 1, 1), None, date(2026, 8, 23))
 
 
 def test_typed_hops_packs_semantic_one_hop_only():
@@ -83,7 +111,16 @@ def test_typed_hops_packs_semantic_one_hop_only():
     assert "e_same" not in ids
     assert "e_nested" not in ids
     assert "e_seed" not in ids
-    assert len(hops) <= 4
+    assert len(hops) <= HOP_CAP
+
+
+def test_typed_hops_caps_at_four():
+    nodes = [_n("a"), _n("b")] + [_n(f"n{i}") for i in range(6)]
+    seed = _e("e_seed", "depends_on", "a", "b")
+    extras = [_e(f"e_{i}", "part_of", "a", f"n{i}") for i in range(6)]
+    hops = typed_hops(GraphStore(nodes, [seed, *extras]), seed)
+    assert len(hops) == 4
+    assert "e_seed" not in {e.id for e in hops}
 
 
 def test_typed_hops_respects_as_of_and_visible():
@@ -173,3 +210,93 @@ def test_scoped_distances_ignore_hidden_shortcuts():
     dist = ScopedGraph(store, ["teams/backend"]).distances_from("a")
     assert dist == {"a": 0, "b": 1}
     assert "secret" not in dist
+
+
+def test_scoped_search_nodes_as_of_and_center():
+    store = GraphStore(
+        [
+            _n("hub"),
+            _n("near"),
+            _n("far"),
+            _n("old", valid_from=date(2020, 1, 1), valid_to=date(2021, 1, 1)),
+        ],
+        [
+            _e("e_hn", "depends_on", "hub", "near"),
+            _e("e_nf", "depends_on", "near", "far"),
+        ],
+    )
+    scoped = ScopedGraph(store, ["backend"])
+    assert "old" in scoped.search("old")
+    assert "old" not in scoped.search("old", as_of=date(2026, 8, 23))
+    ranked = scoped.search("service", center_id="hub")
+    assert ranked.index("near") < ranked.index("far")
+
+
+def test_scoped_search_facts_limit_after_rank():
+    store = GraphStore(
+        [_n("a"), _n("b"), _n("c")],
+        [
+            _e("e_rel", "relates_to", "a", "b", props={"description": "token handshake"}),
+            _e("e_dep", "depends_on", "a", "c", props={"description": "token handshake"}),
+        ],
+    )
+    ranked = ScopedGraph(store, ["backend"]).search_facts("handshake", limit=1)
+    assert [e.id for e in ranked] == ["e_dep"]
+
+
+def test_scoped_distances_skip_expired_bridge():
+    store = GraphStore(
+        [_n("a"), _n("b"), _n("c")],
+        [
+            _e("e_ab", "depends_on", "a", "b"),
+            _e(
+                "e_bc", "depends_on", "b", "c",
+                valid_from=date(2020, 1, 1), valid_to=date(2021, 1, 1),
+            ),
+        ],
+    )
+    scoped = ScopedGraph(store, ["backend"])
+    assert scoped.distances_from("a") == {"a": 0, "b": 1, "c": 2}
+    assert scoped.distances_from("a", as_of=date(2026, 8, 23)) == {"a": 0, "b": 1}
+
+
+def test_scoped_distances_hidden_or_unknown_center():
+    store = GraphStore(
+        [_n("a"), _n("secret", ("teams/frontend",))],
+        [_e("e1", "depends_on", "a", "secret", ns=("teams/frontend",))],
+    )
+    scoped = ScopedGraph(store, ["backend"])
+    assert scoped.distances_from("secret") == {}
+    assert scoped.distances_from("missing") == {}
+    assert scoped.distances_from(None) == {}
+
+
+def test_scoped_distances_resolve_alias_center():
+    store = GraphStore(
+        [
+            Node(
+                id="hub", type="service", ns=("backend",),
+                props={"name": "hub", "merged_ids": ["hub-alias"]},
+            ),
+            _n("leaf"),
+        ],
+        [_e("e1", "depends_on", "hub", "leaf")],
+    )
+    dist = ScopedGraph(store, ["backend"]).distances_from("hub-alias")
+    assert dist == {"hub": 0, "leaf": 1}
+
+
+def test_scoped_typed_hops_skips_expired_when_as_of_set():
+    seed = _e("e_seed", "depends_on", "a", "b")
+    live = _e("e_live", "part_of", "a", "c")
+    dead = _e(
+        "e_dead", "owns", "a", "d",
+        valid_from=date(2020, 1, 1), valid_to=date(2021, 1, 1),
+    )
+    store = GraphStore(
+        [_n("a"), _n("b"), _n("c"), _n("d")],
+        [seed, live, dead],
+    )
+    scoped = ScopedGraph(store, ["backend"])
+    assert {e.id for e in scoped.typed_hops(seed)} == {"e_live", "e_dead"}
+    assert [e.id for e in scoped.typed_hops(seed, as_of=date(2026, 8, 23))] == ["e_live"]

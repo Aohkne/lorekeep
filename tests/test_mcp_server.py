@@ -1,6 +1,7 @@
 import json
 import shutil
 import tempfile
+from datetime import date
 from pathlib import Path
 import lorekeep.mcp_server as ms
 
@@ -163,6 +164,116 @@ def test_search_center_id_ranks_nearby_facts(tmp_path: Path, fixtures: Path):
         "handshake", as_of="all", scope="facts", center_id="svc:hub",
     )
     assert r["facts"][0]["id"] == "e_hub"
+
+
+def test_parse_search_as_of(monkeypatch):
+    class FakeDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 8, 23)
+
+    monkeypatch.setattr(ms, "date", FakeDate)
+    assert ms._parse_search_as_of("") == date(2026, 8, 23)
+    assert ms._parse_search_as_of("   ") == date(2026, 8, 23)
+    assert ms._parse_search_as_of("all") is None
+    assert ms._parse_search_as_of("ALL") is None
+    assert ms._parse_search_as_of("2025-02-01") == date(2025, 2, 1)
+    assert ms._parse_search_as_of("2025-02-01T12:00:00Z") == date(2025, 2, 1)
+
+
+def test_search_as_of_all_is_case_insensitive(fixtures: Path):
+    setup_server(fixtures, ["backend"])
+    r = ms.search("uses auth to validate", scope="facts", as_of="ALL")
+    assert any(f["id"] == "e_dep_1" for f in r["facts"])
+    snap = ms.search("uses auth to validate", scope="facts", as_of="2025-02-01T00:00:00Z")
+    assert any(f["id"] == "e_dep_1" for f in snap["facts"])
+
+
+def test_search_facts_include_neighbors_key(fixtures: Path):
+    setup_server(fixtures, ["backend"])
+    r = ms.search("signing", as_of="all", scope="facts")
+    assert r["facts"]
+    for fact in r["facts"]:
+        assert isinstance(fact["neighbors"], list)
+        assert all("neighbors" not in hop for hop in fact["neighbors"])
+
+
+def test_search_hides_expired_nodes_by_default(tmp_path: Path, fixtures: Path):
+    graph = tmp_path / "graph"
+    _write_facts(graph, [
+        {"kind": "node", "id": "svc:live", "type": "service", "ns": ["backend"],
+         "props": {"name": "live-token"}},
+        {"kind": "node", "id": "svc:old", "type": "service", "ns": ["backend"],
+         "valid_from": "2020-01-01", "valid_to": "2021-01-01",
+         "props": {"name": "old-token"}},
+    ])
+    ms.configure(
+        graph_dir=graph, allowed_ns=["backend"], schema_path=fixtures / "schema.json",
+    )
+    today = ms.search("token", scope="nodes")
+    assert "svc:live" in today["nodes"]
+    assert "svc:old" not in today["nodes"]
+    hist = ms.search("token", scope="nodes", as_of="all")
+    assert "svc:old" in hist["nodes"]
+
+
+def test_search_neighbors_respect_as_of(tmp_path: Path, fixtures: Path):
+    graph = tmp_path / "graph"
+    _write_facts(graph, [
+        {"kind": "node", "id": "svc:a", "type": "service", "ns": ["backend"],
+         "props": {"name": "a"}},
+        {"kind": "node", "id": "svc:b", "type": "service", "ns": ["backend"],
+         "props": {"name": "b"}},
+        {"kind": "node", "id": "svc:c", "type": "service", "ns": ["backend"],
+         "props": {"name": "c"}},
+        {"kind": "edge", "id": "e_seed", "type": "depends_on",
+         "from": "svc:a", "to": "svc:b", "ns": ["backend"],
+         "props": {"description": "token handshake"}},
+        {"kind": "edge", "id": "e_dead", "type": "part_of",
+         "from": "svc:a", "to": "svc:c", "ns": ["backend"],
+         "valid_from": "2020-01-01", "valid_to": "2021-01-01",
+         "props": {"description": "expired membership"}},
+    ])
+    ms.configure(
+        graph_dir=graph, allowed_ns=["backend"], schema_path=fixtures / "schema.json",
+    )
+    today = ms.search("handshake", scope="facts")
+    seed = next(f for f in today["facts"] if f["id"] == "e_seed")
+    assert seed["neighbors"] == []
+    hist = ms.search("handshake", scope="facts", as_of="all")
+    hist_seed = next(f for f in hist["facts"] if f["id"] == "e_seed")
+    assert {n["id"] for n in hist_seed["neighbors"]} == {"e_dead"}
+
+
+def test_search_neighbors_do_not_leak_hidden_namespace(tmp_path: Path, fixtures: Path):
+    graph = tmp_path / "graph"
+    _write_facts(graph, [
+        {"kind": "node", "id": "svc:a", "type": "service", "ns": ["backend"],
+         "props": {"name": "a"}},
+        {"kind": "node", "id": "svc:b", "type": "service", "ns": ["backend"],
+         "props": {"name": "b"}},
+        {"kind": "node", "id": "svc:secret", "type": "service", "ns": ["secret"],
+         "props": {"name": "secret"}},
+        {"kind": "edge", "id": "e_seed", "type": "depends_on",
+         "from": "svc:a", "to": "svc:b", "ns": ["backend"],
+         "props": {"description": "token handshake"}},
+        {"kind": "edge", "id": "e_hid", "type": "part_of",
+         "from": "svc:a", "to": "svc:secret", "ns": ["secret"],
+         "props": {"description": "hidden membership"}},
+    ])
+    ms.configure(
+        graph_dir=graph, allowed_ns=["backend"], schema_path=fixtures / "schema.json",
+    )
+    r = ms.search("handshake", as_of="all", scope="facts")
+    seed = next(f for f in r["facts"] if f["id"] == "e_seed")
+    assert seed["neighbors"] == []
+    assert not any(f["id"] == "e_hid" for f in r["facts"])
+
+
+def test_search_rejects_bad_scope(fixtures: Path):
+    setup_server(fixtures, ["backend"])
+    r = ms.search("payments", scope="edges")  # type: ignore[arg-type]
+    assert "error" in r
 
 
 def test_neighbors_depth_is_capped(fixtures: Path):
