@@ -18,7 +18,7 @@ from typing import Literal
 from mcp.server.fastmcp import FastMCP
 
 from lorekeep.journal import append_journal
-from lorekeep.models import JournalEntry, Manifest, Schema
+from lorekeep.models import Edge, JournalEntry, Manifest, Schema
 from lorekeep.perm.ns import ScopedGraph, expand_namespaces
 from lorekeep.schema_io import load_schema
 from lorekeep.store.fts import FTSIndex
@@ -98,7 +98,7 @@ def _rebuild() -> None:
     _close_fts()
     try:
         _fts = FTSIndex(_state["fts_path"])
-        _fts.build(store.all_nodes())
+        _fts.build(store.all_nodes(), store.all_edges())
     except Exception as exc:
         log.warning(
             "FTS unavailable; falling back to graph search error_type=%s",
@@ -132,6 +132,23 @@ def _graph_payload(nodes, edges) -> dict:
     }
 
 
+def _fact_hit(edge: Edge) -> dict:
+    """Compact retrievable fact: the edge sentence plus endpoints, not full props."""
+    description = edge.props.get("description")
+    if not isinstance(description, str):
+        description = ""
+    return {
+        "id": edge.id,
+        "type": edge.type,
+        "from": edge.from_,
+        "to": edge.to,
+        "description": description,
+        "valid_from": edge.valid_from.isoformat() if edge.valid_from else None,
+        "valid_to": edge.valid_to.isoformat() if edge.valid_to else None,
+        "src": list(edge.src),
+    }
+
+
 def _schema_payload() -> dict:
     if _schema is None:
         return {"error": "no schema loaded"}
@@ -160,9 +177,29 @@ def _status(topic: str = "") -> dict:
 
 
 @mcp.tool()
-def search(query: str, limit: int = 10) -> list:
-    """Text search over node ids and properties, scoped to the caller."""
-    return _require().search(query, limit, fts=_fts)
+def search(
+    query: str,
+    limit: int = 10,
+    scope: Literal["nodes", "facts", "both"] = "both",
+) -> dict:
+    """Search visible entities and relationship facts.
+
+    Nodes match id, type, and properties. Facts match edge type, endpoints,
+    endpoint labels, and edge props (especially ``description``). ``limit``
+    applies independently to each list. ``scope`` selects ``nodes``,
+    ``facts``, or ``both``.
+    """
+    if scope not in ("nodes", "facts", "both"):
+        return {"error": "scope must be nodes, facts, or both"}
+    scoped = _require()
+    want_nodes = scope in ("nodes", "both")
+    want_facts = scope in ("facts", "both")
+    nodes = scoped.search(query, limit, fts=_fts) if want_nodes else []
+    facts = [
+        _fact_hit(edge)
+        for edge in (scoped.search_facts(query, limit, fts=_fts) if want_facts else [])
+    ]
+    return {"nodes": nodes, "facts": facts}
 
 
 @mcp.tool()

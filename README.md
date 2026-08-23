@@ -240,7 +240,7 @@ The runtime exposes exactly eight composable tools:
 
 | Tool | Purpose |
 |---|---|
-| `search(query, limit=10)` | Find visible nodes by id, type, and properties |
+| `search(query, limit=10, scope="both")` | Find visible nodes and relationship facts |
 | `get_node(id)` | Fetch one visible node with properties and provenance |
 | `neighbors(id, edge_type="", depth=1)` | Traverse visible edges in both directions, up to five hops |
 | `temporal_query(mode, params)` | `at_time`, `history`, or `changes` |
@@ -266,7 +266,7 @@ choose to call it. `init` and `mcp add` print an instruction snippet that tells
 the agent to use this retrieval sequence:
 
 ```text
-context(section="status") → search(query) → get_node(id) → neighbors/temporal_query
+context(section="status") → search(query) → facts / get_node(id) → neighbors/temporal_query
 ```
 
 Keep that snippet in the agent's project/user instructions when the client does

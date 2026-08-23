@@ -137,6 +137,17 @@ class ScopedGraph:
         ids = self._g.search(query, limit * 3, fts)   # over-fetch then filter
         return [nid for nid in ids if self._node_visible(self._g.get_node(nid))][:limit]
 
+    def search_facts(self, query: str, limit: int = 10, fts=None) -> list[Edge]:
+        """Visible relationship facts matching ``query``."""
+        hits = self._g.search_facts(query, limit * 3, fts)
+        out: list[Edge] = []
+        for edge in hits:
+            if self.get_edge(edge.id) is not None:
+                out.append(edge)
+            if len(out) >= limit:
+                break
+        return out
+
     def stats(self, topic: str = "") -> dict:
         """Namespace-filtered graph statistics.
 

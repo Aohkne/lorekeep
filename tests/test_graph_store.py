@@ -103,6 +103,13 @@ def test_store_search_scan(fixtures: Path):
     assert "svc:payments-api" in ids
 
 
+def test_store_search_facts_scan(fixtures: Path):
+    g = store_from_gold(fixtures)
+    facts = g.search_facts("uses auth to validate")
+    assert [e.id for e in facts] == ["e_dep_1"]
+    assert facts[0].type == "depends_on"
+
+
 # ── alias resolution ──────────────────────────────────────────────────────
 
 def _store_with_aliases() -> GraphStore:

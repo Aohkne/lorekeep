@@ -23,6 +23,7 @@ class GraphStore:
     def __init__(self, nodes: list[Node], edges: list[Edge]) -> None:
         self._G = nx.MultiDiGraph()
         self._alias_to_canonical: dict[str, str] = {}
+        self._edges_by_id: dict[str, Edge] = {}
         for n in nodes:
             self._G.add_node(n.id, node=n)
             # Build reverse alias index from merged_ids props
@@ -31,6 +32,7 @@ class GraphStore:
                     self._alias_to_canonical[mid] = n.id
         for e in edges:
             self._G.add_edge(e.from_, e.to, key=e.id, edge=e)
+            self._edges_by_id[e.id] = e
 
     def resolve_alias(self, id: str) -> str:
         """Resolve an alias ID to its canonical ID.
@@ -58,10 +60,7 @@ class GraphStore:
         return self._G.nodes[cid]["node"]
 
     def get_edge(self, id: str) -> Edge | None:
-        for edge in self.all_edges():
-            if edge.id == id:
-                return edge
-        return None
+        return self._edges_by_id.get(id)
 
     def all_nodes(self) -> list[Node]:
         return [d["node"] for _, d in self._G.nodes(data=True) if "node" in d]
@@ -164,9 +163,20 @@ class GraphStore:
     def search(self, query: str, limit: int = 10, fts=None) -> list[str]:
         """Return node ids matching query. Uses an FTSIndex if given, else scan."""
         if fts is not None:
-            return fts.search(query, limit)
+            return fts.search_nodes(query, limit)
         from lorekeep.store.fts import scan_search
         return scan_search(self.all_nodes(), query, limit)
+
+    def search_facts(self, query: str, limit: int = 10, fts=None) -> list[Edge]:
+        """Return relationship facts matching query (edge type, endpoints, props)."""
+        if fts is not None:
+            ids = fts.search_edges(query, limit)
+            return [edge for eid in ids if (edge := self.get_edge(eid)) is not None]
+        from lorekeep.store.fts import endpoint_names, scan_search_edges
+        return scan_search_edges(
+            self.all_edges(), query, limit,
+            endpoint_names=endpoint_names(self.all_nodes()),
+        )
 
     def stats(self) -> dict:
         """Return graph statistics: counts by type/ns, provenance split, freshness."""

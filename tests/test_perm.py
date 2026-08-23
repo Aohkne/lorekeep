@@ -122,6 +122,28 @@ def test_scoped_search_filters_hidden(tmp_path):
     assert "a" not in res
 
 
+def test_scoped_search_facts_filters_hidden(tmp_path):
+    from lorekeep.perm.ns import ScopedGraph
+    g = GraphStore(
+        [
+            n("a", ["teams/backend"]),
+            n("b", ["teams/backend"]),
+            n("c", ["teams/frontend"]),
+        ],
+        [
+            Edge(
+                id="e-back", type="depends_on", **{"from": "a"}, to="b",
+                ns=("teams/backend",),
+                props={"description": "secret token handshake"},
+            ),
+        ],
+    )
+    hidden = ScopedGraph(g, ["teams/frontend"]).search_facts("token handshake")
+    visible = ScopedGraph(g, ["teams/backend"]).search_facts("token handshake")
+    assert hidden == []
+    assert [edge.id for edge in visible] == ["e-back"]
+
+
 def test_store_all_namespaces(tmp_path):
     g = store_with_cross_ns(tmp_path)
     assert g.all_namespaces() == {"teams/backend", "teams/frontend"}

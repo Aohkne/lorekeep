@@ -124,7 +124,8 @@ def agent_memory_snippet() -> str:
     return (
         "## Lorekeep knowledge base (MCP)\n"
         "Before answering architecture/code/domain questions, query Lorekeep:\n"
-        "search(q) -> get_node(id) -> neighbors / temporal_query as needed.\n"
+        "search(q) -> use facts for relationships, get_node(id) for entities,\n"
+        "then neighbors / temporal_query as needed.\n"
         "Use context() for ontology, visible namespaces, and graph freshness.\n"
         "Always cite `src` provenance. Knowledge is namespace-scoped - if a fact is\n"
         "missing, it may be outside your scope, not nonexistent. Use propose_change\n"

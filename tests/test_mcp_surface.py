@@ -47,6 +47,9 @@ def test_server_exposes_exactly_eight_composable_tools():
         "propose_change", "merge_entities", "review_note",
     )
     assert len(tools) == 8
+    assert set(tools["search"].inputSchema["properties"]["scope"]["enum"]) == {
+        "nodes", "facts", "both",
+    }
     assert set(tools["temporal_query"].inputSchema["properties"]["mode"]["enum"]) == {
         "at_time", "history", "changes",
     }

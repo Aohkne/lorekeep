@@ -201,7 +201,7 @@ project instructions. The recommended lookup flow is:
 ```text
 context(section="status")
   → search(query)
-  → get_node(id)
+  → use facts for relationships, get_node(id) for entities
   → neighbors(id) and/or temporal_query(mode, params)
 ```
 

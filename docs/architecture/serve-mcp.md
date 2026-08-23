@@ -48,10 +48,13 @@ scope, command, or code configuration changes.
 
 ## Exact tool surface
 
-### `search(query, limit=10)`
+### `search(query, limit=10, scope="both")`
 
-Calls scoped search, using FTS when available. The scope layer over-fetches by
-three times, filters hidden ids, and returns at most `limit` visible node ids.
+Returns `{nodes, facts}` from scoped search, using FTS when available. Nodes
+are ids matching id/type/property text. Facts are compact relationship hits
+(`id`, `type`, `from`, `to`, `description`, validity, `src`). The scope layer
+over-fetches by three times, filters hidden ids and edges, and returns at most
+`limit` visible hits in each list. `scope` selects `nodes`, `facts`, or `both`.
 
 ### `get_node(id)`
 

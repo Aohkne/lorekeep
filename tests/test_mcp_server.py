@@ -68,7 +68,17 @@ def test_temporal_changes(fixtures: Path):
 def test_search_tool(fixtures: Path):
     setup_server(fixtures, ["backend"])
     r = ms.search("payments")
-    assert "svc:payments-api" in r
+    assert "svc:payments-api" in r["nodes"]
+    facts = r["facts"]
+    assert any(f["id"] == "e_dep_1" for f in facts)
+    signing = ms.search("uses auth to validate", scope="facts")
+    assert signing["nodes"] == []
+    assert any(f["id"] == "e_dep_1" for f in signing["facts"])
+    nodes_only = ms.search("payments", scope="nodes")
+    assert nodes_only["facts"] == []
+    facts_only = ms.search("uses auth to validate", scope="facts")
+    assert facts_only["nodes"] == []
+    assert facts_only["facts"]
 
 
 def test_neighbors_depth_is_capped(fixtures: Path):

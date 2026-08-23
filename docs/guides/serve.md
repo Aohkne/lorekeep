@@ -81,11 +81,14 @@ fact payloads; the pending count is not filtered per namespace.
 
 The server exposes exactly eight tools.
 
-### `search(query, limit=10)`
+### `search(query, limit=10, scope="both")`
 
-Returns visible node ids matching id/type/property text. Lorekeep builds a local
-SQLite FTS index at load/reload; if FTS is unavailable it falls back to graph
-scan. Search over-fetches before scope filtering, then applies `limit`.
+Returns `{nodes, facts}`. Node ids match id/type/property text. Facts are
+visible relationship edges matching type, endpoints, labels, and
+`props.description`. Lorekeep builds a local SQLite FTS index over both at
+load/reload; if FTS is unavailable it falls back to graph scan. Search
+over-fetches before scope filtering, then applies `limit` to each list.
+`scope="nodes"` or `scope="facts"` returns only that list (the other is empty).
 
 ### `get_node(id)`
 
