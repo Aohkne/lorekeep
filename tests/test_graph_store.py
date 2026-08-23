@@ -110,6 +110,15 @@ def test_store_search_facts_scan(fixtures: Path):
     assert facts[0].type == "depends_on"
 
 
+def test_distances_from_undirected_cap(fixtures: Path):
+    g = store_from_gold(fixtures)
+    dist = g.distances_from("svc:payments-api")
+    assert dist["svc:payments-api"] == 0
+    assert dist["svc:auth"] == 1
+    assert "team:backend" not in dist
+    assert g.distances_from("missing") == {}
+
+
 # ── alias resolution ──────────────────────────────────────────────────────
 
 def _store_with_aliases() -> GraphStore:

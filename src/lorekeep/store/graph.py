@@ -119,6 +119,26 @@ class GraphStore:
             frontier = nxt
         return {"nodes": [self.get_node(id)] + out_nodes, "edges": out_edges}
 
+    def distances_from(self, center: str, cap: int = 4) -> dict[str, int]:
+        """Undirected hop distances from ``center``, capped. Empty if unknown."""
+        cid = self.resolve_alias(center)
+        if cid not in self._G:
+            return {}
+        dist = {cid: 0}
+        frontier = [cid]
+        depth = 0
+        while frontier and depth < cap:
+            nxt: list[str] = []
+            depth += 1
+            for u in frontier:
+                for e in self.out_edges(u) + self.in_edges(u):
+                    other = e.to if e.from_ == u else e.from_
+                    if other not in dist and other in self._G:
+                        dist[other] = depth
+                        nxt.append(other)
+            frontier = nxt
+        return dist
+
     @staticmethod
     def _active(valid_from: date | None, valid_to: date | None, t: date) -> bool:
         """Half-open [valid_from, valid_to): None means unbounded on that side."""

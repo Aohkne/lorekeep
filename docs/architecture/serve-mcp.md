@@ -48,13 +48,20 @@ scope, command, or code configuration changes.
 
 ## Exact tool surface
 
-### `search(query, limit=10, scope="both")`
+### `search(query, limit=10, scope="both", center_id="", as_of="")`
 
 Returns `{nodes, facts}` from scoped search, using FTS when available. Nodes
 are ids matching id/type/property text. Facts are compact relationship hits
-(`id`, `type`, `from`, `to`, `description`, validity, `src`). The scope layer
-over-fetches by three times, filters hidden ids and edges, and returns at most
-`limit` visible hits in each list. `scope` selects `nodes`, `facts`, or `both`.
+(`id`, `type`, `from`, `to`, `description`, validity, `src`, `neighbors`).
+The scope layer over-fetches, filters hidden ids/edges, drops facts and nodes
+that are not active at `as_of`, ranks remaining hits, and returns at most
+`limit` visible hits in each list. Ranking combines FTS order, edge-type
+weights (`relates_to` demoted), and undirected hop distance to `center_id`
+when set. Empty `as_of` means today; `as_of="all"` disables the temporal
+filter; an ISO date is a snapshot. Each fact packs up to four semantic 1-hop
+`neighbors` (not `relates_to` / `same_as`, not nested). `scope` selects
+`nodes`, `facts`, or `both`. Library `ScopedGraph.search*` defaults `as_of`
+to unfiltered so eval/history callers keep the full timeline.
 
 ### `get_node(id)`
 

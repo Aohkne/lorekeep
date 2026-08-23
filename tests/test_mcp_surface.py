@@ -50,6 +50,9 @@ def test_server_exposes_exactly_eight_composable_tools():
     assert set(tools["search"].inputSchema["properties"]["scope"]["enum"]) == {
         "nodes", "facts", "both",
     }
+    search_props = tools["search"].inputSchema["properties"]
+    assert "center_id" in search_props
+    assert "as_of" in search_props
     assert set(tools["temporal_query"].inputSchema["properties"]["mode"]["enum"]) == {
         "at_time", "history", "changes",
     }

@@ -67,18 +67,102 @@ def test_temporal_changes(fixtures: Path):
 
 def test_search_tool(fixtures: Path):
     setup_server(fixtures, ["backend"])
-    r = ms.search("payments")
+    r = ms.search("payments", as_of="all")
     assert "svc:payments-api" in r["nodes"]
     facts = r["facts"]
     assert any(f["id"] == "e_dep_1" for f in facts)
-    signing = ms.search("uses auth to validate", scope="facts")
+    signing = ms.search("uses auth to validate", scope="facts", as_of="all")
     assert signing["nodes"] == []
     assert any(f["id"] == "e_dep_1" for f in signing["facts"])
-    nodes_only = ms.search("payments", scope="nodes")
+    nodes_only = ms.search("payments", scope="nodes", as_of="all")
     assert nodes_only["facts"] == []
-    facts_only = ms.search("uses auth to validate", scope="facts")
+    facts_only = ms.search("uses auth to validate", scope="facts", as_of="all")
     assert facts_only["nodes"] == []
     assert facts_only["facts"]
+
+
+def test_search_hides_expired_facts_by_default(fixtures: Path):
+    setup_server(fixtures, ["backend"])
+    today = ms.search("auth")
+    assert not any(f["id"] == "e_dep_1" for f in today["facts"])
+    hist = ms.search("auth", as_of="all")
+    assert any(f["id"] == "e_dep_1" for f in hist["facts"])
+    snap = ms.search("auth", as_of="2025-02-01")
+    assert any(f["id"] == "e_dep_1" for f in snap["facts"])
+    ended = ms.search("auth", as_of="2025-03-01")
+    assert not any(f["id"] == "e_dep_1" for f in ended["facts"])
+
+
+def test_search_rejects_bad_as_of(fixtures: Path):
+    setup_server(fixtures, ["backend"])
+    r = ms.search("payments", as_of="last-week")
+    assert "error" in r
+
+
+def _write_facts(graph: Path, rows: list[dict]) -> None:
+    graph.mkdir(parents=True, exist_ok=True)
+    (graph / "facts.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8",
+    )
+
+
+def test_search_packs_typed_one_hop_neighbors(tmp_path: Path, fixtures: Path):
+    graph = tmp_path / "graph"
+    _write_facts(graph, [
+        {"kind": "node", "id": "svc:a", "type": "service", "ns": ["backend"],
+         "props": {"name": "a"}},
+        {"kind": "node", "id": "svc:b", "type": "service", "ns": ["backend"],
+         "props": {"name": "b"}},
+        {"kind": "node", "id": "svc:c", "type": "service", "ns": ["backend"],
+         "props": {"name": "c"}},
+        {"kind": "node", "id": "svc:d", "type": "service", "ns": ["backend"],
+         "props": {"name": "d"}},
+        {"kind": "edge", "id": "e_seed", "type": "depends_on",
+         "from": "svc:a", "to": "svc:b", "ns": ["backend"],
+         "props": {"description": "token handshake"}},
+        {"kind": "edge", "id": "e_part", "type": "part_of",
+         "from": "svc:a", "to": "svc:c", "ns": ["backend"],
+         "props": {"description": "a belongs to c"}},
+        {"kind": "edge", "id": "e_rel", "type": "relates_to",
+         "from": "svc:a", "to": "svc:d", "ns": ["backend"],
+         "props": {"description": "vague link"}},
+    ])
+    ms.configure(
+        graph_dir=graph, allowed_ns=["backend"], schema_path=fixtures / "schema.json",
+    )
+    r = ms.search("handshake", as_of="all", scope="facts")
+    seed = next(f for f in r["facts"] if f["id"] == "e_seed")
+    nids = {n["id"] for n in seed["neighbors"]}
+    assert "e_part" in nids
+    assert "e_rel" not in nids
+    assert all("neighbors" not in n for n in seed["neighbors"])
+
+
+def test_search_center_id_ranks_nearby_facts(tmp_path: Path, fixtures: Path):
+    graph = tmp_path / "graph"
+    _write_facts(graph, [
+        {"kind": "node", "id": "svc:hub", "type": "service", "ns": ["backend"],
+         "props": {"name": "hub"}},
+        {"kind": "node", "id": "svc:leaf", "type": "service", "ns": ["backend"],
+         "props": {"name": "leaf"}},
+        {"kind": "node", "id": "svc:x", "type": "service", "ns": ["backend"],
+         "props": {"name": "x"}},
+        {"kind": "node", "id": "svc:y", "type": "service", "ns": ["backend"],
+         "props": {"name": "y"}},
+        {"kind": "edge", "id": "e_far", "type": "depends_on",
+         "from": "svc:x", "to": "svc:y", "ns": ["backend"],
+         "props": {"description": "token handshake"}},
+        {"kind": "edge", "id": "e_hub", "type": "depends_on",
+         "from": "svc:hub", "to": "svc:leaf", "ns": ["backend"],
+         "props": {"description": "token handshake"}},
+    ])
+    ms.configure(
+        graph_dir=graph, allowed_ns=["backend"], schema_path=fixtures / "schema.json",
+    )
+    r = ms.search(
+        "handshake", as_of="all", scope="facts", center_id="svc:hub",
+    )
+    assert r["facts"][0]["id"] == "e_hub"
 
 
 def test_neighbors_depth_is_capped(fixtures: Path):

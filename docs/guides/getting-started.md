@@ -200,10 +200,12 @@ project instructions. The recommended lookup flow is:
 
 ```text
 context(section="status")
-  → search(query)
-  → use facts for relationships, get_node(id) for entities
+  → search(query, center_id=current entity if known)
+  → use facts (and packed neighbors) for relationships, get_node(id) for entities
   → neighbors(id) and/or temporal_query(mode, params)
 ```
+
+Empty `as_of` means today. Use `as_of="all"` when the question is historical.
 
 Ask questions using the domain terms or likely entity names already present in
 the graph, and mention time or namespace when relevant. Examples:

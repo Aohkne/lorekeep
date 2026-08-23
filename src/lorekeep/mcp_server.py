@@ -11,7 +11,7 @@ import logging
 import os
 import socket
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -132,12 +132,28 @@ def _graph_payload(nodes, edges) -> dict:
     }
 
 
-def _fact_hit(edge: Edge) -> dict:
-    """Compact retrievable fact: the edge sentence plus endpoints, not full props."""
+def _parse_search_as_of(as_of: str) -> date | None:
+    """MCP ``as_of``: empty → today; ``all`` → no filter; ISO date → snapshot."""
+    raw = (as_of or "").strip()
+    if raw.lower() == "all":
+        return None
+    if not raw:
+        return date.today()
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError as exc:
+        raise ValueError("as_of must be YYYY-MM-DD, 'all', or empty (today)") from exc
+
+
+def _fact_hit(edge: Edge, *, neighbors: list[Edge] | None = None) -> dict:
+    """Compact retrievable fact: the edge sentence plus endpoints, not full props.
+
+    Nested neighbor hits omit ``neighbors`` so the pack is one hop deep.
+    """
     description = edge.props.get("description")
     if not isinstance(description, str):
         description = ""
-    return {
+    hit = {
         "id": edge.id,
         "type": edge.type,
         "from": edge.from_,
@@ -147,6 +163,9 @@ def _fact_hit(edge: Edge) -> dict:
         "valid_to": edge.valid_to.isoformat() if edge.valid_to else None,
         "src": list(edge.src),
     }
+    if neighbors is not None:
+        hit["neighbors"] = [_fact_hit(hop) for hop in neighbors]
+    return hit
 
 
 def _schema_payload() -> dict:
@@ -181,6 +200,8 @@ def search(
     query: str,
     limit: int = 10,
     scope: Literal["nodes", "facts", "both"] = "both",
+    center_id: str = "",
+    as_of: str = "",
 ) -> dict:
     """Search visible entities and relationship facts.
 
@@ -188,17 +209,36 @@ def search(
     endpoint labels, and edge props (especially ``description``). ``limit``
     applies independently to each list. ``scope`` selects ``nodes``,
     ``facts``, or ``both``.
+
+    Ranking uses FTS order, edge-type weights (``relates_to`` demoted), and
+    undirected hop distance to ``center_id`` when set. Empty ``as_of`` keeps
+    facts/nodes active today; ``as_of='all'`` disables the filter; an ISO
+    date is a snapshot. Each fact includes up to four semantic 1-hop
+    ``neighbors`` (no ``relates_to`` / ``same_as``, not nested).
     """
     if scope not in ("nodes", "facts", "both"):
         return {"error": "scope must be nodes, facts, or both"}
+    try:
+        parsed_as_of = _parse_search_as_of(as_of)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    center = (center_id or "").strip() or None
     scoped = _require()
     want_nodes = scope in ("nodes", "both")
     want_facts = scope in ("facts", "both")
-    nodes = scoped.search(query, limit, fts=_fts) if want_nodes else []
-    facts = [
-        _fact_hit(edge)
-        for edge in (scoped.search_facts(query, limit, fts=_fts) if want_facts else [])
-    ]
+    nodes = (
+        scoped.search(
+            query, limit, fts=_fts, center_id=center, as_of=parsed_as_of,
+        )
+        if want_nodes else []
+    )
+    facts = []
+    if want_facts:
+        for edge in scoped.search_facts(
+            query, limit, fts=_fts, center_id=center, as_of=parsed_as_of,
+        ):
+            hops = scoped.typed_hops(edge, as_of=parsed_as_of)
+            facts.append(_fact_hit(edge, neighbors=hops))
     return {"nodes": nodes, "facts": facts}
 
 

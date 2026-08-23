@@ -240,7 +240,7 @@ The runtime exposes exactly eight composable tools:
 
 | Tool | Purpose |
 |---|---|
-| `search(query, limit=10, scope="both")` | Find visible nodes and relationship facts |
+| `search(query, limit=10, scope="both", center_id="", as_of="")` | Find visible nodes and relationship facts |
 | `get_node(id)` | Fetch one visible node with properties and provenance |
 | `neighbors(id, edge_type="", depth=1)` | Traverse visible edges in both directions, up to five hops |
 | `temporal_query(mode, params)` | `at_time`, `history`, or `changes` |
@@ -266,8 +266,10 @@ choose to call it. `init` and `mcp add` print an instruction snippet that tells
 the agent to use this retrieval sequence:
 
 ```text
-context(section="status") → search(query) → facts / get_node(id) → neighbors/temporal_query
+context(section="status") → search(query) → facts (with neighbors) / get_node(id) → neighbors/temporal_query
 ```
+
+Empty `as_of` means today; pass `as_of="all"` for historical questions.
 
 Keep that snippet in the agent's project/user instructions when the client does
 not persist it automatically. Agents should cite `src`, check graph freshness,

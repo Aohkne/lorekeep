@@ -81,13 +81,16 @@ fact payloads; the pending count is not filtered per namespace.
 
 The server exposes exactly eight tools.
 
-### `search(query, limit=10, scope="both")`
+### `search(query, limit=10, scope="both", center_id="", as_of="")`
 
 Returns `{nodes, facts}`. Node ids match id/type/property text. Facts are
 visible relationship edges matching type, endpoints, labels, and
 `props.description`. Lorekeep builds a local SQLite FTS index over both at
 load/reload; if FTS is unavailable it falls back to graph scan. Search
-over-fetches before scope filtering, then applies `limit` to each list.
+over-fetches, filters by namespace and time, ranks by FTS order, type, and distance
+to `center_id`, then applies `limit` to each list. Empty `as_of` keeps
+facts active today; pass `as_of="all"` for history or an ISO date for a
+snapshot. Each fact includes up to four semantic 1-hop `neighbors`.
 `scope="nodes"` or `scope="facts"` returns only that list (the other is empty).
 
 ### `get_node(id)`
