@@ -103,6 +103,38 @@ def test_store_search_scan(fixtures: Path):
     assert "svc:payments-api" in ids
 
 
+def test_store_search_facts_scan(fixtures: Path):
+    g = store_from_gold(fixtures)
+    facts = g.search_facts("uses auth to validate")
+    assert [e.id for e in facts] == ["e_dep_1"]
+    assert facts[0].type == "depends_on"
+
+
+def test_distances_from_undirected_cap(fixtures: Path):
+    g = store_from_gold(fixtures)
+    dist = g.distances_from("svc:payments-api")
+    assert dist["svc:payments-api"] == 0
+    assert dist["svc:auth"] == 1
+    assert "team:backend" not in dist
+    assert g.distances_from("missing") == {}
+
+
+def test_distances_from_caps_depth():
+    from lorekeep.models import Node, Edge
+
+    nodes = [Node(id=str(i), type="service", ns=("backend",), props={"name": str(i)})
+             for i in range(6)]
+    edges = [
+        Edge(id=f"e{i}", type="depends_on", **{"from": str(i)}, to=str(i + 1), ns=("backend",))
+        for i in range(5)
+    ]
+    g = GraphStore(nodes, edges)
+    dist = g.distances_from("0", cap=4)
+    assert dist["0"] == 0
+    assert dist["4"] == 4
+    assert "5" not in dist
+
+
 # ── alias resolution ──────────────────────────────────────────────────────
 
 def _store_with_aliases() -> GraphStore:

@@ -22,7 +22,7 @@ contracts.
 
 `tests/test_core_regression.py` is the cross-layer safety net. It checks the
 provider class, extraction, compile-to-graph path, graph queries, namespace
-filtering, seven-tool MCP surface, wiki projection, and journal resolve. The
+filtering, eight-tool MCP surface, wiki projection, and journal resolve. The
 determinism tests require unchanged inputs to produce byte-identical graph
 output.
 

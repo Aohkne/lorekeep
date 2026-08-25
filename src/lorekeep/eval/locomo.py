@@ -245,19 +245,27 @@ def answer_question(
 ) -> dict:
     """Retrieve facts for a question and score against gold answer.
 
-    Uses graph-guided retrieval: search → get_node → neighbors(depth=1-2).
-    Enriches fact text with source markdown from ``src`` references.
+    Uses graph-guided retrieval: search nodes and facts → get_node →
+    neighbors(depth=1-2). Enriches fact text with source markdown from ``src``
+    references.
     """
     cat = question["category"]
     keywords = _extract_keywords(question["question"])
     all_node_ids: set[str] = set()
+    fact_text_parts: list[str] = []
+    seen_src: set[str] = set()
     for kw in keywords:
         ids = scoped.search(kw, limit=5)
         all_node_ids.update(ids)
+        for edge in scoped.search_facts(kw, limit=5):
+            all_node_ids.add(edge.from_)
+            all_node_ids.add(edge.to)
+            fact_text_parts.append(_edge_text(edge, store))
+            if not question["adversarial"]:
+                for ref in edge.src:
+                    seen_src.add(ref)
 
     depth = 2 if cat == 3 else 1
-    fact_text_parts: list[str] = []
-    seen_src: set[str] = set()
 
     for nid in sorted(all_node_ids):
         node = scoped.get_node(nid)

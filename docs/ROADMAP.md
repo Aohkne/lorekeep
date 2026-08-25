@@ -18,7 +18,7 @@ every question.
   windows.
 - Compile-time extraction with chunk cache, deterministic resolve/publication,
   manifest diagnostics, and human-readable Obsidian/Tolaria wiki projection.
-- Exactly seven MCP tools plus three passive resources, with deny-by-default
+- Exactly eight MCP tools plus three passive resources, with deny-by-default
   namespace filtering at `ScopedGraph`.
 - Append-only, process-locked agent journals; confidence-gated resolve; atomic
   graph publication; lazy server reload.

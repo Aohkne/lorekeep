@@ -186,7 +186,7 @@ are:
 
 ```text
 search, get_node, neighbors, temporal_query, context,
-propose_change, review_note
+propose_change, merge_entities, review_note
 ```
 
 The client receives `backend` plus `public` in this example. A hidden namespace
@@ -200,10 +200,12 @@ project instructions. The recommended lookup flow is:
 
 ```text
 context(section="status")
-  → search(query)
-  → get_node(id)
+  → search(query, center_id=current entity if known)
+  → use facts (and packed neighbors) for relationships, get_node(id) for entities
   → neighbors(id) and/or temporal_query(mode, params)
 ```
+
+Empty `as_of` means today (hides expired search hits). Use `as_of="all"` when the question is historical, or `temporal_query` `at_time` for a full graph snapshot.
 
 Ask questions using the domain terms or likely entity names already present in
 the graph, and mention time or namespace when relevant. Examples:

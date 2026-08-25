@@ -1,6 +1,6 @@
 from pathlib import Path
 from lorekeep.models import Node
-from lorekeep.store.fts import FTSIndex, scan_search, node_text
+from lorekeep.store.fts import FTSIndex, scan_search, scan_search_edges, node_text
 
 
 def nd(id, name, lang=None):
@@ -32,6 +32,26 @@ def test_fts_index_build_and_match(tmp_path: Path):
     assert idx.search("nomatch*") == []
     assert idx.search("-") == []
     assert idx.search("") == []
+    idx.close()
+
+
+def test_scan_and_fts_search_edges(tmp_path: Path):
+    from lorekeep.models import Edge
+
+    nodes = [nd("svc:a", "payments-api"), nd("svc:b", "auth")]
+    edge = Edge(
+        id="e1", type="depends_on", **{"from": "svc:a"}, to="svc:b",
+        ns=("backend",),
+        props={"description": "payments-api uses auth to validate access credentials."},
+    )
+    names = {"svc:a": "payments-api", "svc:b": "auth"}
+    assert [e.id for e in scan_search_edges([edge], "uses auth to validate", 10, names)] == ["e1"]
+    assert scan_search_edges([edge], "zzz", 10, names) == []
+
+    idx = FTSIndex(tmp_path / "fts.sqlite")
+    idx.build(nodes, [edge])
+    assert idx.search_edges("uses auth to validate") == ["e1"]
+    assert idx.search_nodes("payments") == ["svc:a"]
     idx.close()
 
 
@@ -83,11 +103,11 @@ def test_mcp_search_uses_fts(tmp_path: Path):
 
     configure(graph_dir=graph, allowed_ns=["backend"])
     results = search("payments")
-    assert "svc:payments" in results
-    assert "svc:auth" not in results
+    assert "svc:payments" in results["nodes"]
+    assert "svc:auth" not in results["nodes"]
 
     results = search("auth")
-    assert "svc:auth" in results
+    assert "svc:auth" in results["nodes"]
 
     fts_db = graph / "fts.sqlite"
     assert fts_db.exists()
@@ -110,4 +130,4 @@ def test_mcp_search_fts_fallback_on_error(tmp_path: Path):
 
     configure(graph_dir=graph, allowed_ns=["backend"], fts_path=tmp_path / "nonexistent" / "deep" / "fts.sqlite")
     results = search("payments")
-    assert "svc:payments" in results
+    assert "svc:payments" in results["nodes"]

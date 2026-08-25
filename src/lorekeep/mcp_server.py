@@ -11,14 +11,14 @@ import logging
 import os
 import socket
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
 from lorekeep.journal import append_journal
-from lorekeep.models import JournalEntry, Manifest, Schema
+from lorekeep.models import Edge, JournalEntry, Manifest, Schema
 from lorekeep.perm.ns import ScopedGraph, expand_namespaces
 from lorekeep.schema_io import load_schema
 from lorekeep.store.fts import FTSIndex
@@ -98,7 +98,7 @@ def _rebuild() -> None:
     _close_fts()
     try:
         _fts = FTSIndex(_state["fts_path"])
-        _fts.build(store.all_nodes())
+        _fts.build(store.all_nodes(), store.all_edges())
     except Exception as exc:
         log.warning(
             "FTS unavailable; falling back to graph search error_type=%s",
@@ -132,6 +132,42 @@ def _graph_payload(nodes, edges) -> dict:
     }
 
 
+def _parse_search_as_of(as_of: str) -> date | None:
+    """MCP ``as_of``: empty → today; ``all`` → no filter; ISO date → snapshot."""
+    raw = (as_of or "").strip()
+    if raw.lower() == "all":
+        return None
+    if not raw:
+        return date.today()
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError as exc:
+        raise ValueError("as_of must be YYYY-MM-DD, 'all', or empty (today)") from exc
+
+
+def _fact_hit(edge: Edge, *, neighbors: list[Edge] | None = None) -> dict:
+    """Compact retrievable fact: the edge sentence plus endpoints, not full props.
+
+    Nested neighbor hits omit ``neighbors`` so the pack is one hop deep.
+    """
+    description = edge.props.get("description")
+    if not isinstance(description, str):
+        description = ""
+    hit = {
+        "id": edge.id,
+        "type": edge.type,
+        "from": edge.from_,
+        "to": edge.to,
+        "description": description,
+        "valid_from": edge.valid_from.isoformat() if edge.valid_from else None,
+        "valid_to": edge.valid_to.isoformat() if edge.valid_to else None,
+        "src": list(edge.src),
+    }
+    if neighbors is not None:
+        hit["neighbors"] = [_fact_hit(hop) for hop in neighbors]
+    return hit
+
+
 def _schema_payload() -> dict:
     if _schema is None:
         return {"error": "no schema loaded"}
@@ -160,9 +196,52 @@ def _status(topic: str = "") -> dict:
 
 
 @mcp.tool()
-def search(query: str, limit: int = 10) -> list:
-    """Text search over node ids and properties, scoped to the caller."""
-    return _require().search(query, limit, fts=_fts)
+def search(
+    query: str,
+    limit: int = 10,
+    scope: Literal["nodes", "facts", "both"] = "both",
+    center_id: str = "",
+    as_of: str = "",
+) -> dict:
+    """Search visible entities and relationship facts.
+
+    Nodes match id, type, and properties. Facts match edge type, endpoints,
+    endpoint labels, and edge props (especially ``description``). ``limit``
+    applies independently to each list. ``scope`` selects ``nodes``,
+    ``facts``, or ``both``.
+
+    Ranking: facts combine FTS order, type weights (``relates_to`` demoted),
+    and undirected hop-distance to ``center_id`` (BFS cap 4). Nodes use
+    hop-distance then FTS order. Empty ``as_of`` keeps hits active today;
+    ``as_of='all'`` disables the filter; an ISO date keeps hits valid that
+    day (half-open), not a full graph snapshot (use ``temporal_query``
+    ``at_time``). Each fact includes up to four stock-schema semantic 1-hop
+    ``neighbors`` (no ``relates_to`` / ``same_as``, not nested).
+    """
+    if scope not in ("nodes", "facts", "both"):
+        return {"error": "scope must be nodes, facts, or both"}
+    try:
+        parsed_as_of = _parse_search_as_of(as_of)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    center = (center_id or "").strip() or None
+    scoped = _require()
+    want_nodes = scope in ("nodes", "both")
+    want_facts = scope in ("facts", "both")
+    nodes = (
+        scoped.search(
+            query, limit, fts=_fts, center_id=center, as_of=parsed_as_of,
+        )
+        if want_nodes else []
+    )
+    facts = []
+    if want_facts:
+        for edge in scoped.search_facts(
+            query, limit, fts=_fts, center_id=center, as_of=parsed_as_of,
+        ):
+            hops = scoped.typed_hops(edge, as_of=parsed_as_of)
+            facts.append(_fact_hit(edge, neighbors=hops))
+    return {"nodes": nodes, "facts": facts}
 
 
 @mcp.tool()

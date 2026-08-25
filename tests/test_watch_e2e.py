@@ -57,7 +57,7 @@ def test_raw_change_compiled_then_visible_in_mcp(patch_make_provider, tmp_path: 
         schema_path=home / "schema.json",
     )
     ids = ms.search("payments")
-    assert "svc:payments-api" in ids
+    assert "svc:payments-api" in ids["nodes"]
 
 
 # ── Pending journal → resolve → MCP visibility ────────────────────────────
@@ -190,7 +190,7 @@ def test_full_loop_compile_and_resolve_visible_in_mcp(patch_make_provider, tmp_p
     )
 
     ids = ms.search("payments")
-    assert "svc:payments-api" in ids
+    assert "svc:payments-api" in ids["nodes"]
 
     node = ms.get_node("svc:extra-from-journal")
     assert "error" not in node

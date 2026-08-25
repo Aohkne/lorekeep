@@ -297,7 +297,8 @@ class TestMCPToolsCallable:
             run_id="x", facts_hash="y",
         ))
         configure(graph_dir=g, allowed_ns=["backend"])
-        assert search("test") == ["svc:test"]
+        assert search("test")["nodes"] == ["svc:test"]
+        assert search("test")["facts"] == []
 
     def test_get_node_callable(self, tmp_path):
         from lorekeep.mcp_server import configure, get_node

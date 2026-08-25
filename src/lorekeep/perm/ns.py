@@ -133,9 +133,86 @@ class ScopedGraph:
     def list_namespaces(self) -> list[str]:
         return sorted(self._eff)
 
-    def search(self, query: str, limit: int = 10, fts=None) -> list[str]:
-        ids = self._g.search(query, limit * 3, fts)   # over-fetch then filter
-        return [nid for nid in ids if self._node_visible(self._g.get_node(nid))][:limit]
+    def distances_from(
+        self, center: str | None, *, as_of=None, cap: int = 4,
+    ) -> dict[str, int]:
+        """Undirected hop distances over visible (and optionally active) edges."""
+        from lorekeep.store.rank import HOP_CAP, is_active
+
+        if not center:
+            return {}
+        start = self.get_node(center)
+        if start is None:
+            return {}
+        if as_of is not None and not is_active(start.valid_from, start.valid_to, as_of):
+            return {}
+        hop_cap = cap if cap > 0 else HOP_CAP
+        dist = {start.id: 0}
+        frontier = [start.id]
+        depth = 0
+        while frontier and depth < hop_cap:
+            nxt: list[str] = []
+            depth += 1
+            for uid in frontier:
+                for edge in self._g.out_edges(uid) + self._g.in_edges(uid):
+                    if self.get_edge(edge.id) is None:
+                        continue
+                    if as_of is not None and not is_active(
+                        edge.valid_from, edge.valid_to, as_of,
+                    ):
+                        continue
+                    other = edge.to if edge.from_ == uid else edge.from_
+                    if other not in dist and self.get_node(other) is not None:
+                        dist[other] = depth
+                        nxt.append(other)
+            frontier = nxt
+        return dist
+
+    def search(
+        self, query: str, limit: int = 10, fts=None, *,
+        center_id: str | None = None, as_of=None,
+    ) -> list[str]:
+        from lorekeep.store.rank import filter_active_nodes, rank_nodes
+
+        ids = self._g.search(query, limit * 8, fts)
+        dist = self.distances_from(center_id, as_of=as_of)
+        visible: list[Node] = []
+        for nid in ids:
+            node = self._g.get_node(nid)
+            if node is None or not self._node_visible(node):
+                continue
+            visible.append(node)
+        visible = filter_active_nodes(visible, as_of)
+        return rank_nodes([node.id for node in visible], dist)[:limit]
+
+    def search_facts(
+        self, query: str, limit: int = 10, fts=None, *,
+        center_id: str | None = None, as_of=None,
+    ) -> list[Edge]:
+        """Visible relationship facts matching ``query``, ranked."""
+        from lorekeep.store.rank import filter_active_edges, rank_facts
+
+        hits = self._g.search_facts(query, limit * 8, fts)
+        visible = [edge for edge in hits if self.get_edge(edge.id) is not None]
+        visible = filter_active_edges(visible, as_of)
+        dist = self.distances_from(center_id, as_of=as_of)
+        return rank_facts(visible, dist)[:limit]
+
+    def typed_hops(self, edge: Edge, *, as_of=None, limit: int = 4) -> list[Edge]:
+        """Scoped semantic 1-hop facts around ``edge`` endpoints."""
+        from lorekeep.store.rank import HOP_CAP, typed_hops
+
+        cap = limit if limit > 0 else HOP_CAP
+        allowed = {
+            e.id for e in (
+                self._g.out_edges(edge.from_) + self._g.in_edges(edge.from_)
+                + self._g.out_edges(edge.to) + self._g.in_edges(edge.to)
+            )
+            if self.get_edge(e.id) is not None
+        }
+        return typed_hops(
+            self._g, edge, as_of=as_of, limit=cap, visible=allowed,
+        )
 
     def stats(self, topic: str = "") -> dict:
         """Namespace-filtered graph statistics.

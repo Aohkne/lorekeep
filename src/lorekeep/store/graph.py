@@ -23,6 +23,7 @@ class GraphStore:
     def __init__(self, nodes: list[Node], edges: list[Edge]) -> None:
         self._G = nx.MultiDiGraph()
         self._alias_to_canonical: dict[str, str] = {}
+        self._edges_by_id: dict[str, Edge] = {}
         for n in nodes:
             self._G.add_node(n.id, node=n)
             # Build reverse alias index from merged_ids props
@@ -31,6 +32,7 @@ class GraphStore:
                     self._alias_to_canonical[mid] = n.id
         for e in edges:
             self._G.add_edge(e.from_, e.to, key=e.id, edge=e)
+            self._edges_by_id[e.id] = e
 
     def resolve_alias(self, id: str) -> str:
         """Resolve an alias ID to its canonical ID.
@@ -58,10 +60,7 @@ class GraphStore:
         return self._G.nodes[cid]["node"]
 
     def get_edge(self, id: str) -> Edge | None:
-        for edge in self.all_edges():
-            if edge.id == id:
-                return edge
-        return None
+        return self._edges_by_id.get(id)
 
     def all_nodes(self) -> list[Node]:
         return [d["node"] for _, d in self._G.nodes(data=True) if "node" in d]
@@ -120,6 +119,26 @@ class GraphStore:
             frontier = nxt
         return {"nodes": [self.get_node(id)] + out_nodes, "edges": out_edges}
 
+    def distances_from(self, center: str, cap: int = 4) -> dict[str, int]:
+        """Undirected hop distances from ``center``, capped. Empty if unknown."""
+        cid = self.resolve_alias(center)
+        if cid not in self._G:
+            return {}
+        dist = {cid: 0}
+        frontier = [cid]
+        depth = 0
+        while frontier and depth < cap:
+            nxt: list[str] = []
+            depth += 1
+            for u in frontier:
+                for e in self.out_edges(u) + self.in_edges(u):
+                    other = e.to if e.from_ == u else e.from_
+                    if other not in dist and other in self._G:
+                        dist[other] = depth
+                        nxt.append(other)
+            frontier = nxt
+        return dist
+
     @staticmethod
     def _active(valid_from: date | None, valid_to: date | None, t: date) -> bool:
         """Half-open [valid_from, valid_to): None means unbounded on that side."""
@@ -164,9 +183,20 @@ class GraphStore:
     def search(self, query: str, limit: int = 10, fts=None) -> list[str]:
         """Return node ids matching query. Uses an FTSIndex if given, else scan."""
         if fts is not None:
-            return fts.search(query, limit)
+            return fts.search_nodes(query, limit)
         from lorekeep.store.fts import scan_search
         return scan_search(self.all_nodes(), query, limit)
+
+    def search_facts(self, query: str, limit: int = 10, fts=None) -> list[Edge]:
+        """Return relationship facts matching query (edge type, endpoints, props)."""
+        if fts is not None:
+            ids = fts.search_edges(query, limit)
+            return [edge for eid in ids if (edge := self.get_edge(eid)) is not None]
+        from lorekeep.store.fts import endpoint_names, scan_search_edges
+        return scan_search_edges(
+            self.all_edges(), query, limit,
+            endpoint_names=endpoint_names(self.all_nodes()),
+        )
 
     def stats(self) -> dict:
         """Return graph statistics: counts by type/ns, provenance split, freshness."""

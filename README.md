@@ -240,7 +240,7 @@ The runtime exposes exactly eight composable tools:
 
 | Tool | Purpose |
 |---|---|
-| `search(query, limit=10)` | Find visible nodes by id, type, and properties |
+| `search(query, limit=10, scope="both", center_id="", as_of="")` | Find visible nodes and relationship facts (ranked; `as_of` defaults to today) |
 | `get_node(id)` | Fetch one visible node with properties and provenance |
 | `neighbors(id, edge_type="", depth=1)` | Traverse visible edges in both directions, up to five hops |
 | `temporal_query(mode, params)` | `at_time`, `history`, or `changes` |
@@ -266,8 +266,10 @@ choose to call it. `init` and `mcp add` print an instruction snippet that tells
 the agent to use this retrieval sequence:
 
 ```text
-context(section="status") → search(query) → get_node(id) → neighbors/temporal_query
+context(section="status") → search(query) → facts (with neighbors) / get_node(id) → neighbors/temporal_query
 ```
+
+Empty `as_of` means today (hides expired hits); pass `as_of="all"` for historical questions. Use `temporal_query` `at_time` when you need the full graph on a date.
 
 Keep that snippet in the agent's project/user instructions when the client does
 not persist it automatically. Agents should cite `src`, check graph freshness,
@@ -432,7 +434,7 @@ uv build
 ```
 
 Tests use `FakeProvider`; no API key or network call is required. Determinism and
-the compact seven-tool MCP surface are regression contracts.
+the compact eight-tool MCP surface are regression contracts.
 
 ## Documentation
 
