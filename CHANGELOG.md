@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.41.1 (2026-08-25)
+
+## What's Changed
+* fix(serve): treat stdio disconnect as clean shutdown by @manhhailua in https://github.com/manhhailua/lorekeep/pull/278
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.41.0...v0.41.1
+
 ## 0.41.0 (2026-08-25)
 
 ## What's Changed
