@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.40.0 (2026-08-25)
+
+## What's Changed
+* feat(schema): add visual_desc, image_links and an image link check by @Aohkne in https://github.com/manhhailua/lorekeep/pull/265
+
+## New Contributors
+* @Aohkne made their first contribution in https://github.com/manhhailua/lorekeep/pull/265
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.39.0...v0.40.0
+
 ## 0.39.0 (2026-08-21)
 
 ## What's Changed
