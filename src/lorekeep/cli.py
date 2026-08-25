@@ -875,14 +875,32 @@ def serve(
         transport, len(allowed),
         extra={"event": "mcp.start"},
     )
+    from lorekeep.stdio_errors import (
+        disconnect_error_types,
+        is_client_disconnect,
+        prepare_windows_stdio_loop,
+    )
+
+    if transport == "stdio":
+        prepare_windows_stdio_loop()
     try:
         mcp.run(transport=transport)
     except Exception as exc:
+        if is_client_disconnect(exc):
+            log.info(
+                "MCP client disconnected transport=%s error_types=%s",
+                transport,
+                ",".join(disconnect_error_types(exc)),
+                extra={"event": "mcp.stop"},
+            )
+            return
         log.exception(
             "MCP server stopped unexpectedly error_type=%s", type(exc).__name__,
             extra={"event": "mcp.failed"},
         )
-        raise
+        # Do not re-raise: sys.excepthook would open a second auto-issue
+        # (runtime.unhandled) for the same failure.
+        raise typer.Exit(code=1)
 
 
 mcp_app = typer.Typer(help="Coding-agent integration.")

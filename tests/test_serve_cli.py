@@ -163,3 +163,53 @@ def test_serve_star_sees_everything(tmp_path: Path, fixtures: Path, monkeypatch)
     assert ms.get_node("svc:a") is not None
     assert ms.get_node("svc:b") is not None
     assert ms.get_node("svc:c") is not None
+
+
+def _graph_home(tmp_path: Path, fixtures: Path, monkeypatch) -> None:
+    import shutil
+
+    out = tmp_path / "graph"
+    out.mkdir()
+    shutil.copy(fixtures / "gold/payments.facts.jsonl", out / "facts.jsonl")
+    monkeypatch.setenv("LOREKEEP_OUT", str(out))
+    monkeypatch.setenv("LOREKEEP_SCHEMA", str(fixtures / "schema.json"))
+    monkeypatch.setenv("LOREKEEP_CONFIG", str(tmp_path / "config.yaml"))
+
+
+def test_serve_stdio_disconnect_is_clean_exit(tmp_path: Path, fixtures: Path, monkeypatch):
+    """Windows MCP clients closing the pipe must not look like a crash (#271-#274)."""
+    import anyio
+    import lorekeep.mcp_server as ms
+
+    _graph_home(tmp_path, fixtures, monkeypatch)
+
+    class FakeMCP:
+        def run(self, transport=None):
+            raise ExceptionGroup(
+                "unhandled errors in a TaskGroup",
+                [anyio.ClosedResourceError()],
+            )
+
+    monkeypatch.setattr(ms, "mcp", FakeMCP())
+    result = runner.invoke(app, ["serve"])
+    assert result.exit_code == 0, result.stdout
+    assert result.exception is None
+
+
+def test_serve_unexpected_error_exits_without_reraise(
+    tmp_path: Path, fixtures: Path, monkeypatch,
+):
+    """mcp.failed must not also become runtime.unhandled via a bare re-raise."""
+    import lorekeep.mcp_server as ms
+
+    _graph_home(tmp_path, fixtures, monkeypatch)
+
+    class FakeMCP:
+        def run(self, transport=None):
+            raise RuntimeError("graph exploded")
+
+    monkeypatch.setattr(ms, "mcp", FakeMCP())
+    result = runner.invoke(app, ["serve"])
+    assert result.exit_code == 1
+    # typer.Exit, not the original RuntimeError (that would hit sys.excepthook).
+    assert not isinstance(result.exception, RuntimeError)
