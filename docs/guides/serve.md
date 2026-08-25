@@ -87,11 +87,15 @@ Returns `{nodes, facts}`. Node ids match id/type/property text. Facts are
 visible relationship edges matching type, endpoints, labels, and
 `props.description`. Lorekeep builds a local SQLite FTS index over both at
 load/reload; if FTS is unavailable it falls back to graph scan. Search
-over-fetches, filters by namespace and time, ranks by FTS order, type, and distance
-to `center_id`, then applies `limit` to each list. Empty `as_of` keeps
-facts active today; pass `as_of="all"` for history or an ISO date for a
-snapshot. Each fact includes up to four semantic 1-hop `neighbors`.
-`scope="nodes"` or `scope="facts"` returns only that list (the other is empty).
+over-fetches by `limit * 8`, filters by namespace and time, then ranks.
+Facts rank by FTS order, type (`relates_to` demoted), and hop-distance to
+`center_id` (BFS cap 4). Nodes rank by hop-distance, then FTS order. Empty
+`as_of` keeps hits active today; pass `as_of="all"` for history or an ISO
+date to keep hits valid that day. That filter is not a full graph snapshot;
+use `temporal_query` `at_time` for the graph at a date. Each fact includes
+up to four stock-schema semantic 1-hop `neighbors` (not `relates_to` /
+`same_as`, not nested). `scope="nodes"` or `scope="facts"` returns only that
+list (the other is empty).
 
 ### `get_node(id)`
 
@@ -183,11 +187,12 @@ instructions:
 
 ```markdown
 Before answering architecture, code, domain, ownership, or historical questions,
-call Lorekeep context(section="status") and search relevant terms. Follow matching
-ids with get_node, then neighbors or temporal_query as needed. Cite src. If a fact
-is missing, report weak coverage or possible namespace exclusion rather than
-inventing it. Propose only source-backed facts and record contradictions for
-review.
+call Lorekeep context(section="status") then search. Use facts (and packed
+neighbors) for relationships and get_node for entities. Empty as_of means
+today; as_of="all" for history. Follow with neighbors or temporal_query as
+needed. Cite src. If a fact is missing, report weak coverage or possible
+namespace exclusion rather than inventing it. Propose only source-backed
+facts and record contradictions for review.
 ```
 
 Good user prompts are explicit about using the graph and the desired time/scope:

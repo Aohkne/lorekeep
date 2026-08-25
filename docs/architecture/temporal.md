@@ -18,7 +18,10 @@ axis.
 ## Query operations
 
 MCP exposes all temporal reads through
-`temporal_query(mode, params)`.
+`temporal_query(mode, params)`. `search(..., as_of=)` uses the same half-open
+window as a **hit filter** on ranked search results (empty = today,
+`as_of="all"` = no filter). It does not return the full graph at that date;
+use `at_time` for a snapshot.
 
 ### Snapshot
 
@@ -74,8 +77,9 @@ model them that way.
 ## Permission composition
 
 `ScopedGraph.snapshot`, `.history`, and `.changes` filter the pure
-`GraphStore` result. A hidden node, a hidden endpoint, or an edge outside the
-effective namespace cannot leak through a temporal response. See
+`GraphStore` result. `search` applies the same namespace rule, then the
+`as_of` window when set. A hidden node, a hidden endpoint, or an edge outside the
+effective namespace cannot leak through a temporal or search response. See
 [Permission](permission.md).
 
 ## Related

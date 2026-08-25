@@ -172,21 +172,18 @@ class ScopedGraph:
         self, query: str, limit: int = 10, fts=None, *,
         center_id: str | None = None, as_of=None,
     ) -> list[str]:
-        from lorekeep.store.rank import rank_nodes
+        from lorekeep.store.rank import filter_active_nodes, rank_nodes
 
         ids = self._g.search(query, limit * 8, fts)
         dist = self.distances_from(center_id, as_of=as_of)
-        out: list[str] = []
+        visible: list[Node] = []
         for nid in ids:
             node = self._g.get_node(nid)
-            if not self._node_visible(node):
+            if node is None or not self._node_visible(node):
                 continue
-            if as_of is not None and not GraphStore._active(
-                node.valid_from, node.valid_to, as_of,
-            ):
-                continue
-            out.append(node.id)
-        return rank_nodes(out, dist)[:limit]
+            visible.append(node)
+        visible = filter_active_nodes(visible, as_of)
+        return rank_nodes([node.id for node in visible], dist)[:limit]
 
     def search_facts(
         self, query: str, limit: int = 10, fts=None, *,

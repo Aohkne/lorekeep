@@ -46,7 +46,8 @@ out-of-scope ids intentionally produce the same MCP response.
 
 `ScopedGraph` applies the same rule to:
 
-- id lookup and keyword/FTS search;
+- id lookup and keyword/FTS search of nodes and relationship facts
+  (including ranking and packed 1-hop neighbors);
 - incoming/outgoing neighbor traversal;
 - temporal snapshot, history, and changes;
 - namespace/status/coverage statistics; and

@@ -25,7 +25,7 @@ COMPILE / CURATE
                                                         └──> wiki Markdown
 
 SERVE / USE
-  facts.jsonl ──> GraphStore ──> ScopedGraph ──> seven MCP tools
+  facts.jsonl ──> GraphStore ──> ScopedGraph ──> eight MCP tools
        ^                                             │
        └──── atomic resolve <──── journal append <───┘
 ```
@@ -81,18 +81,19 @@ provider-backed deep summary. Both feed the ordinary raw compile path.
 ## Serve layering
 
 `GraphStore` owns pure graph behavior over `networkx.MultiDiGraph`: lookup,
-search, traversal, statistics, snapshots, history, and changes. It knows nothing
-about MCP or permission. It builds an alias-to-canonical map at load time from
-every node's `merged_ids` props; `get_node`, `neighbors`, and `history` all
-resolve alias IDs to their canonical entity before lookup.
+node/fact search, traversal, statistics, snapshots, history, and changes. It
+knows nothing about MCP or permission. It builds an alias-to-canonical map at
+load time from every node's `merged_ids` props; `get_node`, `neighbors`, and
+`history` all resolve alias IDs to their canonical entity before lookup.
 
 `ScopedGraph` wraps it as the single permission chokepoint. Effective namespaces
 are configured scope plus `public`; edges require their own namespace and both
-endpoints to be visible. Every MCP read routes through this wrapper.
+endpoints to be visible. Every MCP read routes through this wrapper, including
+ranked `search` hits and packed 1-hop fact neighbors.
 
 `mcp_server` owns protocol schemas, graph/schema/manifest/FTS loading, passive
 resources, lazy mtime reload, and journal validation/routing. The public surface
-is fixed at seven tools and three resources.
+is fixed at eight tools and three resources.
 
 ## Publication and reload safety
 

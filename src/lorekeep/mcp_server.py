@@ -210,10 +210,12 @@ def search(
     applies independently to each list. ``scope`` selects ``nodes``,
     ``facts``, or ``both``.
 
-    Ranking uses FTS order, edge-type weights (``relates_to`` demoted), and
-    undirected hop distance to ``center_id`` when set. Empty ``as_of`` keeps
-    facts/nodes active today; ``as_of='all'`` disables the filter; an ISO
-    date is a snapshot. Each fact includes up to four semantic 1-hop
+    Ranking: facts combine FTS order, type weights (``relates_to`` demoted),
+    and undirected hop-distance to ``center_id`` (BFS cap 4). Nodes use
+    hop-distance then FTS order. Empty ``as_of`` keeps hits active today;
+    ``as_of='all'`` disables the filter; an ISO date keeps hits valid that
+    day (half-open), not a full graph snapshot (use ``temporal_query``
+    ``at_time``). Each fact includes up to four stock-schema semantic 1-hop
     ``neighbors`` (no ``relates_to`` / ``same_as``, not nested).
     """
     if scope not in ("nodes", "facts", "both"):

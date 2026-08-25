@@ -9,36 +9,24 @@ from __future__ import annotations
 
 from datetime import date
 
+from lorekeep.defaults import DEFAULT_SCHEMA
 from lorekeep.models import Edge, Node
 from lorekeep.store.graph import GraphStore
 
-# Specific work/knowledge edges - keep these on the retrieve path.
-SEMANTIC_EDGE_TYPES = frozenset({
-    "depends_on",
-    "part_of",
-    "decided_by",
-    "documents",
-    "owns",
-    "works_on",
-    "contributes_to",
-    "member_of",
-    "has_role",
-    "has_skill",
-    "pursues",
-    "prefers",
-    "holds_value",
-    "in_domain",
-    "is_a",
-    "collaborates_with",
-})
+# Stock schema types kept on the retrieve/pack path. Generic and identity
+# edges stay searchable but are demoted and never packed as neighbors.
 DEMOTE_EDGE_TYPES = frozenset({"relates_to"})
+IDENTITY_EDGE_TYPES = frozenset({"same_as"})
+SEMANTIC_EDGE_TYPES = (
+    frozenset(DEFAULT_SCHEMA["edge_types"]) - DEMOTE_EDGE_TYPES - IDENTITY_EDGE_TYPES
+)
 HOP_CAP = 4
 
 
 def type_weight(edge_type: str) -> float:
     if edge_type in DEMOTE_EDGE_TYPES:
         return 0.15
-    if edge_type == "same_as":
+    if edge_type in IDENTITY_EDGE_TYPES:
         return 0.2
     if edge_type in SEMANTIC_EDGE_TYPES:
         return 1.0

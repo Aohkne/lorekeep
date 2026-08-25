@@ -16,7 +16,7 @@ short [project quickstart](../README.md#get-started).
   confidence-gated journal merge, manifest diagnostics, and wiki generation.
 - [Importing agent sessions](guides/import.md) — Claude Code, Cursor, Codex, and
   opencode; automatic zero-LLM capture versus optional deep import.
-- [Serving the graph](guides/serve.md) — seven MCP tools, passive resources,
+- [Serving the graph](guides/serve.md) — eight MCP tools, passive resources,
   namespace scope, agent instructions, and lazy reload.
 - [Browsing the wiki](guides/wiki.md) — human-readable Obsidian/Tolaria output.
 - [Data home and paths](guides/data-home.md) — env, custom home, dev mode, and
@@ -39,7 +39,7 @@ short [project quickstart](../README.md#get-started).
   self-heal, wiring, services, and one-shot graph analysis.
 - [Permission](architecture/permission.md) — deny-by-default `ScopedGraph` rules.
 - [Temporal model](architecture/temporal.md) — validity windows and queries.
-- [Serve and MCP](architecture/serve-mcp.md) — exact seven-tool contract and
+- [Serve and MCP](architecture/serve-mcp.md) — exact eight-tool contract and
   three passive resources.
 - [Testing and evaluation](architecture/evaluation.md) — offline test strategy,
   shipped evals, and planned tiers.

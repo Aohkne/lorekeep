@@ -42,6 +42,17 @@ def test_type_weight_demotes_relates_to():
     assert type_weight("custom") < type_weight("depends_on")
 
 
+def test_semantic_types_track_stock_schema():
+    from lorekeep.defaults import DEFAULT_SCHEMA
+    from lorekeep.store.rank import IDENTITY_EDGE_TYPES, SEMANTIC_EDGE_TYPES
+
+    stock = set(DEFAULT_SCHEMA["edge_types"])
+    assert SEMANTIC_EDGE_TYPES == stock - {"relates_to", "same_as"}
+    assert IDENTITY_EDGE_TYPES == {"same_as"}
+    assert "relates_to" not in SEMANTIC_EDGE_TYPES
+    assert "same_as" not in SEMANTIC_EDGE_TYPES
+
+
 def test_rank_facts_prefers_semantic_type_over_fts_order():
     relates = _e("e_rel", "relates_to", "a", "b", props={"description": "link"})
     depends = _e("e_dep", "depends_on", "a", "c", props={"description": "link"})
