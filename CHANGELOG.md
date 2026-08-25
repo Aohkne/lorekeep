@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.41.2 (2026-08-25)
+
+## What's Changed
+* fix(import): fold underscores into dashes in the Claude project slug by @Aohkne in https://github.com/manhhailua/lorekeep/pull/264
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.41.1...v0.41.2
+
 ## 0.41.1 (2026-08-25)
 
 ## What's Changed
