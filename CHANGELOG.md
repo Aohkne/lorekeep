@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.41.0 (2026-08-25)
+
+## What's Changed
+* feat(mcp): retrieve relationship facts from search by @manhhailua in https://github.com/manhhailua/lorekeep/pull/275
+
+
+**Full Changelog**: https://github.com/manhhailua/lorekeep/compare/v0.40.0...v0.41.0
+
 ## 0.40.0 (2026-08-25)
 
 ## What's Changed
