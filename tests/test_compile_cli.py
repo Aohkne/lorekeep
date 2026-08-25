@@ -204,7 +204,7 @@ def test_compile_success_no_error_output(patch_make_provider, monkeypatch, tmp_p
 def test_v4_compile_wiki_check_end_to_end(
     patch_make_provider, monkeypatch, tmp_path: Path,
 ):
-    """Stock v4 compile produces enriched facts and a readable, valid vault."""
+    """Stock v5 compile produces enriched facts and a readable, valid vault."""
     from lorekeep.defaults import DEFAULT_CONFIG_YAML, DEFAULT_SCHEMA
 
     home = tmp_path / "home"
@@ -224,7 +224,7 @@ def test_v4_compile_wiki_check_end_to_end(
     assert checked.exit_code == 0, checked.output
     assert regenerated.exit_code == 0, regenerated.output
     manifest = json.loads((home / "graph" / "manifest.json").read_text())
-    assert manifest["schema_version"] == 4
+    assert manifest["schema_version"] == 5
     assert manifest["content_quality"]["node_summary_coverage"] == 1.0
     assert manifest["content_quality"]["edge_description_coverage"] == 1.0
     page = (home / "wiki" / "svc-payments-api.md").read_text()

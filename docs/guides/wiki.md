@@ -201,7 +201,7 @@ uvx lorekeep schema upgrade
 uvx lorekeep compile
 ```
 
-Stock v2/v3 schemas are backed up and upgraded to v4. Custom schemas are not
+Stock v2/v3/v4 schemas are backed up and upgraded to v5. Custom schemas are not
 overwritten without `--force`. Recompile is the important second step: wiki-only
 regeneration cannot manufacture summaries or relationship explanations absent
 from `facts.jsonl`. See `overview.md` for exact content-quality coverage.

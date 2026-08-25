@@ -147,7 +147,7 @@ _EDGE_DISPLAY = {
     "same_as": ("Same as", "Alias of"),
 }
 
-DEFAULT_SCHEMA = {
+DEFAULT_SCHEMA_V4 = {
     **DEFAULT_SCHEMA_V3,
     "version": 4,
     "common_node_props": {
@@ -175,6 +175,30 @@ DEFAULT_SCHEMA = {
             "inverse_label": _EDGE_DISPLAY[name][1],
         }
         for name, spec in DEFAULT_SCHEMA_V3["edge_types"].items()
+    },
+}
+
+# Media props belong only to node types whose entities can be photographed.
+# Offering them on abstract types (skill, value, goal, preference, ...) invites
+# the extractor to invent a picture for an idea.
+_MEDIA_NODE_TYPES = frozenset({"person", "service", "project", "team", "document"})
+_MEDIA_PROPS = {
+    "visual_desc": "string",
+    "image_links": "string[]",
+}
+
+DEFAULT_SCHEMA = {
+    **DEFAULT_SCHEMA_V4,
+    "version": 5,
+    "node_types": {
+        name: {
+            **spec,
+            "props": {
+                **spec.get("props", {}),
+                **(_MEDIA_PROPS if name in _MEDIA_NODE_TYPES else {}),
+            },
+        }
+        for name, spec in DEFAULT_SCHEMA_V4["node_types"].items()
     },
 }
 

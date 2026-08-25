@@ -4,7 +4,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lorekeep.defaults import DEFAULT_SCHEMA, DEFAULT_SCHEMA_V2, DEFAULT_SCHEMA_V3
+from lorekeep.defaults import (
+    DEFAULT_SCHEMA,
+    DEFAULT_SCHEMA_V2,
+    DEFAULT_SCHEMA_V3,
+    DEFAULT_SCHEMA_V4,
+)
 from lorekeep.models import Schema
 
 
@@ -25,7 +30,7 @@ def upgrade_schema(
     if version >= DEFAULT_SCHEMA["version"]:
         return {"changed": False, "from": version, "to": version, "custom": False}
 
-    custom = data not in (DEFAULT_SCHEMA_V2, DEFAULT_SCHEMA_V3)
+    custom = data not in (DEFAULT_SCHEMA_V2, DEFAULT_SCHEMA_V3, DEFAULT_SCHEMA_V4)
     if custom and not force:
         return {
             "changed": False,

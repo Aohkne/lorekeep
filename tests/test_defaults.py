@@ -4,9 +4,9 @@ from lorekeep.defaults import DEFAULT_SCHEMA, DEFAULT_CONFIG_YAML
 from lorekeep.config import Config
 
 
-def test_default_schema_is_valid_json_v4():
+def test_default_schema_is_valid_json_v5():
     d = DEFAULT_SCHEMA
-    assert d["version"] == 4
+    assert d["version"] == 5
     assert "service" in d["node_types"]
     assert "person" in d["node_types"]
     assert "domain" in d["node_types"]          # replaced concept

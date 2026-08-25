@@ -177,6 +177,33 @@ class TestGenerateWiki:
         assert "- **Lang:** go" in page
         assert "| Key | Value |" not in page
 
+    def test_entity_image_links_render_as_markdown_images(self, tmp_path):
+        node = Node(
+            id="svc:payments-api", type="service", ns=("backend",),
+            props={
+                "name": "payments-api",
+                "visual_desc": "A green terminal-style dashboard icon.",
+                "image_links": ["https://example.com/a.png", "https://example.com/b.png"],
+            },
+        )
+        wiki = _build_wiki(tmp_path, [node])
+        page = (wiki / "svc-payments-api.md").read_text()
+        assert "## Images" in page
+        assert "![](https://example.com/a.png)" in page
+        assert "![](https://example.com/b.png)" in page
+        # The human-readable body (below the frontmatter block) never dumps the
+        # raw JSON array in "At a glance" — only the embedded markdown images.
+        body = page.split("---", 2)[-1]
+        assert "image_links" not in body
+        assert '["https://example.com/a.png"' not in body
+        # visual_desc still renders as a plain prose bullet.
+        assert "- **Visual Desc:** A green terminal-style dashboard icon." in page
+
+    def test_entity_without_image_links_has_no_images_section(self, graph_dir, wiki_dir):
+        generate_wiki(graph_dir, wiki_dir)
+        page = (wiki_dir / "svc-payments-api.md").read_text()
+        assert "## Images" not in page
+
     def test_entity_outgoing_relationships(self, graph_dir, wiki_dir):
         generate_wiki(graph_dir, wiki_dir)
         page = (wiki_dir / "svc-payments-api.md").read_text()
@@ -742,7 +769,7 @@ class TestHumanReadableProjection:
         assert "## Goals and projects" in index
         assert "## People and teams" in index
         assert "Graph schema is out of date" in index
-        assert "schema v3" in index and "schema is v4" in index
+        assert "schema v3" in index and "schema is v5" in index
         assert "## Goals" in catalog
         assert "## People" in catalog
         assert "[[person-manh|Mạnh]] — Người duy trì Lorekeep." in catalog

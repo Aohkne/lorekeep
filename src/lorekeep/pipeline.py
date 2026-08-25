@@ -241,6 +241,7 @@ def compile_graph(
         all_nodes, all_edges, name_aliases=all_aliases,
         aliases_map=prev_aliases, schema=schema,
     )
+
     content_quality = measure_content_quality(resolved.nodes, resolved.edges, schema)
 
     rid = run_id(chunks, schema.version)

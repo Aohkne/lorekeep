@@ -85,7 +85,7 @@ The Python field is `Edge.from_`; serialized JSON must use its alias `from` via
 | `src` | Stable raw `path:line` provenance; empty for some agent facts |
 | `provenance` | Optional agent/device/confidence/proposal metadata stamped at merge |
 
-Stock schema v4 asks extraction for node `summary`/`description` and edge
+Stock schema v5 asks extraction for node `summary`/`description` and edge
 `description` through common props, but those remain optional in the storage
 model so older and custom graphs can load.
 
@@ -107,9 +107,11 @@ types/endpoints are validated during resolve, and MCP create/link validates
 against the loaded schema before journaling.
 
 Naming note: the project historically called the subject-aware topology
-“ontology v2.” The current stock file is **schema version 4**, adding the
-human-readable metadata/content contract to that topology. Use schema version
-numbers in migration instructions to avoid ambiguity.
+“ontology v2.” The current stock file is **schema version 5**, adding
+`visual_desc`/`image_links` media props to the photographable node types
+(`person`, `service`, `project`, `team`, `document`) on top of the version 4
+human-readable metadata/content contract. Use schema version numbers in
+migration instructions to avoid ambiguity.
 
 ## Manifest
 
