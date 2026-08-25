@@ -85,7 +85,7 @@ The Python field is `Edge.from_`; serialized JSON must use its alias `from` via
 | `src` | Stable raw `path:line` provenance; empty for some agent facts |
 | `provenance` | Optional agent/device/confidence/proposal metadata stamped at merge |
 
-Stock schema v4 asks extraction for node `summary`/`description` and edge
+Stock schema v5 asks extraction for node `summary`/`description` and edge
 `description` through common props, but those remain optional in the storage
 model so older and custom graphs can load.
 

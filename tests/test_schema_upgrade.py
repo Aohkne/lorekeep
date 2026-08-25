@@ -1,6 +1,11 @@
 import json
 
-from lorekeep.defaults import DEFAULT_SCHEMA, DEFAULT_SCHEMA_V2, DEFAULT_SCHEMA_V3
+from lorekeep.defaults import (
+    DEFAULT_SCHEMA,
+    DEFAULT_SCHEMA_V2,
+    DEFAULT_SCHEMA_V3,
+    DEFAULT_SCHEMA_V4,
+)
 from lorekeep.schema_io import upgrade_schema
 from typer.testing import CliRunner
 
@@ -43,6 +48,19 @@ def test_upgrade_stock_v3_creates_v3_backup(tmp_path):
     assert result["to"] == 5
     assert json.loads(path.read_text()) == DEFAULT_SCHEMA
     assert json.loads((tmp_path / "schema.v3.backup.json").read_text()) == DEFAULT_SCHEMA_V3
+
+
+def test_upgrade_stock_v4_creates_v4_backup(tmp_path):
+    path = tmp_path / "schema.json"
+    path.write_text(json.dumps(DEFAULT_SCHEMA_V4))
+
+    result = upgrade_schema(path)
+
+    assert result["changed"] is True
+    assert result["from"] == 4
+    assert result["to"] == 5
+    assert json.loads(path.read_text()) == DEFAULT_SCHEMA
+    assert json.loads((tmp_path / "schema.v4.backup.json").read_text()) == DEFAULT_SCHEMA_V4
 
 
 def test_upgrade_refuses_custom_schema_without_force(tmp_path):

@@ -56,7 +56,7 @@ On the first interactive run, `init` asks for:
 
 It then performs an idempotent setup chain:
 
-- writes `config.yaml` and stock schema v4;
+- writes `config.yaml` and stock schema v5;
 - creates `raw/`, `graph/`, and `pending/`;
 - writes `raw/<write-ns>/about.md` and `profile.md`;
 - detects the eight supported clients (Claude Code, Codex, Cursor, opencode,

@@ -145,7 +145,7 @@ compile:
 
 ## Human-readable content quality
 
-Stock schema v4 asks the existing compile call for:
+Stock schema v5 asks the existing compile call for:
 
 - node display name/title and concise summary;
 - optional grounded description;
@@ -221,9 +221,9 @@ lorekeep schema upgrade
 lorekeep compile
 ```
 
-The upgrade preserves a versioned schema backup and is idempotent. Stock v2/v3
-schemas upgrade to schema v4; custom older schemas require explicit `--force`.
-Review custom changes before forcing an upgrade.
+The upgrade preserves a versioned schema backup and is idempotent. Stock
+v2/v3/v4 schemas upgrade to schema v5; custom older schemas require explicit
+`--force`. Review custom changes before forcing an upgrade.
 
 ## Validate
 
