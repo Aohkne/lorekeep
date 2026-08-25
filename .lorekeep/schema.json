@@ -1,12 +1,5 @@
 {
-  "version": 4,
-  "common_node_props": {
-    "summary": "string",
-    "description": "string"
-  },
-  "common_edge_props": {
-    "description": "string"
-  },
+  "version": 5,
   "node_types": {
     "person": {
       "props": {
@@ -300,6 +293,42 @@
       "props": {},
       "label": "Documents",
       "inverse_label": "Documented by"
+    },
+    "same_as": {
+      "from": [
+        "person",
+        "service",
+        "project",
+        "decision",
+        "team",
+        "domain",
+        "skill",
+        "role",
+        "goal",
+        "document"
+      ],
+      "to": [
+        "person",
+        "service",
+        "project",
+        "decision",
+        "team",
+        "domain",
+        "skill",
+        "role",
+        "goal",
+        "document"
+      ],
+      "props": {},
+      "label": "Same as",
+      "inverse_label": "Alias of"
     }
+  },
+  "common_node_props": {
+    "summary": "string",
+    "description": "string"
+  },
+  "common_edge_props": {
+    "description": "string"
   }
 }

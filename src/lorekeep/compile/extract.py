@@ -72,18 +72,16 @@ TEMPORAL_RULE = (
 )
 
 MEDIA_RULE = (
-    "Media rule — props.image_links is REQUIRED, not optional: whenever the chunk "
-    "contains an image URL (markdown ![alt](url), a link whose target ends in "
-    ".jpg/.jpeg/.png/.webp, or a bare image URL) you MUST copy that URL VERBATIM "
-    "into props.image_links of the ONE node the caption refers to. Use the caption "
-    "or surrounding sentence to decide which node. Leaving image_links out of your "
-    "output when the chunk contains image URLs is an incomplete extraction. The "
-    "only permitted reason to skip a URL is that no node in your output corresponds "
-    "to its caption. Never invent, shorten, complete, or reconstruct a URL, and "
-    "never attach an image to a node its caption does not name. When the caption or "
-    "text says what the picture shows, you MUST also set props.visual_desc on that "
-    "node as one or two sentences. These two props exist only on node types that "
-    "can be photographed — never add them to abstract types."
+    "Media rule: when the chunk contains an image URL (markdown ![alt](url), a "
+    "link whose target ends in .jpg/.jpeg/.png/.webp, or a bare image URL), copy "
+    "that URL VERBATIM into props.image_links of the ONE node the caption or "
+    "surrounding sentence refers to. Skip the URL rather than forcing it onto an "
+    "unrelated node when no node in your output corresponds to its caption. Never "
+    "invent, shorten, complete, or reconstruct a URL, and never attach an image to "
+    "a node its caption does not name. When the caption or text says what the "
+    "picture shows, also set props.visual_desc on that node as one or two "
+    "sentences. These two props exist only on node types that can be "
+    "photographed — never add them to abstract types or to edges."
 )
 
 ENTITY_RESOLUTION_RULE = (

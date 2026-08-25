@@ -234,6 +234,8 @@ def _frontmatter(node: Node, out_edges: list[Edge] | None = None) -> str:
 
 
 _HUMAN_TEXT_PROPS = frozenset({"name", "title", "summary", "description"})
+# Rendered as embedded markdown images by _images(), not as an "At a glance" bullet.
+_IMAGE_PROP = "image_links"
 _PROP_PRIORITY = (
     "status",
     "role",
@@ -287,13 +289,30 @@ def _friendly_key(key: str) -> str:
 
 def _at_a_glance(node: Node, schema: Schema | None = None) -> str:
     """Render meaningful entity attributes as scan-friendly bullets."""
-    keys = [key for key in node.props if key not in _HUMAN_TEXT_PROPS]
+    keys = [
+        key for key in node.props
+        if key not in _HUMAN_TEXT_PROPS and key != _IMAGE_PROP
+    ]
     priority = {key: index for index, key in enumerate(_PROP_PRIORITY)}
     keys.sort(key=lambda key: (priority.get(key, len(priority)), key))
     lines = ["", "## At a glance", ""]
     lines.append(f"- **Type:** {_node_type_label(node.type, schema)}")
     for key in keys:
         lines.append(f"- **{_friendly_key(key)}:** {_body_text(node.props[key])}")
+    return "\n".join(lines)
+
+
+def _images(node: Node) -> str:
+    """Render props.image_links as embedded markdown images, not a raw JSON list."""
+    raw = node.props.get(_IMAGE_PROP)
+    if raw is None:
+        return ""
+    urls = [raw] if isinstance(raw, str) else [u for u in raw if isinstance(u, str)]
+    urls = [u for u in urls if u.startswith(("http://", "https://"))]
+    if not urls:
+        return ""
+    lines = ["", "## Images", ""]
+    lines.extend(f"![]({url})" for url in urls)
     return "\n".join(lines)
 
 
@@ -445,6 +464,7 @@ def _entity_page(
         f"> {summary}",
         _description(node).strip(),
         _at_a_glance(node, schema).strip(),
+        _images(node).strip(),
         _relationships(out_e, in_e, store, schema).strip(),
         _timeline(node).strip(),
         _sources(node).strip(),

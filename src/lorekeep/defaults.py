@@ -158,7 +158,7 @@ _MEDIA_PROPS = {
 
 DEFAULT_SCHEMA = {
     **DEFAULT_SCHEMA_V3,
-    "version": 4,
+    "version": 5,
     "common_node_props": {
         "summary": "string",
         "description": "string",
@@ -240,11 +240,6 @@ compile:
   language: en
   max_workers: 4
   flush_interval: 10
-  # Fetch every props.image_links URL after resolve and drop the dead ones.
-  # The only network access compile makes — set false to stay fully offline.
-  check_image_links: true
-  image_check_timeout: 10.0
-  image_check_workers: 8
 namespaces:
   read: ["*"]
   write: me
