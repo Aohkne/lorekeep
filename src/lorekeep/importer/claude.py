@@ -41,7 +41,8 @@ class ConversationTurn:
 
 def _project_slug(cwd: Path) -> str:
     """Claude Code's project dir name: -<abspath-with-slashes-as-dashes>."""
-    return "-" + str(cwd.absolute()).lstrip("/").replace("/", "-")
+    slug = str(cwd.absolute()).lstrip("/").replace("/", "-").replace("_", "-")
+    return "-" + slug
 
 
 def _claude_config_dir() -> Path:
