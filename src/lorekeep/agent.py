@@ -19,7 +19,7 @@ from lorekeep.compile.extract import (
 )
 from lorekeep.compile.providers import LLMProvider
 from lorekeep.models import DocChunk, Schema
-from lorekeep.store.graph import GraphStore
+from lorekeep.store.graph import GraphStore, is_quarantined
 
 
 @dataclass
@@ -45,8 +45,13 @@ class LintReport:
 def lint(store: GraphStore) -> LintReport:
     report = LintReport()
 
-    # Orphans: nodes with zero inbound or outbound edges
+    # Orphans: nodes with zero inbound or outbound edges. Already-quarantined
+    # nodes are excluded — a human has parked them for review (see
+    # `lorekeep quarantine`), so they should stop resurfacing as lint noise.
     for nid in store.node_ids():
+        node = store.get_node(nid)
+        if node is not None and is_quarantined(node):
+            continue
         if not store.out_edges(nid) and not store.in_edges(nid):
             report.orphans.append(nid)
 
@@ -189,7 +194,7 @@ def self_heal(
         nodes_with_edges.add(e.from_)
         nodes_with_edges.add(e.to)
     for n in real_nodes:
-        if n.id not in nodes_with_edges:
+        if n.id not in nodes_with_edges and not is_quarantined(n):
             report.flagged.append({
                 "type": "orphan",
                 "node": n.id,
