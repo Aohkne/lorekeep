@@ -48,12 +48,13 @@ def lint(store: GraphStore) -> LintReport:
     # Orphans: nodes with zero inbound or outbound edges. Already-quarantined
     # nodes are excluded — a human has parked them for review (see
     # `lorekeep quarantine`), so they should stop resurfacing as lint noise.
-    for nid in store.node_ids():
-        node = store.get_node(nid)
-        if node is not None and is_quarantined(node):
+    # Iterate all_nodes() rather than node_ids(): the latter includes NetworkX
+    # phantom endpoints from dangling edges, and get_node() KeyErrors on those.
+    for n in store.all_nodes():
+        if is_quarantined(n):
             continue
-        if not store.out_edges(nid) and not store.in_edges(nid):
-            report.orphans.append(nid)
+        if not store.out_edges(n.id) and not store.in_edges(n.id):
+            report.orphans.append(n.id)
 
     # Missing endpoints: edges referencing non-existent nodes
     for e in store.all_edges():

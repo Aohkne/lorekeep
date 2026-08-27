@@ -83,6 +83,14 @@ class TestLintExcludesQuarantined:
         report = lint(GraphStore([n1, n2], [make_edge("svc:a", "svc:b")]))
         assert report.orphans == []
 
+    def test_dangling_edge_does_not_crash(self):
+        """node_ids() includes the NetworkX phantom for svc:ghost; get_node
+        KeyErrors on it. lint must return, and the phantom is not an orphan."""
+        store = GraphStore([make_node("svc:a")], [make_edge("svc:a", "svc:ghost")])
+        report = lint(store)
+        assert "svc:ghost" not in report.orphans
+        assert "svc:a" not in report.orphans
+
 
 class TestSelfHealExcludesQuarantined:
     def test_quarantined_orphan_not_flagged(self):
@@ -238,6 +246,26 @@ class TestQuarantineDetectCli:
         result = runner.invoke(app, ["quarantine", "detect"])
         assert result.exit_code == 1
 
+    def test_apply_does_not_restamp_already_quarantined(self, monkeypatch, tmp_path: Path):
+        home = tmp_path / "home"
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        parked = make_node("svc:a", props={
+            "name": "a", "quarantined_at": "2026-01-01",
+            "quarantined_reason": "manual",
+        })
+        _write_facts(home / "graph", [parked, make_node("svc:b")])
+
+        result = runner.invoke(app, ["quarantine", "detect", "--apply"])
+        assert result.exit_code == 0, result.output
+        assert "svc:a" not in result.output
+        assert "svc:b" in result.output
+
+        store = GraphStore.from_jsonl(home / "graph" / "facts.jsonl")
+        a, b = store.get_node("svc:a"), store.get_node("svc:b")
+        assert a.props["quarantined_at"] == "2026-01-01"
+        assert a.props["quarantined_reason"] == "manual"
+        assert is_quarantined(b)
+
     def test_apply_without_manifest_still_writes(self, monkeypatch, tmp_path: Path):
         """facts.jsonl can exist without manifest.json (hand-assembled graph,
         or a manifest lost to disk trouble) — `_write_quarantine_update` must
@@ -319,6 +347,29 @@ class TestQuarantineReviewCli:
 
         store = GraphStore.from_jsonl(home / "graph" / "facts.jsonl")
         assert is_quarantined(store.get_node("svc:a"))
+
+    def test_mixed_choices_restore_keep_skip(self, monkeypatch, tmp_path: Path):
+        home = tmp_path / "home"
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        nodes = [
+            make_node(nid, props={
+                "name": nid, "quarantined_at": "2026-01-01",
+                "quarantined_reason": "orphan",
+            })
+            for nid in ("svc:a", "svc:b", "svc:c")
+        ]
+        _write_facts(home / "graph", nodes)
+
+        result = runner.invoke(app, ["quarantine", "review"], input="r\nk\ns\n")
+        assert result.exit_code == 0, result.output
+        assert "restored: 1" in result.output
+        assert "kept quarantined: 1" in result.output
+        assert "skipped: 1" in result.output
+
+        store = GraphStore.from_jsonl(home / "graph" / "facts.jsonl")
+        assert not is_quarantined(store.get_node("svc:a"))
+        assert is_quarantined(store.get_node("svc:b"))
+        assert is_quarantined(store.get_node("svc:c"))
 
     def test_nothing_quarantined_is_a_noop(self, monkeypatch, tmp_path: Path):
         home = tmp_path / "home"
