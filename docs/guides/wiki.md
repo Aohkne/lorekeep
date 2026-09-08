@@ -59,7 +59,7 @@ wiki/
 └── …
 ```
 
-Nodes parked with `lorekeep quarantine` get no page and are left out of
+Nodes parked by self-heal (degree-0 orphans) get no page and are left out of
 `catalog.md`/`index.md` — they still exist in `facts.jsonl` with full
 provenance; see [Agent: Quarantine](../architecture/agent.md#quarantine-266).
 

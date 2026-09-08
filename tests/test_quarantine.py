@@ -93,16 +93,18 @@ class TestLintExcludesQuarantined:
 
 
 class TestSelfHealExcludesQuarantined:
-    def test_quarantined_orphan_not_flagged(self):
+    def test_quarantined_orphan_not_restamped(self):
         n = make_node("svc:a", props={"name": "a", "quarantined_at": "2026-01-01"})
-        _, report = self_heal(GraphStore([n], []))
-        assert [f for f in report.flagged if f["type"] == "orphan"] == []
+        healed, report = self_heal(GraphStore([n], []))
+        assert report.nodes_quarantined == []
+        assert healed.get_node("svc:a").props["quarantined_at"] == "2026-01-01"
 
-    def test_unquarantined_orphan_still_flagged(self):
+    def test_unquarantined_orphan_is_parked(self):
         n = make_node("svc:a")
-        _, report = self_heal(GraphStore([n], []))
-        orphan_flags = [f for f in report.flagged if f["type"] == "orphan"]
-        assert len(orphan_flags) == 1
+        healed, report = self_heal(GraphStore([n], []))
+        assert report.nodes_quarantined == ["svc:a"]
+        assert is_quarantined(healed.get_node("svc:a"))
+        assert [f for f in report.flagged if f["type"] == "orphan"] == []
 
 
 # pipeline._apply_prev_quarantine
@@ -204,84 +206,60 @@ class TestWikiExclusion:
         assert "Orphan-quarantined" not in (wiki / "overview.md").read_text()
 
 
-# CLI: quarantine detect / review
+# agent self-heal parks orphans (no detect CLI)
 
-class TestQuarantineDetectCli:
-    def test_dry_run_lists_without_writing(self, monkeypatch, tmp_path: Path):
-        home = tmp_path / "home"
-        monkeypatch.setenv("LOREKEEP_HOME", str(home))
-        _write_facts(home / "graph", [make_node("svc:a"), make_node("svc:b")])
-
-        result = runner.invoke(app, ["quarantine", "detect"])
-        assert result.exit_code == 0, result.output
-        assert "svc:a" in result.output and "svc:b" in result.output
-        assert "--apply" in result.output
-
-        store = GraphStore.from_jsonl(home / "graph" / "facts.jsonl")
-        assert not any(is_quarantined(n) for n in store.all_nodes())
-
-    def test_apply_writes_quarantine_flag(self, monkeypatch, tmp_path: Path):
-        home = tmp_path / "home"
-        monkeypatch.setenv("LOREKEEP_HOME", str(home))
-        _write_facts(home / "graph", [make_node("svc:a")])
-
-        result = runner.invoke(app, ["quarantine", "detect", "--apply"])
-        assert result.exit_code == 0, result.output
-
-        store = GraphStore.from_jsonl(home / "graph" / "facts.jsonl")
-        assert is_quarantined(store.get_node("svc:a"))
-
-    def test_connected_node_is_not_a_candidate(self, monkeypatch, tmp_path: Path):
-        home = tmp_path / "home"
-        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+class TestSelfHealAutoQuarantine:
+    def test_parks_degree_zero_nodes(self):
         a, b = make_node("svc:a"), make_node("svc:b")
-        _write_facts(home / "graph", [a, b], [make_edge("svc:a", "svc:b")])
+        healed, report = self_heal(GraphStore([a, b], []))
+        assert set(report.nodes_quarantined) == {"svc:a", "svc:b"}
+        assert report.changes_made
+        assert all(is_quarantined(n) for n in healed.all_nodes())
 
-        result = runner.invoke(app, ["quarantine", "detect"])
-        assert result.exit_code == 0, result.output
-        assert "no orphaned nodes found" in result.output
+    def test_connected_node_is_not_parked(self):
+        a, b = make_node("svc:a"), make_node("svc:b")
+        healed, report = self_heal(GraphStore([a, b], [make_edge("svc:a", "svc:b")]))
+        assert report.nodes_quarantined == []
+        assert not any(is_quarantined(n) for n in healed.all_nodes())
 
-    def test_no_graph_exits_nonzero(self, monkeypatch, tmp_path: Path):
-        monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path / "home"))
-        result = runner.invoke(app, ["quarantine", "detect"])
-        assert result.exit_code == 1
-
-    def test_apply_does_not_restamp_already_quarantined(self, monkeypatch, tmp_path: Path):
-        home = tmp_path / "home"
-        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+    def test_does_not_restamp_already_quarantined(self):
         parked = make_node("svc:a", props={
             "name": "a", "quarantined_at": "2026-01-01",
             "quarantined_reason": "manual",
         })
-        _write_facts(home / "graph", [parked, make_node("svc:b")])
-
-        result = runner.invoke(app, ["quarantine", "detect", "--apply"])
-        assert result.exit_code == 0, result.output
-        assert "svc:a" not in result.output
-        assert "svc:b" in result.output
-
-        store = GraphStore.from_jsonl(home / "graph" / "facts.jsonl")
-        a, b = store.get_node("svc:a"), store.get_node("svc:b")
+        healed, report = self_heal(GraphStore([parked, make_node("svc:b")], []))
+        assert report.nodes_quarantined == ["svc:b"]
+        a = healed.get_node("svc:a")
         assert a.props["quarantined_at"] == "2026-01-01"
         assert a.props["quarantined_reason"] == "manual"
-        assert is_quarantined(b)
+        assert is_quarantined(healed.get_node("svc:b"))
 
-    def test_apply_without_manifest_still_writes(self, monkeypatch, tmp_path: Path):
-        """facts.jsonl can exist without manifest.json (hand-assembled graph,
-        or a manifest lost to disk trouble) — `_write_quarantine_update` must
-        not assume it's there."""
+    def test_lint_auto_fix_writes_flags(self, monkeypatch, tmp_path: Path):
         home = tmp_path / "home"
-        graph = home / "graph"
-        graph.mkdir(parents=True)
-        n = make_node("svc:a")
-        (graph / "facts.jsonl").write_text(n.to_json_line() + "\n")
         monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        _write_facts(home / "graph", [make_node("svc:a")])
 
-        result = runner.invoke(app, ["quarantine", "detect", "--apply"])
+        result = runner.invoke(app, ["agent", "lint", "--auto-fix"])
         assert result.exit_code == 0, result.output
-        assert (graph / "manifest.json").exists()
-        store = GraphStore.from_jsonl(graph / "facts.jsonl")
+        assert "quarantined 1 orphans" in result.output
+
+        store = GraphStore.from_jsonl(home / "graph" / "facts.jsonl")
         assert is_quarantined(store.get_node("svc:a"))
+
+    def test_status_lists_quarantined_orphans(self, monkeypatch, tmp_path: Path):
+        home = tmp_path / "home"
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+        n = make_node("svc:a", props={
+            "name": "a", "quarantined_at": "2026-01-01",
+            "quarantined_reason": "orphan (no edges)",
+        })
+        _write_facts(home / "graph", [n])
+
+        result = runner.invoke(app, ["agent", "status"])
+        assert result.exit_code == 0, result.output
+        assert "quarantined orphans: 1" in result.output
+        assert "svc:a" in result.output
+        assert "lorekeep quarantine review" in result.output
 
 
 class TestQuarantineReviewCli:
@@ -289,6 +267,25 @@ class TestQuarantineReviewCli:
         monkeypatch.setenv("LOREKEEP_HOME", str(tmp_path / "home"))
         result = runner.invoke(app, ["quarantine", "review"])
         assert result.exit_code == 1
+
+    def test_restore_without_manifest_still_writes(self, monkeypatch, tmp_path: Path):
+        """facts.jsonl can exist without manifest.json — review restore must
+        not assume it's there."""
+        home = tmp_path / "home"
+        graph = home / "graph"
+        graph.mkdir(parents=True)
+        n = make_node("svc:a", props={
+            "name": "a", "quarantined_at": "2026-01-01",
+            "quarantined_reason": "orphan",
+        })
+        (graph / "facts.jsonl").write_text(n.to_json_line() + "\n")
+        monkeypatch.setenv("LOREKEEP_HOME", str(home))
+
+        result = runner.invoke(app, ["quarantine", "review"], input="r\n")
+        assert result.exit_code == 0, result.output
+        assert (graph / "manifest.json").exists()
+        store = GraphStore.from_jsonl(graph / "facts.jsonl")
+        assert not is_quarantined(store.get_node("svc:a"))
 
     def test_shows_summary_when_present(self, monkeypatch, tmp_path: Path):
         home = tmp_path / "home"

@@ -20,7 +20,7 @@ def parse_date(value: str | None) -> date | None:
 
 
 def is_quarantined(node: Node) -> bool:
-    """True if a node was parked for orphan review (``lorekeep quarantine``, #266).
+    """True if a node was parked for orphan review (self-heal, #266).
 
     Quarantine is a props flag (``quarantined_at``/``quarantined_reason``), not a
     model field — it survives recompiles the same way ``merged_ids`` does, by

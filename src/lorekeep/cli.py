@@ -63,8 +63,7 @@ agent_app = typer.Typer(
 app.add_typer(agent_app, name="agent")
 
 quarantine_app = typer.Typer(
-    help="Park orphaned (zero-edge) nodes for human review instead of "
-         "losing or re-litigating them on every compile (#266).",
+    help="Review orphan nodes the agent parked after self-heal (#266).",
 )
 app.add_typer(quarantine_app, name="quarantine")
 
@@ -322,7 +321,8 @@ def _load_prev_quarantine(facts_path: Path) -> dict[str, dict[str, str]]:
     """Extract orphan-quarantine flags from existing ``facts.jsonl``.
 
     Reads ``props.quarantined_at``/``props.quarantined_reason`` on every node so
-    a decision made via ``lorekeep quarantine`` survives the next ``compile``,
+    a decision made by self-heal (or ``lorekeep quarantine review`` restore)
+    survives the next ``compile``,
     which rebuilds nodes fresh from ``raw/*.md`` and would otherwise silently
     drop the flag — the same problem ``_load_prev_aliases`` solves for
     ``props.merged_ids`` (see issue #266).
@@ -864,61 +864,6 @@ def _write_quarantine_update(p: dict, nodes: list, edges: list) -> None:
             run_id="quarantine", facts_hash="", compiled_at=now_iso(),
         )
     write_graph(p["out"], nodes, edges, manifest)
-
-
-@quarantine_app.command("detect")
-def quarantine_detect(
-    apply: bool = typer.Option(
-        False, "--apply",
-        help="Write the quarantine flag (default: dry-run report only).",
-    ),
-) -> None:
-    """List orphaned (zero-edge) nodes; with --apply, park them for review.
-
-    Quarantined nodes stay in facts.jsonl with full provenance — they are only
-    excluded from wiki output and future lint/heal noise — until a human
-    decides their fate with `lorekeep quarantine review`.
-    """
-    from lorekeep.agent import lint as agent_lint
-    from lorekeep.output import info, ok
-    from lorekeep.store.graph import GraphStore
-
-    p = resolve_paths()
-    facts_path = p["out"] / "facts.jsonl"
-    if not facts_path.exists():
-        typer.echo("quarantine detect: no graph — run `lorekeep compile` first")
-        raise typer.Exit(code=1)
-
-    store = GraphStore.from_jsonl(facts_path)
-    candidate_ids = sorted(agent_lint(store).orphans)
-    if not candidate_ids:
-        ok("quarantine detect: no orphaned nodes found")
-        return
-
-    for nid in candidate_ids:
-        node = store.get_node(nid)
-        typer.echo(f"  {nid}  ({node.type if node else '?'})")
-
-    if not apply:
-        info(
-            f"{len(candidate_ids)} orphan node(s) found — "
-            "re-run with --apply to quarantine them"
-        )
-        return
-
-    today = now_iso()[:10]
-    ids = set(candidate_ids)
-    new_nodes = [
-        n.model_copy(update={"props": {
-            **n.props,
-            "quarantined_at": today,
-            "quarantined_reason": "orphan (no edges)",
-        }}) if n.id in ids else n
-        for n in store.all_nodes()
-    ]
-    _write_quarantine_update(p, new_nodes, store.all_edges())
-    _auto_generate_wiki(p["out"], p.get("wiki"), p.get("schema"))
-    ok(f"quarantined {len(ids)} node(s) — review with `lorekeep quarantine review`")
 
 
 @quarantine_app.command("review")
@@ -2769,7 +2714,8 @@ def lint(
             write_graph(p["out"], healed_store.all_nodes(), healed_store.all_edges(), manifest)
             typer.echo(
                 f"auto-fix: removed {len(heal_report.edges_removed)} dangling edges, "
-                f"deduped {len(heal_report.edges_deduped)} edges"
+                f"deduped {len(heal_report.edges_deduped)} edges, "
+                f"quarantined {len(heal_report.nodes_quarantined)} orphans"
             )
             _auto_generate_wiki(p["out"], p.get("wiki"), p.get("schema"))
         else:
@@ -2862,6 +2808,11 @@ def status() -> None:
     typer.echo(f"namespaces: {dash.namespace_count} ({', '.join(dash.namespaces)})")
     typer.echo(f"lint issues: {dash.lint_issues}")
     typer.echo(f"pending journals: {dash.pending_journals}")
+    typer.echo(f"quarantined orphans: {dash.quarantined_orphans}")
+    if dash.quarantined_orphans:
+        for nid in dash.quarantined_ids[:10]:
+            typer.echo(f"  {nid}")
+        typer.echo("  review with `lorekeep quarantine review`")
 
 
 def _tilde(path: Path | None) -> str:
@@ -3833,7 +3784,7 @@ def _do_self_heal(
 ) -> bool:
     """Run autonomous graph self-heal after compile/resolve.
 
-    Removes dangling edges, merges duplicate nodes, deduplicates edges.
+    Removes dangling edges, deduplicates edges, and parks degree-0 orphans.
     Returns True if facts.jsonl was rewritten. Best-effort, never blocks.
     """
     if not enabled:
@@ -3864,12 +3815,14 @@ def _do_self_heal(
         write_graph(out_dir, healed.all_nodes(), healed.all_edges(), manifest)
         typer.echo(
             f"agent: self-heal — removed {len(report.edges_removed)} dangling, "
-            f"deduped {len(report.edges_deduped)} edges"
+            f"deduped {len(report.edges_deduped)} edges, "
+            f"quarantined {len(report.nodes_quarantined)} orphans"
         )
         log.info(
-            "self-heal completed removed=%s deduped=%s flagged=%s",
+            "self-heal completed removed=%s deduped=%s quarantined=%s flagged=%s",
             len(report.edges_removed),
-            len(report.edges_deduped), len(report.flagged),
+            len(report.edges_deduped), len(report.nodes_quarantined),
+            len(report.flagged),
             extra={"event": "self_heal.complete"},
         )
         return True

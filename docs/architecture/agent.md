@@ -208,8 +208,8 @@ namespace. Content hashes avoid rewriting unchanged batches. No LLM is called.
 - remove edges whose real endpoint node is missing;
 - deduplicate edges with identical type/endpoints/validity;
 - report circular dependencies; and
-- report orphan nodes without deleting them (see Quarantine below for parking
-  them for review instead of letting them resurface every compile).
+- park orphan (degree-0) nodes via `props.quarantined_at` /
+  `props.quarantined_reason` instead of deleting them (see Quarantine below).
 
 The pure function returns a new `GraphStore` plus `HealReport`; callers decide
 whether to publish. The daemon runs it only after a successful compile. The CLI
@@ -221,21 +221,21 @@ descriptions, or alter raw sources.
 
 ## Quarantine (#266)
 
-Orphan nodes (`lint`/self-heal report them but never remove them) accumulate
-across compiles because the LLM re-extracts the same low-signal facts every
-time. `lorekeep quarantine detect [--apply]` reuses `agent.lint(store).orphans`
-to find them, then `--apply` stamps `props.quarantined_at` /
-`props.quarantined_reason` onto each — a props flag, not a schema field, so no
-migration is needed. `lorekeep quarantine review` walks every currently
-quarantined node and asks `[r]estore` / `[k]eep` / `[s]kip`; restore clears
-both props, keep leaves the flag, skip revisits it next time.
+Orphan nodes accumulate across compiles because the LLM re-extracts the same
+low-signal facts every time. Self-heal (daemon after compile, and
+`agent lint --auto-fix`) stamps `props.quarantined_at` /
+`props.quarantined_reason` onto each degree-0 node — a props flag, not a schema
+field, so no migration is needed. `lorekeep agent status` reports how many are
+parked. `lorekeep quarantine review` walks them and asks `[r]estore` / `[k]eep`
+/ `[s]kip`; restore clears both props, keep leaves the flag, skip revisits it
+next time.
 
 The flag must survive a full `compile` the same way `props.merged_ids` does
 (`_load_prev_aliases`): `compile_graph()` rebuilds every node fresh from
 `raw/*.md`, so `cli._load_prev_quarantine()` reads the flag back from the
 previous `facts.jsonl` and `pipeline._apply_prev_quarantine()` restamps it
-after `resolve()`. `lint`/self-heal skip already-quarantined nodes so a parked
-node stops being reported as noise. `wiki.py` excludes a node from wiki output
+after `resolve()`. `lint` skips already-quarantined nodes so a parked node
+stops being reported as noise; self-heal does not restamp an existing flag. `wiki.py` excludes a node from wiki output
 only while it is **both** quarantined and still degree-0 — re-checked at wiki
 generation, not just the persisted flag, so a node that gains an edge (e.g. via
 an agent's `propose_change`) reappears automatically without a manual restore.
@@ -259,7 +259,8 @@ single-namespace graphs, and graphs with no edges. It is deterministic graph
 analysis despite the command name; no provider call occurs.
 
 `status` reports global (unscoped local) node/edge/namespace counts, total lint
-issues, and pending-journal count. For namespace-filtered agent-facing status,
+issues, pending-journal count, and quarantined-orphan count (with ids). For
+namespace-filtered agent-facing status,
 use the MCP `context(section="status")` tool.
 
 None of these one-shot commands runs nightly/weekly from the watcher.
